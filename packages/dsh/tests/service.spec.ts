@@ -1,0 +1,1115 @@
+import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { SandboxProvider } from '@deepseek-ai/dsh-sandbox'
+import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
+import { ShellEnvRegistry } from '@deepseek-ai/dsh-shell-env'
+import SystemPrompt, { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import type {
+  ResolvedSubagentStartRequest,
+  SubagentProvider,
+  SubagentResult,
+  SubagentRun,
+} from '@deepseek-ai/dsh-subagent'
+import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+import type {
+  SubprocessHandle,
+  SubprocessSpawnSpec,
+  SubprocessTerminalHandle,
+  SubprocessTerminalSpawnSpec,
+} from '@deepseek-ai/dsh-subprocess'
+import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+import { WorkSurfaceHostClient } from '@pf-worksurface/cli'
+import { sha256, stableStringify, WorkSurfaceError, WorkSurfaceStore } from '@pf-worksurface/core'
+import WorkSurfaceService, { resolveWorkSurfaceCliEntrypoint } from '../src/index.ts'
+import type { Config, WorkSurfaceProfile } from '../src/index.ts'
+
+interface ScriptOutcome {
+  readonly exitCode: number | null
+  readonly signal: NodeJS.Signals | null
+  readonly stdout: string
+  readonly stderr: string
+}
+
+class PassthroughSandbox extends SandboxProvider {
+  static enforcement: ConfinedArgv['enforcement'] = 'full'
+
+  confine(argv: readonly string[], _policy: SandboxPolicy): ConfinedArgv {
+    return { argv: [...argv], enforcement: PassthroughSandbox.enforcement, denialSignatures: [], runnerFailureRules: [] }
+  }
+}
+
+class ScriptedSubprocess extends SubprocessRuntime {
+  static omitCollected = false
+  static runner: (spec: SubprocessSpawnSpec) => Promise<ScriptOutcome> = async () => ({
+    exitCode: 0,
+    signal: null,
+    stdout: '',
+    stderr: '',
+  })
+
+  async resolveExecutable(command: string): Promise<string> {
+    return `/fixture/${command}`
+  }
+
+  spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
+    let outcome: ScriptOutcome | undefined
+    const done = ScriptedSubprocess.runner(spec).then((value) => {
+      outcome = value
+      return { exitCode: value.exitCode, signal: value.signal }
+    })
+    const reader = (stream: 'stdout' | 'stderr') => ({
+      readFrom: (_offset: number) => {
+        const text = outcome?.[stream] ?? ''
+        return { text, nextOffset: Buffer.byteLength(text), lossy: false }
+      },
+    })
+    return {
+      pid: 100,
+      stdin: undefined,
+      stdout: undefined,
+      stderr: undefined,
+      collected: ScriptedSubprocess.omitCollected ? {} : { stdout: reader('stdout'), stderr: reader('stderr') },
+      done,
+      terminate() {},
+      async waitForExit() { await done; return true },
+    }
+  }
+
+  async spawnTerminal(_spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> {
+    throw new Error('not used by WorkSurface')
+  }
+}
+
+class EditingProvider implements SubagentProvider {
+  readonly name = 'fixture-provider'
+  readonly capabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
+  readonly inheritsParentContext = false
+  starts = 0
+  disposals = 0
+  personas: string[] = []
+  requests: ResolvedSubagentStartRequest[] = []
+  isolationFailures: string[] = []
+  authorityFailures: string[] = []
+  private quiescenceRelease: (() => void) | undefined
+  private quiescenceReadyResolve: () => void = () => {}
+  readonly quiescenceReady = new Promise<void>((resolve) => { this.quiescenceReadyResolve = resolve })
+
+  constructor(private readonly ctx: Context) {}
+
+  releaseQuiescence(): void {
+    this.quiescenceRelease?.()
+  }
+
+  async start(request: ResolvedSubagentStartRequest): Promise<SubagentRun> {
+    this.starts += 1
+    this.requests.push(request)
+    this.personas.push(request.persona ?? '')
+    const child = {
+      id: `child-${this.starts}`,
+      session: { header: { version: 0, id: `child-${this.starts}`, createdAt: 0 } },
+    } as unknown as Agent
+    const task = request.prompt[0]?.type === 'text' ? request.prompt[0].text : ''
+    if (task === 'start-failed') throw new Error('provider start failed')
+    if (task === 'remote-provider') {
+      return {
+        id: child.id,
+        localAgent: undefined,
+        result: Promise.resolve({ output: [], structured: undefined, stopReason: 'completed' }),
+        dispose: async () => { this.disposals += 1 },
+      }
+    }
+    return {
+      id: child.id,
+      localAgent: child,
+      result: this.complete(child, request.persona ?? '', task),
+      dispose: async () => { this.disposals += 1 },
+    }
+  }
+
+  private async complete(child: Agent, persona: string, task: string): Promise<SubagentResult> {
+    await new Promise<void>(resolve => setTimeout(resolve, 0))
+    if (task.includes('quiescence')) {
+      this.quiescenceReadyResolve()
+      await new Promise<void>((resolve) => { this.quiescenceRelease = resolve })
+    }
+    const env = this.ctx.shellEnv.collect({ agent: child } as ToolExecution)
+    const client = new WorkSurfaceHostClient({
+      socketPath: requiredEnv(env.DSH_WS_HOST_SOCKET),
+      attemptId: requiredEnv(env.DSH_WS_ATTEMPT_ID),
+      token: requiredEnv(env.DSH_WS_ATTEMPT_TOKEN),
+    })
+    const surface = requiredEnv(env.DSH_WS_SURFACE)
+    const base = /base revision is (sha256:[0-9a-f]{64})/.exec(persona)?.[1]
+    if (base === undefined) throw new Error('persona omitted the commit base revision')
+
+    if (task === 'stopped') {
+      return { output: [], structured: undefined, stopReason: 'aborted' }
+    }
+    const invalidStructured = invalidStructuredCompletion(task, surface, base)
+    if (invalidStructured.matched) {
+      return { output: [], structured: invalidStructured.value, stopReason: 'completed' as const }
+    }
+
+    if (task.includes('isolation')) {
+      try {
+        await client.call('show', { surface: 'ws-root' })
+      } catch (error) {
+        this.isolationFailures.push((error as { code?: string }).code ?? 'unknown')
+      }
+    }
+
+    if (task === 'authority-errors') {
+      const workingPath = requiredEnv(env.DSH_WS_WORKING_PATH)
+      const badToken = new WorkSurfaceHostClient({
+        socketPath: requiredEnv(env.DSH_WS_HOST_SOCKET),
+        attemptId: requiredEnv(env.DSH_WS_ATTEMPT_ID),
+        token: 'invalid-token',
+      })
+      for (const operation of [
+        () => client.call('new', { templatePath: workingPath, key: 'child-new' }),
+        () => client.call('checkout', { surface, targetPath: join(workingPath, 'other') }),
+        () => client.call('agent.run', { surface, task: 'nested', profile: 'test', key: 'nested' }),
+        () => client.call('show', { surface: 'ws-other' }),
+        () => client.call('commit', { workingPath: join(workingPath, '..', 'other'), baseRevision: base, key: 'other' }),
+        () => badToken.call('show', { surface }),
+      ]) {
+        try {
+          await operation()
+          this.authorityFailures.push('unexpected-success')
+        } catch (error) {
+          this.authorityFailures.push((error as { code?: string }).code ?? 'unknown')
+        }
+      }
+    }
+
+    if (task.includes('uncommitted')) {
+      return {
+        output: [{ type: 'text' as const, text: 'FABRICATED FINAL TEXT' }],
+        structured: {
+          surface,
+          surfaceRevision: base,
+          summary: 'pretended success',
+          outputs: [{ surface, block: 'result', revision: base }],
+        },
+        stopReason: 'completed' as const,
+      }
+    }
+
+    const workingPath = requiredEnv(env.DSH_WS_WORKING_PATH)
+    const blockPath = join(workingPath, 'blocks', 'result.md')
+    const original = await readFile(blockPath, 'utf8')
+    await writeFile(blockPath, `${original}\nCommitted task: ${task}\n`)
+    const commit = await client.call('commit', {
+      workingPath,
+      baseRevision: base,
+      key: `child-commit-${task.replaceAll(/[^A-Za-z0-9]+/g, '-').slice(0, 64)}`,
+    }) as { revision: string }
+    return {
+      output: [{ type: 'text' as const, text: 'FABRICATED FINAL TEXT' }],
+      structured: {
+        surface: task === 'different-surface' ? 'ws-other' : surface,
+        surfaceRevision: task === 'wrong-surface-revision' ? base : commit.revision,
+        summary: `completed ${task}`,
+        outputs: [{
+          surface: task === 'different-output-surface' ? 'ws-other' : surface,
+          block: task.includes('missing') ? 'does-not-exist' : 'result',
+          revision: task === 'wrong-output-revision' || task === 'wrong-revision' ? base : commit.revision,
+        }],
+      },
+      stopReason: 'completed' as const,
+    }
+  }
+}
+
+function invalidStructuredCompletion(
+  task: string,
+  surface: string,
+  revision: string,
+): { matched: boolean; value?: unknown } {
+  const completion = {
+    surface,
+    surfaceRevision: revision,
+    summary: 'invalid fixture',
+    outputs: [{ surface, block: 'result', revision }],
+  }
+  switch (task) {
+    case 'invalid-object-null': return { matched: true, value: null }
+    case 'invalid-object-string': return { matched: true, value: 'invalid' }
+    case 'invalid-object-array': return { matched: true, value: [] }
+    case 'invalid-surface-number': return { matched: true, value: { ...completion, surface: 1 } }
+    case 'invalid-surface-blank': return { matched: true, value: { ...completion, surface: ' ' } }
+    case 'invalid-surface-revision-number': return { matched: true, value: { ...completion, surfaceRevision: 1 } }
+    case 'invalid-surface-revision-text': return { matched: true, value: { ...completion, surfaceRevision: 'revision' } }
+    case 'invalid-summary-number': return { matched: true, value: { ...completion, summary: 1 } }
+    case 'invalid-outputs-missing': return { matched: true, value: { ...completion, outputs: undefined } }
+    case 'invalid-outputs-empty': return { matched: true, value: { ...completion, outputs: [] } }
+    case 'invalid-output-null': return { matched: true, value: { ...completion, outputs: [null] } }
+    case 'invalid-output-string': return { matched: true, value: { ...completion, outputs: ['invalid'] } }
+    case 'invalid-output-array': return { matched: true, value: { ...completion, outputs: [[]] } }
+    case 'invalid-output-surface-number': return {
+      matched: true,
+      value: { ...completion, outputs: [{ ...completion.outputs[0], surface: 1 }] },
+    }
+    case 'invalid-output-block-number': return {
+      matched: true,
+      value: { ...completion, outputs: [{ ...completion.outputs[0], block: 1 }] },
+    }
+    case 'invalid-output-revision-number': return {
+      matched: true,
+      value: { ...completion, outputs: [{ ...completion.outputs[0], revision: 1 }] },
+    }
+    case 'invalid-output-revision-text': return {
+      matched: true,
+      value: { ...completion, outputs: [{ ...completion.outputs[0], revision: 'revision' }] },
+    }
+    default: return { matched: false }
+  }
+}
+
+const roots: string[] = []
+
+afterEach(async () => {
+  ScriptedSubprocess.runner = async () => ({ exitCode: 0, signal: null, stdout: '', stderr: '' })
+  ScriptedSubprocess.omitCollected = false
+  PassthroughSandbox.enforcement = 'full'
+  vi.restoreAllMocks()
+  await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
+})
+
+interface FixtureOptions {
+  readonly config?: Omit<Partial<Config>, 'profiles'>
+  readonly profiles?: readonly WorkSurfaceProfile[]
+}
+
+function pluginProfiles(profiles: readonly WorkSurfaceProfile[]): Array<{
+  name: string
+  provider: string
+  tokenBudget: number
+  maxDepth: number
+  maxParallel: number
+  toolAllow?: string[]
+  persona?: string
+  agentProvider?: string
+  agentModel?: string
+}> {
+  return profiles.map(({ toolAllow, ...profile }) => toolAllow === undefined
+    ? profile
+    : { ...profile, toolAllow: [...toolAllow] })
+}
+
+async function harnessContext(root: string): Promise<{ ctx: Context; provider: EditingProvider }> {
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(SubagentRuntime)
+  await ctx.plugin(ShellEnvRegistry, { dshHome: join(root, 'dsh-home') })
+  await ctx.plugin(PassthroughSandbox)
+  await ctx.plugin(ScriptedSubprocess)
+  const provider = new EditingProvider(ctx)
+  ctx.subagents.registerProvider(provider)
+  return { ctx, provider }
+}
+
+async function fixture(options: FixtureOptions = {}): Promise<{
+  ctx: Context
+  fiber: Awaited<ReturnType<Context['plugin']>>
+  service: WorkSurfaceService
+  provider: EditingProvider
+  root: string
+}> {
+  const root = await mkdtemp(join(process.cwd(), '..', '..', '.worksurface-service-'))
+  roots.push(root)
+  const template = join(root, 'root-template')
+  await writeTemplate(template, 'File state B', 'ws-root')
+  const store = new WorkSurfaceStore({ root })
+  await store.newSurface({ attemptId: 'bootstrap', key: 'root', templatePath: template, surface: 'ws-root' })
+
+  const { ctx, provider } = await harnessContext(root)
+  const fiber = await ctx.plugin(WorkSurfaceService, {
+    root,
+    attemptsRoot: join(root, 'attempts'),
+    socketPath: join(root, 'runtime', 'host.sock'),
+    cliEntrypoint: join(process.cwd(), 'packages', 'worksurface', 'cli', 'lib', 'bin.js'),
+    orchestratorGraceMs: 1000,
+    maxOutputBytes: 1024 * 1024,
+    maxCrashReplays: 1,
+    profiles: pluginProfiles(options.profiles ?? [{
+      name: 'test',
+      provider: provider.name,
+      tokenBudget: 10_000,
+      maxDepth: 3,
+      maxParallel: 1,
+      persona: 'Work only from files.',
+    }]),
+    ...options.config,
+  })
+  return { ctx, fiber, service: ctx.workSurfaces, provider, root }
+}
+
+describe('WorkSurfaceService integration', () => {
+  it('resolves the CLI through its package export', async () => {
+    const entrypoint = resolveWorkSurfaceCliEntrypoint()
+    expect(entrypoint.endsWith(join('packages', 'cli', 'lib', 'bin.js'))).toBe(true)
+    expect((await stat(entrypoint)).isFile()).toBe(true)
+  })
+
+  it('makes a fresh session WorkSurface visible and runnable without a pre-created root', async () => {
+    const { ctx, fiber, service } = await fixture()
+    const parent = { id: 'fresh-parent', session: { header: { id: 'fresh-parent' } } } as unknown as Agent
+
+    const assembly = await ctx.systemPrompt.assemble({ agent: parent })
+    const prompt = renderPrompt(assembly)
+    const runtimeContext = renderContextSnapshot(assembly)
+    expect(prompt).toContain('PF WorkSurface is active. It externalizes verifiable task state')
+    expect(prompt).toContain('without waiting for the user to name it')
+    expect(prompt).toContain('Skip it for simple questions and bounded one-step changes')
+    expect(prompt).toContain('Before delegating, initialize the root with the goal')
+    expect(prompt).toContain('ws help init')
+    expect(prompt).toContain('run_orchestrator')
+    expect(runtimeContext).toContain('PF WorkSurface Projection')
+    expect(runtimeContext).toContain('# Acceptance Criteria')
+    expect(runtimeContext).toContain('# Current Decisions')
+    expect(runtimeContext).toContain('# Deliverables and Evidence')
+    const currentRoot = (await service.openSessionSurface(parent)).surface
+    expect(prompt).not.toContain(currentRoot)
+    const secondParent = { id: 'second-fresh-parent', session: { header: { id: 'second-fresh-parent' } } } as unknown as Agent
+    expect(renderPrompt(await ctx.systemPrompt.assemble({ agent: secondParent }))).toBe(prompt)
+    const schema = assembly.tools.find(tool => tool.name === 'run_orchestrator')
+    expect(schema).toBeDefined()
+    expect(schema?.description).toContain('complex, multi-stage work')
+    expect(JSON.stringify(schema?.parameters)).toContain('ws help init supplies authoring guidance')
+    expect(JSON.stringify(schema?.parameters)).toContain('rootSurface')
+    expect(JSON.stringify(schema?.parameters)).not.toContain('"required":["language","script","rootSurface"]')
+
+    let observedRoot = ''
+    ScriptedSubprocess.runner = async (spec) => {
+      observedRoot = spec.env?.WS_ROOT_SURFACE ?? ''
+      return { exitCode: 0, signal: null, stdout: observedRoot, stderr: '' }
+    }
+    const result = await ctx.tools.execute({
+      callId: 'fresh-session-orchestrator' as never,
+      name: 'run_orchestrator',
+      arguments: { language: 'bash', script: 'printf %s "$WS_ROOT_SURFACE"' },
+      signal: new AbortController().signal,
+      agent: parent,
+    })
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('fresh-session WorkSurface tool failed')
+    expect(observedRoot).toMatch(/^ws-/)
+    expect(result.value).toMatchObject({ rootSurface: observedRoot, stdout: observedRoot })
+    expect((await service.openSessionSurface(parent)).surface).toBe(observedRoot)
+
+    await fiber.dispose()
+    const afterUnload = await ctx.systemPrompt.assemble({ agent: parent })
+    expect(renderPrompt(afterUnload)).not.toContain('PF WorkSurface')
+    expect(renderContextSnapshot(afterUnload)).not.toContain('PF WorkSurface')
+  })
+
+  it('uses the session root when a model sends an empty optional rootSurface', async () => {
+    const { ctx, fiber, service } = await fixture()
+    const parent = { id: 'empty-root-parent', session: { header: { id: 'empty-root-parent' } } } as unknown as Agent
+    let observedRoot = ''
+    ScriptedSubprocess.runner = async (spec) => {
+      observedRoot = spec.env?.WS_ROOT_SURFACE ?? ''
+      return { exitCode: 0, signal: null, stdout: '', stderr: '' }
+    }
+
+    const result = await ctx.tools.execute({
+      callId: 'empty-root-orchestrator' as never,
+      name: 'run_orchestrator',
+      arguments: { language: 'bash', script: 'true', rootSurface: '  ' },
+      signal: new AbortController().signal,
+      agent: parent,
+    })
+
+    expect(result.isError).toBe(false)
+    expect(observedRoot).toBe((await service.openSessionSurface(parent)).surface)
+
+    const explicit = await ctx.tools.execute({
+      callId: 'explicit-root-orchestrator' as never,
+      name: 'run_orchestrator',
+      arguments: { language: 'bash', script: 'printf explicit', rootSurface: observedRoot },
+      signal: new AbortController().signal,
+      agent: parent,
+    })
+    expect(explicit.isError).toBe(false)
+    await fiber.dispose()
+  })
+
+  it('uses file Projection, requires committed structured refs, replays Agent keys, and cleans up', async () => {
+    const { ctx, fiber, service, provider, root } = await fixture()
+    const observed: Record<string, string> = {}
+    ScriptedSubprocess.runner = async (spec) => {
+      const client = orchestratorClient(spec)
+      const valid = await client.call('agent.run', {
+        surface: 'ws-root', task: 'valid', profile: 'test', key: 'agent-valid',
+      }) as { surfaceRevision: string }
+      const replay = await client.call('agent.run', {
+        surface: 'ws-root', task: 'valid', profile: 'test', key: 'agent-valid',
+      }) as { surfaceRevision: string }
+      expect(replay).toEqual(valid)
+      for (const [name, task, key] of [
+        ['uncommitted', 'uncommitted', 'agent-uncommitted'],
+        ['missing', 'missing', 'agent-missing'],
+        ['wrong', 'wrong-revision', 'agent-wrong'],
+        ['key-conflict', 'different task', 'agent-valid'],
+      ] as const) {
+        try {
+          await client.call('agent.run', { surface: 'ws-root', task, profile: 'test', key })
+          observed[name] = 'unexpected-success'
+        } catch (error) {
+          observed[name] = (error as { code?: string }).code ?? 'unknown'
+        }
+      }
+      return { exitCode: 0, signal: null, stdout: JSON.stringify(observed), stderr: '' }
+    }
+    const parent = { id: 'parent', session: { header: { id: 'parent' } } } as unknown as Agent
+    const result = await service.runOrchestrator(parent, 'bash', '# ordinary script fixture', 'ws-root', new AbortController().signal)
+
+    expect(result.exitCode).toBe(0)
+    expect(observed).toEqual({
+      uncommitted: 'invalid-reference',
+      missing: 'dangling-reference',
+      wrong: 'invalid-reference',
+      'key-conflict': 'idempotency-key-conflict',
+    })
+    expect(provider.starts).toBe(4)
+    expect(provider.disposals).toBe(4)
+    expect(provider.personas[0]).toContain('File state B')
+    expect(provider.personas[0]).not.toContain('Conversation state A')
+    expect(provider.personas[0]).toMatch(/base revision is sha256:[0-9a-f]{64}/)
+    expect(ctx.tools.schemas().some(schema => schema.name === 'run_orchestrator')).toBe(true)
+    let rawFsExecuted = false
+    ctx.tools.register(defineTool({
+      name: 'raw_fs_fixture',
+      description: 'fixture that would perform an unmediated file effect',
+      parameters: { path: { type: 'string', required: true } },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      async execute() { rawFsExecuted = true; return 'ran' },
+    }))
+    const guarded = await ctx.tools.execute({
+      callId: 'guarded' as never,
+      name: 'raw_fs_fixture',
+      arguments: { path: service.store.canonicalRoot },
+      signal: new AbortController().signal,
+    })
+    expect(guarded.isError).toBe(true)
+    expect(rawFsExecuted).toBe(false)
+
+    const socketPath = join(root, 'runtime', 'host.sock')
+    await fiber.dispose()
+    await expect(stat(socketPath)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(ctx.tools.schemas().some(schema => schema.name === 'run_orchestrator')).toBe(false)
+    const afterUnload = await ctx.tools.execute({
+      callId: 'after-unload' as never,
+      name: 'raw_fs_fixture',
+      arguments: { path: service.store.canonicalRoot },
+      signal: new AbortController().signal,
+    })
+    expect(afterUnload.isError).toBe(false)
+    expect(rawFsExecuted).toBe(true)
+  })
+
+  it('gives a child credential access only to its assigned Surface', async () => {
+    const { service, provider, root } = await fixture()
+    ScriptedSubprocess.runner = async (spec) => {
+      const client = orchestratorClient(spec)
+      const template = join(spec.cwd, 'child-template')
+      await writeTemplate(template, 'child B', 'ws-child')
+      await client.call('new', {
+        templatePath: template,
+        key: 'create-child',
+        parent: 'ws-root',
+        surface: 'ws-child',
+      })
+      await client.call('agent.run', {
+        surface: 'ws-child', task: 'isolation', profile: 'test', key: 'agent-isolation',
+      })
+      return { exitCode: 0, signal: null, stdout: 'isolated', stderr: '' }
+    }
+    const parent = { id: 'parent-isolation', session: { header: { id: 'parent-isolation' } } } as unknown as Agent
+    const result = await service.runOrchestrator(parent, 'bash', '# isolation fixture', 'ws-root', new AbortController().signal)
+    expect(result.exitCode).toBe(0)
+    expect(provider.isolationFailures).toEqual(['unauthorized'])
+    expect(await stat(join(root, 'canonical', 'surfaces', 'ws-root'))).toBeDefined()
+  })
+
+  it('waits for in-flight Agent operations to become quiescent before returning', async () => {
+    const { service, provider } = await fixture()
+    let agentCall: Promise<unknown> | undefined
+    ScriptedSubprocess.runner = async (spec) => {
+      const client = orchestratorClient(spec)
+      agentCall = client.call('agent.run', {
+        surface: 'ws-root', task: 'quiescence', profile: 'test', key: 'agent-quiescence',
+      })
+      await provider.quiescenceReady
+      return { exitCode: 0, signal: null, stdout: 'script-ended', stderr: '' }
+    }
+    const parent = { id: 'parent-quiescence', session: { header: { id: 'parent-quiescence' } } } as unknown as Agent
+    let returned = false
+    const execution = service
+      .runOrchestrator(parent, 'bash', '# quiescence fixture', 'ws-root', new AbortController().signal)
+      .then((result) => { returned = true; return result })
+    await provider.quiescenceReady
+    await new Promise<void>(resolve => setTimeout(resolve, 10))
+    expect(returned).toBe(false)
+
+    provider.releaseQuiescence()
+    const result = await execution
+    await agentCall
+    expect(result.exitCode).toBe(0)
+    expect(provider.disposals).toBe(1)
+  })
+
+  it('covers session prompt, tool, guard, and capability lifecycle failures', async () => {
+    const { ctx, fiber, service } = await fixture()
+    const parent = { id: 'prompt-parent', session: { header: { id: 'prompt-parent' } } } as unknown as Agent
+
+    expect(renderPrompt(await ctx.systemPrompt.assemble({}))).not.toContain('PF WorkSurface')
+    expect(Object.keys(ctx.shellEnv.collect({} as ToolExecution)).some(key => key.startsWith('DSH_WS_'))).toBe(false)
+    expect(Object.keys(ctx.shellEnv.collect({ agent: parent } as ToolExecution)).some(key => key.startsWith('DSH_WS_'))).toBe(false)
+    expect(ctx.tools.get('run_orchestrator')?.isConcurrencySafe?.({ language: 'bash', script: 'true' })).toBe(false)
+
+    const withoutAgent = await ctx.tools.execute({
+      callId: 'without-agent' as never,
+      name: 'run_orchestrator',
+      arguments: { language: 'bash', script: 'true', rootSurface: 'ws-root' },
+      signal: new AbortController().signal,
+    })
+    expect(withoutAgent.isError).toBe(true)
+
+    let safeRuns = 0
+    ctx.tools.register(defineTool({
+      name: 'safe_fixture',
+      description: 'Fixture with an argument that does not expose canonical state.',
+      parameters: { value: { type: 'string', required: true } },
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      async execute() { safeRuns += 1; return 'safe' },
+    }))
+    const safe = await ctx.tools.execute({
+      callId: 'safe' as never,
+      name: 'safe_fixture',
+      arguments: { value: 'ordinary' },
+      signal: new AbortController().signal,
+    })
+    expect(safe.isError).toBe(false)
+    expect(safeRuns).toBe(1)
+
+    let circularRuns = 0
+    ctx.tools.register({
+      name: 'circular_fixture',
+      description: 'Unvalidated fixture for a non-JSON argument.',
+      parameters: { type: 'object', properties: {} },
+      output: { schema: { type: 'string' }, render: (_args: unknown, value: string) => [{ type: 'text', text: value }] },
+      async execute() { circularRuns += 1; return 'circular' },
+    } as never)
+    const circular: { self?: unknown } = {}
+    circular.self = circular
+    expect((ctx.tools as unknown as { guardReason(exec: ToolExecution): string | undefined }).guardReason({
+      name: 'circular_fixture', arguments: circular,
+    } as ToolExecution)).toBeUndefined()
+    const circularResult = await ctx.tools.execute({
+      callId: 'circular' as never,
+      name: 'circular_fixture',
+      arguments: circular,
+      signal: new AbortController().signal,
+    })
+    expect(circularResult.isError).toBe(true)
+    expect(circularRuns).toBe(0)
+
+    const before = new AbortController()
+    before.abort()
+    await expect(ctx.systemPrompt.assemble({ agent: parent, signal: before.signal })).rejects.toMatchObject({ name: 'AbortError' })
+
+    const after = new AbortController()
+    const compile = service.projections.compile.bind(service.projections)
+    vi.spyOn(service.projections, 'compile').mockImplementationOnce(async (request) => {
+      const projection = await compile(request)
+      after.abort()
+      return projection
+    })
+    await expect(ctx.systemPrompt.assemble({ agent: parent, signal: after.signal })).rejects.toMatchObject({ name: 'AbortError' })
+
+    const duplicate = { id: parent.id, session: parent.session } as unknown as Agent
+    expect((await service.openSessionSurface(duplicate)).surface).toBe((await service.openSessionSurface(parent)).surface)
+    const alreadyExisting = { id: parent.id, session: parent.session } as unknown as Agent
+    const alreadyExists = vi.spyOn(service.store, 'newSurface')
+      .mockRejectedValueOnce(new WorkSurfaceError('already-exists', 'session Surface already exists'))
+    expect((await service.openSessionSurface(alreadyExisting)).surface).toMatch(/^ws-/)
+    alreadyExists.mockRestore()
+    const failing = { id: 'failing-session', session: { header: { id: 'failing-session' } } } as unknown as Agent
+    const newSurface = vi.spyOn(service.store, 'newSurface')
+      .mockRejectedValueOnce(new WorkSurfaceError('effect-failed', 'session initialization failed'))
+    await expect(service.openSessionSurface(failing)).rejects.toMatchObject({ code: 'effect-failed' })
+    newSurface.mockRestore()
+    expect((await service.openSessionSurface(failing)).surface).toMatch(/^ws-/)
+
+    const configuredProfiles = service.config.profiles
+    ;(service.config as { profiles: readonly WorkSurfaceProfile[] }).profiles = []
+    const emptyProfileAgent = { id: 'empty-profile', session: { header: { id: 'empty-profile' } } } as unknown as Agent
+    await expect(ctx.systemPrompt.assemble({ agent: emptyProfileAgent })).rejects.toMatchObject({ code: 'unsupported-profile' })
+    ;(service.config as { profiles: readonly WorkSurfaceProfile[] }).profiles = configuredProfiles
+
+    await fiber.dispose()
+    expect(() => (service as unknown as { requireHarness(): unknown }).requireHarness())
+      .toThrow(expect.objectContaining({ code: 'effect-failed' }))
+  })
+
+  it('dispatches every Host operation and rejects invalid authority, inputs, and paths', async () => {
+    const { ctx, service, root } = await fixture()
+    ScriptedSubprocess.runner = async (spec) => {
+      const client = orchestratorClient(spec)
+      const unrelated = { id: 'unrelated-agent', session: { header: { id: 'unrelated-agent' } } } as unknown as Agent
+      expect(Object.keys(ctx.shellEnv.collect({ agent: unrelated } as ToolExecution)).some(key => key.startsWith('DSH_WS_'))).toBe(false)
+      const initial = await client.call('show', { surface: 'ws-root' }) as { revision: string }
+      await client.call('show', { surface: 'ws-root', revision: initial.revision })
+      await client.call('projection', { surface: 'ws-root', profile: 'test', tokenBudget: 1000 })
+      await client.call('projection', { surface: 'ws-root', profile: 'test', tokenBudget: 1000, revision: initial.revision })
+
+      const checkout = join(spec.cwd, 'work', 'manual')
+      await client.call('checkout', { surface: 'ws-root', targetPath: checkout })
+      const pinnedCheckout = join(spec.cwd, 'work', 'pinned')
+      await client.call('checkout', { surface: 'ws-root', targetPath: pinnedCheckout, revision: initial.revision })
+      await writeFile(join(checkout, 'surface.md'), `${await readFile(join(checkout, 'surface.md'), 'utf8')}\nCommitted manually.\n`)
+      const committed = await client.call('commit', {
+        workingPath: checkout,
+        baseRevision: initial.revision,
+        key: 'manual-commit',
+        retry: true,
+      }) as { revision: string }
+      await client.call('show', { surface: 'ws-root', revision: committed.revision })
+
+      const implicitTemplate = join(spec.cwd, 'implicit-template')
+      await mkdir(join(implicitTemplate, 'blocks'), { recursive: true })
+      await writeFile(join(implicitTemplate, 'surface.md'), '# Implicit child\n')
+      const implicit = await client.call('new', { templatePath: implicitTemplate, key: 'implicit-child' }) as { surface: string }
+      await client.call('show', { surface: implicit.surface })
+
+      const explicitTemplate = join(spec.cwd, 'explicit-template')
+      await writeTemplate(explicitTemplate, 'explicit child', 'ws-explicit')
+      await client.call('new', {
+        templatePath: explicitTemplate,
+        key: 'explicit-child',
+        parent: 'ws-root',
+        surface: 'ws-explicit',
+        retry: true,
+      })
+
+      const attemptId = requiredEnv(spec.env?.WS_ATTEMPT_ID)
+      const token = requiredEnv(spec.env?.WS_ATTEMPT_TOKEN)
+      const aborted = new AbortController()
+      aborted.abort()
+      await expectCode(service.dispatch({
+        id: 'aborted', method: 'show', attemptId, token, params: { surface: 'ws-root' },
+      }, aborted.signal), 'cancelled')
+      await expectCode(service.dispatch({
+        id: 'missing', method: 'show', attemptId: 'missing', token, params: { surface: 'ws-root' },
+      }, new AbortController().signal), 'unauthorized')
+      await expectCode(service.dispatch({
+        id: 'bad-token', method: 'show', attemptId, token: 'bad', params: { surface: 'ws-root' },
+      }, new AbortController().signal), 'unauthorized')
+
+      await expectCode(client.call('show', { surface: 'ws-unowned' }), 'unauthorized')
+      await expectCode(client.call('show', { surface: '' }), 'invalid-working-copy')
+      await expectCode(client.call('show', { surface: 1 }), 'invalid-working-copy')
+      await expectCode(client.call('show', { surface: 'ws-root', revision: 1 }), 'invalid-working-copy')
+      await expectCode(client.call('projection', { surface: 'ws-root', profile: 'test', tokenBudget: 0 }), 'invalid-working-copy')
+      await expectCode(client.call('projection', { surface: 'ws-root', profile: 'test', tokenBudget: 1.5 }), 'invalid-working-copy')
+      await expectCode(client.call('checkout', { surface: 'ws-root', targetPath: '../escape' }), 'unauthorized')
+
+      await symlink(join(root, 'outside'), join(spec.cwd, 'escape-link'))
+      await expectCode(client.call('checkout', { surface: 'ws-root', targetPath: 'escape-link/child' }), 'unauthorized')
+      await writeFile(join(spec.cwd, 'regular-file'), 'not a directory')
+      await expect(client.call('checkout', { surface: 'ws-root', targetPath: 'regular-file/child' })).rejects.toBeDefined()
+      return { exitCode: 0, signal: null, stdout: 'dispatch-covered', stderr: '' }
+    }
+
+    const parent = { id: 'dispatch-parent', session: { header: { id: 'dispatch-parent' } } } as unknown as Agent
+    await expect(service.runOrchestrator(parent, 'bash', '# dispatch', 'ws-root', new AbortController().signal))
+      .resolves.toMatchObject({ stdout: 'dispatch-covered' })
+  })
+
+  it('handles Orchestrator language, replay, cancellation, collision, and sandbox branches', async () => {
+    const { service } = await fixture()
+    const parent = { id: 'orchestrator-parent', session: { header: { id: 'orchestrator-parent' } } } as unknown as Agent
+    await expect(service.runOrchestrator(parent, 'bash', ' ', 'ws-root', new AbortController().signal))
+      .rejects.toMatchObject({ code: 'invalid-working-copy' })
+
+    let pythonRuns = 0
+    const savedPath = process.env.PATH
+    delete process.env.PATH
+    try {
+      ScriptedSubprocess.runner = async (spec) => {
+        pythonRuns += 1
+        expect(spec.argv.at(-1)).toContain('main.py')
+        return pythonRuns === 1
+          ? { exitCode: null, signal: 'SIGKILL', stdout: 'first', stderr: 'first-error' }
+          : { exitCode: 0, signal: null, stdout: 'second', stderr: '' }
+      }
+      await expect(service.runOrchestrator(parent, 'python', 'print("ok")', 'ws-root', new AbortController().signal))
+        .resolves.toMatchObject({ replayCount: 1, stdout: 'second', stderr: '' })
+    } finally {
+      if (savedPath === undefined) delete process.env.PATH
+      else process.env.PATH = savedPath
+    }
+
+    ScriptedSubprocess.omitCollected = true
+    ScriptedSubprocess.runner = async () => ({ exitCode: 0, signal: null, stdout: 'hidden', stderr: 'hidden' })
+    await expect(service.runOrchestrator(parent, 'bash', 'echo hidden', 'ws-root', new AbortController().signal))
+      .resolves.toMatchObject({ stdout: '', stderr: '' })
+    ScriptedSubprocess.omitCollected = false
+
+    const cancelled = new AbortController()
+    ScriptedSubprocess.runner = async () => {
+      cancelled.abort()
+      return { exitCode: null, signal: 'SIGTERM', stdout: '', stderr: '' }
+    }
+    await expect(service.runOrchestrator(parent, 'bash', 'echo cancel', 'ws-root', cancelled.signal))
+      .resolves.toMatchObject({ replayCount: 0, signal: 'SIGTERM' })
+
+    PassthroughSandbox.enforcement = 'partial'
+    await expect(service.runOrchestrator(parent, 'bash', 'echo unsafe', 'ws-root', new AbortController().signal))
+      .rejects.toMatchObject({ code: 'unauthorized' })
+    PassthroughSandbox.enforcement = 'full'
+
+    const started = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ScriptedSubprocess.runner = async () => {
+      started.resolve(undefined)
+      await release.promise
+      return { exitCode: 0, signal: null, stdout: '', stderr: '' }
+    }
+    const first = service.runOrchestrator(parent, 'bash', 'echo collision', 'ws-root', new AbortController().signal)
+    await started.promise
+    await expect(service.runOrchestrator(parent, 'bash', 'echo collision', 'ws-root', new AbortController().signal))
+      .rejects.toMatchObject({ code: 'effect-failed' })
+    release.resolve(undefined)
+    await first
+  })
+
+  it('rejects every invalid child completion and least-authority violation', async () => {
+    const { service, provider } = await fixture()
+    const invalidTasks = [
+      ['invalid-object-null', 'invalid-reference'],
+      ['invalid-object-string', 'invalid-reference'],
+      ['invalid-object-array', 'invalid-reference'],
+      ['invalid-surface-number', 'invalid-working-copy'],
+      ['invalid-surface-blank', 'invalid-working-copy'],
+      ['invalid-surface-revision-number', 'invalid-working-copy'],
+      ['invalid-surface-revision-text', 'invalid-reference'],
+      ['invalid-summary-number', 'invalid-working-copy'],
+      ['invalid-outputs-missing', 'invalid-reference'],
+      ['invalid-outputs-empty', 'invalid-reference'],
+      ['invalid-output-null', 'invalid-reference'],
+      ['invalid-output-string', 'invalid-reference'],
+      ['invalid-output-array', 'invalid-reference'],
+      ['invalid-output-surface-number', 'invalid-working-copy'],
+      ['invalid-output-block-number', 'invalid-working-copy'],
+      ['invalid-output-revision-number', 'invalid-working-copy'],
+      ['invalid-output-revision-text', 'invalid-reference'],
+    ] as const
+    ScriptedSubprocess.runner = async (spec) => {
+      const client = orchestratorClient(spec)
+      for (const [task, code] of invalidTasks) {
+        await expectCode(client.call('agent.run', {
+          surface: 'ws-root', task, profile: 'test', key: task,
+        }), code)
+      }
+      for (const [task, code] of [
+        ['stopped', 'effect-failed'],
+        ['remote-provider', 'unsupported-profile'],
+        ['different-surface', 'unauthorized'],
+        ['different-output-surface', 'unauthorized'],
+        ['wrong-surface-revision', 'invalid-reference'],
+        ['wrong-output-revision', 'invalid-reference'],
+        ['start-failed', 'effect-failed'],
+      ] as const) {
+        await expectCode(client.call('agent.run', {
+          surface: 'ws-root', task, profile: 'test', key: task,
+        }), code)
+      }
+      await client.call('agent.run', {
+        surface: 'ws-root', task: 'authority-errors', profile: 'test', key: 'authority-errors',
+      })
+      await expectCode(client.call('agent.run', {
+        surface: 'ws-root', task: 'valid', profile: 'missing', key: 'missing-profile',
+      }), 'unsupported-profile')
+      await expectCode(client.call('agent.run', {
+        surface: 'ws-root', task: 'valid', profile: 'test', key: 'bad/key',
+      }), 'invalid-id')
+      await expectCode(client.call('agent.run', {
+        surface: 'ws-root', task: 'stopped', profile: 'test', key: 'retry-stopped',
+      }), 'effect-failed')
+      await expectCode(client.call('agent.run', {
+        surface: 'ws-root', task: 'stopped', profile: 'test', key: 'retry-stopped', retry: true,
+      }), 'effect-failed')
+      return { exitCode: 0, signal: null, stdout: 'child-errors-covered', stderr: '' }
+    }
+
+    const parent = { id: 'child-errors-parent', session: { header: { id: 'child-errors-parent' } } } as unknown as Agent
+    await expect(service.runOrchestrator(parent, 'bash', '# child errors', 'ws-root', new AbortController().signal))
+      .resolves.toMatchObject({ stdout: 'child-errors-covered' })
+    expect(provider.authorityFailures).toEqual(Array.from({ length: 6 }, () => 'unauthorized'))
+  })
+
+  it('enforces child concurrency and composes every optional profile field', async () => {
+    const profiles: readonly WorkSurfaceProfile[] = [
+      { name: 'plain', provider: 'fixture-provider', tokenBudget: 10_000, maxDepth: 3, maxParallel: 1 },
+      {
+        name: 'provider-only', provider: 'fixture-provider', tokenBudget: 10_000, maxDepth: 3, maxParallel: 1,
+        toolAllow: ['safe_fixture'], agentProvider: 'fixture-route',
+      },
+      {
+        name: 'model-only', provider: 'fixture-provider', tokenBudget: 10_000, maxDepth: 3, maxParallel: 1,
+        agentModel: 'fixture-model',
+      },
+      {
+        name: 'both', provider: 'fixture-provider', tokenBudget: 10_000, maxDepth: 3, maxParallel: 1,
+        persona: 'Profile persona.', agentProvider: 'fixture-route', agentModel: 'fixture-model',
+      },
+    ]
+    const { service, provider } = await fixture({ profiles })
+    ScriptedSubprocess.runner = async (spec) => {
+      const client = orchestratorClient(spec)
+      const first = client.call('agent.run', {
+        surface: 'ws-root', task: 'quiescence', profile: 'plain', key: 'parallel-first',
+      })
+      await provider.quiescenceReady
+      await expectCode(client.call('agent.run', {
+        surface: 'ws-root', task: 'parallel-second', profile: 'plain', key: 'parallel-second',
+      }), 'effect-failed')
+      provider.releaseQuiescence()
+      await first
+      for (const profile of ['provider-only', 'model-only', 'both']) {
+        await client.call('agent.run', {
+          surface: 'ws-root', task: `valid-${profile}`, profile, key: `valid-${profile}`,
+        })
+      }
+      return { exitCode: 0, signal: null, stdout: 'profiles-covered', stderr: '' }
+    }
+
+    const parent = { id: 'profiles-parent', session: { header: { id: 'profiles-parent' } } } as unknown as Agent
+    await service.runOrchestrator(parent, 'bash', '# profiles', 'ws-root', new AbortController().signal)
+    expect(provider.personas[0]).not.toContain('Profile persona.')
+    expect(provider.requests.find(request => request.prompt[0]?.type === 'text'
+      && request.prompt[0].text === 'valid-provider-only')?.toolFilter).toEqual({ allow: ['safe_fixture'] })
+    expect(provider.requests.find(request => request.prompt[0]?.type === 'text'
+      && request.prompt[0].text === 'valid-provider-only')?.agentOptions).toEqual({ provider: 'fixture-route' })
+    expect(provider.requests.find(request => request.prompt[0]?.type === 'text'
+      && request.prompt[0].text === 'valid-model-only')?.agentOptions).toEqual({ model: 'fixture-model' })
+    expect(provider.requests.find(request => request.prompt[0]?.type === 'text'
+      && request.prompt[0].text === 'valid-both')?.agentOptions).toEqual({
+      provider: 'fixture-route', model: 'fixture-model',
+    })
+  })
+
+  it('reconciles missing, completed, and corrupt child result records', async () => {
+    const { service } = await fixture()
+    ScriptedSubprocess.runner = async (spec) => {
+      const client = orchestratorClient(spec)
+      const attemptId = requiredEnv(spec.env?.WS_ATTEMPT_ID)
+      const initial = await client.call('show', { surface: 'ws-root' }) as { revision: string }
+
+      await writeStartedAgentRecord(service, attemptId, 'reconcile-missing', 'ws-root', 'valid', 'test')
+      await client.call('agent.run', {
+        surface: 'ws-root', task: 'valid', profile: 'test', key: 'reconcile-missing',
+      })
+
+      const completedKey = 'reconcile-completed'
+      await writeStartedAgentRecord(service, attemptId, completedKey, 'ws-root', 'reconciled', 'test')
+      const completedRoot = join(spec.cwd, 'runtime', 'agents', completedKey)
+      await mkdir(completedRoot, { recursive: true })
+      const reconciled = {
+        surface: 'ws-root', surfaceRevision: initial.revision, summary: 'reconciled',
+        outputs: [{ surface: 'ws-root', block: 'result', revision: initial.revision }],
+      }
+      await writeFile(join(completedRoot, 'result.json'), JSON.stringify(reconciled))
+      await expect(client.call('agent.run', {
+        surface: 'ws-root', task: 'reconciled', profile: 'test', key: completedKey,
+      })).resolves.toEqual(reconciled)
+
+      const corruptKey = 'reconcile-corrupt'
+      await writeStartedAgentRecord(service, attemptId, corruptKey, 'ws-root', 'corrupt', 'test')
+      const corruptRoot = join(spec.cwd, 'runtime', 'agents', corruptKey)
+      await mkdir(corruptRoot, { recursive: true })
+      await writeFile(join(corruptRoot, 'result.json'), '{')
+      await expect(client.call('agent.run', {
+        surface: 'ws-root', task: 'corrupt', profile: 'test', key: corruptKey,
+      })).rejects.toBeDefined()
+      return { exitCode: 0, signal: null, stdout: 'reconcile-covered', stderr: '' }
+    }
+
+    const parent = { id: 'reconcile-parent', session: { header: { id: 'reconcile-parent' } } } as unknown as Agent
+    await expect(service.runOrchestrator(parent, 'bash', '# reconcile', 'ws-root', new AbortController().signal))
+      .resolves.toMatchObject({ stdout: 'reconcile-covered' })
+  })
+
+  it('validates configuration, profiles, persistent roots, and socket placement', async () => {
+    const profile = {
+      name: 'test', provider: 'fixture-provider', tokenBudget: 1000, maxDepth: 1, maxParallel: 1,
+    }
+    const invalidConfigs: Config[] = [
+      { root: ' ', profiles: [profile] },
+      { root: process.cwd(), orchestratorGraceMs: 0, profiles: [profile] },
+      { root: process.cwd(), orchestratorGraceMs: 1.5, profiles: [profile] },
+      { root: process.cwd(), maxOutputBytes: 0, profiles: [profile] },
+      { root: process.cwd(), maxOutputBytes: 1.5, profiles: [profile] },
+      { root: process.cwd(), maxCrashReplays: -1, profiles: [profile] },
+      { root: process.cwd(), maxCrashReplays: 1.5, profiles: [profile] },
+      { root: process.cwd(), profiles: [] },
+      { root: process.cwd(), profiles: [{ ...profile, name: '' }] },
+      { root: process.cwd(), profiles: [{ ...profile, provider: '' }] },
+      { root: process.cwd(), profiles: [profile, profile] },
+      { root: process.cwd(), profiles: [{ ...profile, tokenBudget: 0 }] },
+      { root: process.cwd(), profiles: [{ ...profile, tokenBudget: 1.5 }] },
+      { root: process.cwd(), profiles: [{ ...profile, maxDepth: -1 }] },
+      { root: process.cwd(), profiles: [{ ...profile, maxDepth: 1.5 }] },
+      { root: process.cwd(), profiles: [{ ...profile, maxParallel: 0 }] },
+      { root: process.cwd(), profiles: [{ ...profile, maxParallel: 1.5 }] },
+    ]
+    for (const config of invalidConfigs) {
+      const contextRoot = await trackedRoot('worksurface-invalid-config-')
+      const { ctx } = await harnessContext(contextRoot)
+      let failed = false
+      try {
+        new WorkSurfaceService(ctx, config)
+      } catch {
+        failed = true
+      }
+      expect(failed, JSON.stringify(config)).toBe(true)
+    }
+
+    const defaultsRoot = await trackedRoot('worksurface-default-config-')
+    const defaultsHarness = await harnessContext(defaultsRoot)
+    const defaultsFiber = await defaultsHarness.ctx.plugin(WorkSurfaceService, { root: defaultsRoot, profiles: [profile] })
+    expect(defaultsHarness.ctx.workSurfaces.config).toMatchObject({
+      attemptsRoot: join(defaultsRoot, 'attempts'),
+      socketPath: join(homedir(), '.pf-worksurface', 'run', `${sha256(defaultsRoot).slice(0, 16)}.sock`),
+      orchestratorGraceMs: 5000,
+      maxOutputBytes: 1024 * 1024,
+      maxCrashReplays: 1,
+    })
+    await defaultsFiber.dispose()
+
+    const activationCases = [
+      async () => ({ root: await trackedRoot('worksurface-socket-child-'), socket: 'child' }),
+      async () => ({ root: await trackedRoot('worksurface-socket-same-'), socket: 'same' }),
+      async () => ({ root: await trackedRoot('worksurface-socket-long-'), socket: 'long' }),
+      async () => ({ root: await trackedRoot('worksurface-socket-temp-'), socket: 'temp' }),
+      async () => ({ root: await trackedRoot('worksurface-socket-temp-root-'), socket: 'temp-root' }),
+    ]
+    for (const makeCase of activationCases) {
+      const { root, socket } = await makeCase()
+      const { ctx } = await harnessContext(root)
+      const attemptsRoot = join(root, 'attempts')
+      const socketPath = socket === 'child'
+        ? join(attemptsRoot, 'host.sock')
+        : socket === 'same'
+          ? attemptsRoot
+          : socket === 'long'
+            ? join(root, 'x'.repeat(120))
+            : socket === 'temp'
+              ? join('/tmp', 'pf-worksurface-host.sock')
+              : '/tmp'
+      let rejected = false
+      let resolvedSocket = ''
+      try {
+        const fiber = await ctx.plugin(WorkSurfaceService, { root, attemptsRoot, socketPath, profiles: [profile] })
+        resolvedSocket = ctx.workSurfaces.config.socketPath
+        await fiber.dispose()
+      } catch {
+        rejected = true
+      }
+      expect(rejected, `${socket}: ${resolvedSocket}`).toBe(true)
+    }
+
+    const temporaryRoot = join('/tmp', `pf-worksurface-root-${process.pid}`)
+    roots.push(temporaryRoot)
+    const temporaryHarness = await harnessContext(temporaryRoot)
+    let temporaryRejected = false
+    try {
+      const fiber = await temporaryHarness.ctx.plugin(WorkSurfaceService, { root: temporaryRoot, profiles: [profile] })
+      await fiber.dispose()
+    } catch {
+      temporaryRejected = true
+    }
+    expect(temporaryRejected, 'temporary root').toBe(true)
+
+    const templateFailureRoot = await trackedRoot('worksurface-template-failure-')
+    await mkdir(join(templateFailureRoot, 'runtime', 'templates', 'session-root'), { recursive: true })
+    await writeFile(join(templateFailureRoot, 'runtime', 'templates', 'session-root', 'blocks'), 'not a directory')
+    const templateFailureHarness = await harnessContext(templateFailureRoot)
+    let templateRejected = false
+    try {
+      const fiber = await templateFailureHarness.ctx.plugin(WorkSurfaceService, { root: templateFailureRoot, profiles: [profile] })
+      await fiber.dispose()
+    } catch {
+      templateRejected = true
+    }
+    expect(templateRejected, 'session template preparation').toBe(true)
+  })
+})
+
+function orchestratorClient(spec: SubprocessSpawnSpec): WorkSurfaceHostClient {
+  return new WorkSurfaceHostClient({
+    socketPath: requiredEnv(spec.env?.WS_HOST_SOCKET),
+    attemptId: requiredEnv(spec.env?.WS_ATTEMPT_ID),
+    token: requiredEnv(spec.env?.WS_ATTEMPT_TOKEN),
+  })
+}
+
+async function writeTemplate(path: string, body: string, surface: string): Promise<void> {
+  await mkdir(join(path, 'blocks'), { recursive: true })
+  await writeFile(join(path, 'surface.md'), `---\nstatus: active\n---\n${body}\n\n[[block:${surface}/result]]\n`)
+  await writeFile(join(path, 'blocks', 'result.md'), '---\nblock_id: result\nsurface_id: template\nkind: result\nstatus: active\nderived_from: []\n---\nInitial B\n')
+}
+
+function requiredEnv(value: string | undefined): string {
+  if (value === undefined || value === '') throw new Error('required fixture environment value is absent')
+  return value
+}
+
+async function expectCode(promise: Promise<unknown>, code: string): Promise<void> {
+  let caught: unknown
+  try {
+    await promise
+  } catch (error) {
+    caught = error
+  }
+  expect(caught).toMatchObject({ code })
+}
+
+async function trackedRoot(prefix: string): Promise<string> {
+  const root = await mkdtemp(join(process.cwd(), '..', '..', prefix))
+  roots.push(root)
+  return root
+}
+
+async function writeStartedAgentRecord(
+  service: WorkSurfaceService,
+  attemptId: string,
+  key: string,
+  surface: string,
+  task: string,
+  profile: string,
+): Promise<void> {
+  const directory = join(service.store.runtimeRoot, 'agent-effects', attemptId)
+  await mkdir(directory, { recursive: true })
+  const requestHash = sha256(stableStringify({ type: 'agent.run', request: { surface, task, profile } }))
+  await writeFile(join(directory, `${sha256(key)}.json`), JSON.stringify({
+    attemptId,
+    key,
+    type: 'agent.run',
+    requestHash,
+    status: 'started',
+  }))
+}

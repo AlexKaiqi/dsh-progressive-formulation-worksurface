@@ -1,0 +1,17 @@
+# PF WorkSurface profile layer. It expects the ordinary DeepSeek Harness base
+# bundle to provide Tool, Sandbox, Subprocess, Subagent, and ShellEnv services.
+
+- insert:
+    - id: pf-worksurface
+      name: '@pf-worksurface/dsh'
+      config:
+        root: !!js dshHomePath('pf-worksurface')
+        profiles:
+          - name: default
+            provider: spawn
+            tokenBudget: 40000
+            maxDepth: 3
+            maxParallel: 4
+            persona: >-
+              Work only from the assigned WorkSurface projection and editable checkout.
+              Publish every accepted result with ws commit and return only committed references.

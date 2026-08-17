@@ -1,0 +1,6 @@
+node_modules/
+lib/
+coverage/
+artifacts/
+*.tsbuildinfo
+.DS_Store
