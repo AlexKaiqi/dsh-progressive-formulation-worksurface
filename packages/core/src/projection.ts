@@ -2,7 +2,13 @@ import { WorkSurfaceError } from './error.ts'
 import { BlockId, SurfaceId } from './ids.ts'
 import { parseBlockReferences } from './markdown.ts'
 import type { WorkSurfaceStore } from './store.ts'
-import type { BlockRef, Revision, WorkSurfaceProjectionSnapshot } from './types.ts'
+import type {
+  BlockRef,
+  OmittedWorkSurfaceProjectionFile,
+  Revision,
+  WorkSurfaceProjectionFile,
+  WorkSurfaceProjectionSnapshot,
+} from './types.ts'
 
 interface ProjectionOptions {
   readonly surface: string
@@ -21,6 +27,11 @@ interface ResolvedBlock {
   readonly content: string
 }
 
+const CHARACTERS_PER_TOKEN = 4
+const MANIFEST_BASE_CHARACTERS = 256
+const MANIFEST_BLOCK_CHARACTERS = 128
+const FILE_WRAPPER_CHARACTERS = 160
+
 /** Deterministic direct-reference Projection compiler over canonical file revisions. */
 export class ProjectionCompiler {
   constructor(private readonly store: WorkSurfaceStore) {}
@@ -28,7 +39,7 @@ export class ProjectionCompiler {
   /**
    * Compile the current or pinned Surface using current revisions for cross-Surface references.
    * @param options - Surface identity, optional revision, profile, and budget.
-   * @returns The rendered Projection and its exact revision pins.
+   * @returns Complete projected files and their exact revision pins.
    */
   async compile(options: ProjectionOptions): Promise<WorkSurfaceProjectionSnapshot> {
     validateProjectionOptions(options)
@@ -42,13 +53,13 @@ export class ProjectionCompiler {
       const ref: BlockRef = { ...reference, revision }
       blocks.push({ ref, content: await this.store.readBlock(ref) })
     }
-    return renderProjection(snapshot.surfaceDocument, surface, snapshot.revision, blocks, options.profile, options.tokenBudget)
+    return projectFiles(snapshot.surfaceDocument, surface, snapshot.revision, blocks, options.profile, options.tokenBudget)
   }
 
   /**
    * Rebuild a Projection with an explicit revision for every directly referenced Block.
    * @param options - Surface revision and ordered Block revision pins.
-   * @returns The exactly rebuilt Projection.
+   * @returns The exactly rebuilt file Projection.
    */
   async compilePinned(options: PinnedProjectionOptions): Promise<WorkSurfaceProjectionSnapshot> {
     validateProjectionOptions(options)
@@ -66,7 +77,7 @@ export class ProjectionCompiler {
       }
       blocks.push({ ref: pinned, content: await this.store.readBlock(pinned) })
     }
-    return renderProjection(snapshot.surfaceDocument, surface, snapshot.revision, blocks, options.profile, options.tokenBudget)
+    return projectFiles(snapshot.surfaceDocument, surface, snapshot.revision, blocks, options.profile, options.tokenBudget)
   }
 }
 
@@ -77,7 +88,7 @@ function validateProjectionOptions(options: ProjectionOptions): void {
   if (options.profile.trim() === '') throw new WorkSurfaceError('unsupported-profile', 'Projection profile must not be blank')
 }
 
-function renderProjection(
+function projectFiles(
   surfaceDocument: string,
   surface: ReturnType<typeof SurfaceId>,
   surfaceRevision: Revision,
@@ -85,41 +96,70 @@ function renderProjection(
   profile: string,
   tokenBudget: number,
 ): WorkSurfaceProjectionSnapshot {
-  const maxCharacters = tokenBudget * 4
-  let remaining = Math.max(0, maxCharacters - surfaceDocument.length)
-  let cursor = 0
-  let rendered = ''
-  const referenceToken = /\[\[block:([^\]]+)\]\]/g
-  let index = 0
-  let match: RegExpExecArray | null
-  while ((match = referenceToken.exec(surfaceDocument)) !== null) {
-    rendered += surfaceDocument.slice(cursor, match.index + match[0].length)
-    cursor = match.index + match[0].length
-    const block = blocks[index++] as ResolvedBlock
-    const header = `\n\n<!-- worksurface:block ${block.ref.surface}/${block.ref.block}@${block.ref.revision} -->\n`
-    const footer = `\n<!-- /worksurface:block ${block.ref.surface}/${block.ref.block} -->`
-    const wrapperCost = header.length + footer.length
-    const available = Math.max(0, remaining - wrapperCost)
-    const body = truncateBlock(block.content, available, block.ref)
-    rendered += header + body + footer
-    remaining = Math.max(0, remaining - wrapperCost - body.length)
+  const maxCharacters = tokenBudget * CHARACTERS_PER_TOKEN
+  const surfaceFile: WorkSurfaceProjectionFile = {
+    kind: 'surface',
+    surfaceId: surface,
+    revision: surfaceRevision,
+    relativePath: 'surface.md',
+    content: surfaceDocument,
+    writable: true,
   }
-  rendered += surfaceDocument.slice(cursor)
+  const files: WorkSurfaceProjectionFile[] = [surfaceFile]
+  const omittedFiles: OmittedWorkSurfaceProjectionFile[] = []
+  let usedCharacters = MANIFEST_BASE_CHARACTERS
+    + blocks.length * MANIFEST_BLOCK_CHARACTERS
+    + projectedFileCharacters(surfaceFile)
+  const budgetExceeded = usedCharacters > maxCharacters
+  const included = new Set<string>()
+
+  for (const block of blocks) {
+    const key = `${block.ref.surface}\0${block.ref.block}\0${block.ref.revision}`
+    if (included.has(key)) continue
+    included.add(key)
+
+    const relativePath = `blocks/${block.ref.block}.md`
+    const writable = block.ref.surface === surface
+    const file: WorkSurfaceProjectionFile = {
+      kind: 'block',
+      surfaceId: block.ref.surface,
+      blockId: block.ref.block,
+      revision: block.ref.revision,
+      relativePath,
+      content: block.content,
+      writable,
+    }
+    const fileCharacters = projectedFileCharacters(file)
+    if (usedCharacters + fileCharacters <= maxCharacters) {
+      files.push(file)
+      usedCharacters += fileCharacters
+      continue
+    }
+    omittedFiles.push({
+      kind: 'block',
+      surfaceId: block.ref.surface,
+      blockId: block.ref.block,
+      revision: block.ref.revision,
+      relativePath,
+      writable,
+      reason: 'token-budget',
+    })
+  }
+
   return {
     surfaceId: surface,
     surfaceRevision,
     blockRevisions: blocks.map(block => block.ref),
-    renderedContent: rendered,
+    files,
+    omittedFiles,
+    budgetExceeded,
     profile,
     createdAt: new Date().toISOString(),
   }
 }
 
-function truncateBlock(content: string, available: number, ref: BlockRef): string {
-  if (content.length <= available) return content
-  const notice = `\n\n[truncated by Projection budget; read [[block:${ref.surface}/${ref.block}]] at ${ref.revision}]`
-  if (available <= notice.length) return notice.slice(0, available)
-  return `${content.slice(0, available - notice.length)}${notice}`
+function projectedFileCharacters(file: WorkSurfaceProjectionFile): number {
+  return file.content.length + file.relativePath.length + FILE_WRAPPER_CHARACTERS
 }
 
 /**

@@ -14,7 +14,7 @@ Creating a Surface instantiates runtime-owned identities into a template. Commit
 
 `WorkSurfaceStore` provides `newSurface`, `checkout`, `commit`, `readHead`, `readSnapshot`, `readBlock`, `validateOutputRefs`, and `history`. Mutating calls require an attempt id and stable idempotency key. Reusing a key with the same request returns the recorded result; reusing it with different parameters fails with `idempotency-key-conflict`.
 
-`ProjectionCompiler.compile` preserves the complete `surface.md`, expands directly referenced Blocks in file order, pins every expanded Block revision, and truncates Block bodies against the configured budget. `compilePinned` rebuilds the same Projection from explicit revision pins.
+`ProjectionCompiler.compile` preserves the complete `surface.md`, collects complete directly referenced Block files in order, and pins every Block revision. Files that do not fit the configured approximate budget are omitted as whole files instead of being truncated. `compilePinned` rebuilds the same file Projection from explicit revision pins.
 
 `WorkSurfaceError` carries a stable `code` and JSON-safe `details`. Callers should branch on the code rather than message text.
 
@@ -28,7 +28,7 @@ No direct effect; the consuming plugin owns request assembly and cache-prefix be
 
 ## Known Limitations and Deferred Work
 
-- **Direct references only** — Projection expansion does not recursively expand references found inside Block bodies.
+- **Direct references only** — Projection collection does not recursively collect references found inside Block bodies.
 - **Approximate token budgeting** — the compiler reserves four characters per requested token instead of invoking a model-specific tokenizer.
 - **Single-host filesystem coordination** — atomic files and recoverable locks protect concurrent local processes; distributed writers require a different publication backend.
 - **Logical deletion only** — callers may change status metadata, but a commit cannot physically remove an existing Block.

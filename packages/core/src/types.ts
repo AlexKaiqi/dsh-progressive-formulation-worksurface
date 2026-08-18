@@ -63,12 +63,39 @@ export interface SurfaceSnapshot {
   readonly blocks: ReadonlyMap<BlockId, string>
 }
 
+/** File kind carried by a model-facing WorkSurface Projection. */
+export type WorkSurfaceProjectionFileKind = 'surface' | 'block'
+
+/** One complete revision-pinned file included in a Projection. */
+export interface WorkSurfaceProjectionFile {
+  readonly kind: WorkSurfaceProjectionFileKind
+  readonly surfaceId: SurfaceId
+  readonly blockId?: BlockId
+  readonly revision: Revision
+  readonly relativePath: string
+  readonly content: string
+  readonly writable: boolean
+}
+
+/** One revision-pinned file omitted as a whole from a Projection. */
+export interface OmittedWorkSurfaceProjectionFile {
+  readonly kind: 'block'
+  readonly surfaceId: SurfaceId
+  readonly blockId: BlockId
+  readonly revision: Revision
+  readonly relativePath: string
+  readonly writable: boolean
+  readonly reason: 'token-budget'
+}
+
 /** Projection given to a model for one request. */
 export interface WorkSurfaceProjectionSnapshot {
   readonly surfaceId: SurfaceId
   readonly surfaceRevision: Revision
   readonly blockRevisions: readonly BlockRef[]
-  readonly renderedContent: string
+  readonly files: readonly WorkSurfaceProjectionFile[]
+  readonly omittedFiles: readonly OmittedWorkSurfaceProjectionFile[]
+  readonly budgetExceeded: boolean
   readonly profile: string
   readonly createdAt: string
 }
@@ -76,7 +103,7 @@ export interface WorkSurfaceProjectionSnapshot {
 /** Persisted state for one idempotent effect. */
 export type EffectStatus = 'started' | 'completed' | 'failed' | 'interrupted'
 
-/** Persisted effect-journal record. */
+/** Persisted state for one idempotent effect. */
 export interface EffectRecord {
   readonly attemptId: string
   readonly key: string

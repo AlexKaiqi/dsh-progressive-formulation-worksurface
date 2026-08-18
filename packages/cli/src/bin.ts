@@ -6,9 +6,8 @@ import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { asWorkSurfaceError, WorkSurfaceError } from '@pf-worksurface/core'
 import { WorkSurfaceHostClient } from './client.ts'
 import { executeDirect } from './direct.ts'
+import { HELP, INIT_HELP, VERSION } from './help.ts'
 import type { WorkSurfaceRpcMethod } from './protocol.ts'
-
-const VERSION = '0.1.0-rc.5'
 
 interface ParsedArgs {
   readonly flags: ReadonlyMap<string, string | true>
@@ -22,59 +21,7 @@ interface Command {
   readonly resultPath?: string
 }
 
-const HELP = `Usage: ws <command> [arguments] [options]
 
-Commands:
-  ws new --from <template> --key <key> [--parent <surface>] [--surface <id>]
-  ws checkout <surface> <target> [--revision <revision>]
-  ws commit <working-copy> --base <revision> --key <key> [--retry]
-  ws show <surface> [--revision <revision>] [--projection --profile <name>]
-  ws agent run --surface <surface> --task <text> --profile <name> --key <key> --result <path>
-  ws help init
-
-Global options:
-  --attempt <id>       Override WS_ATTEMPT_ID.
-  --json               Emit one JSON value on stdout.
-  --help               Show command help.
-  --version            Show CLI version.
-
-Effect commands require a stable idempotency key. Inside an Orchestrator,
-the CLI reaches the Host through WS_HOST_SOCKET and never opens canonical state.
-`
-
-const INIT_HELP = `PF WorkSurface initialization
-
-Use a WorkSurface for complex, multi-stage work that benefits from durable
-decisions, resumption, review, evidence, or independently delegated outputs.
-Do not use it only to restate a simple answer or a bounded one-step file change.
-
-Initialize the root before delegation:
-  1. Checkout WS_ROOT_SURFACE to a fresh path inside WS_ATTEMPT_DIR, for example
-     WS_ATTEMPT_DIR/work/root. Paths outside the attempt directory are rejected.
-     Retain the returned revision as the commit base.
-  2. Record the goal, acceptance criteria, known facts and constraints,
-     assumptions, open questions, current decisions, and expected deliverables.
-  3. Keep surface.md as the current state index. Put substantial evidence and
-     deliverables in blocks/<block-id>.md and reference them from surface.md.
-  4. Keep existing runtime-owned identity front matter unchanged. A new Block
-     needs this minimum front matter, with values matching its path and Surface:
-
-       ---
-       block_id: <block-id>
-       surface_id: <surface-id>
-       kind: <task-relevant-kind>
-       status: active
-       ---
-
-     Reference it as [[block:<surface-id>/<block-id>]].
-  5. Mark superseded content explicitly; do not present assumptions as facts or
-     preserve hidden reasoning.
-  6. Commit the complete working copy with the exact base revision and a stable key.
-
-Create a child Surface only for an independently owned deliverable with its own
-goal, revision, completion evidence, and retry lifecycle. Parent Surfaces should
-reference accepted child outputs instead of copying the child's work history.
-`
 
 /**
  * Run the CLI and return its process exit code.
@@ -322,11 +269,6 @@ function usage(message: string): WorkSurfaceError {
 function renderSuccess(command: Command, result: unknown): void {
   if (command.json) {
     process.stdout.write(`${JSON.stringify(result)}\n`)
-    return
-  }
-  if (command.method === 'projection' && isRecord(result) && typeof result.renderedContent === 'string') {
-    process.stdout.write(result.renderedContent)
-    if (!result.renderedContent.endsWith('\n')) process.stdout.write('\n')
     return
   }
   if (command.method === 'show' && isRecord(result) && typeof result.surfaceDocument === 'string') {

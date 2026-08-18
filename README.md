@@ -10,6 +10,9 @@ The repository contains three implementation packages, not three separate plugin
 - [`@pf-worksurface/cli`](packages/cli) provides the authenticated `ws` process client.
 - [`@pf-worksurface/dsh`](packages/dsh) is the installable DeepSeek Harness plugin and profile bundle.
 
+The `/dsh` bundle composes `@deepseek-ai/dsh-block-to-file` as its model-facing materialization layer; `/core` remains independent of the Harness runtime.
+
+
 ## Development
 
 Requires Node.js `^22.19.0 || >=24.0.0` and pnpm 11.7.0.

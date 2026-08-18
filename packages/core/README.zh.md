@@ -14,7 +14,7 @@
 
 `WorkSurfaceStore` 提供 `newSurface`、`checkout`、`commit`、`readHead`、`readSnapshot`、`readBlock`、`validateOutputRefs` 和 `history`。修改操作要求 attempt id 和稳定的幂等 key。使用相同请求复用 key 会返回已记录结果；用不同参数复用会以 `idempotency-key-conflict` 失败。
 
-`ProjectionCompiler.compile` 保留完整的 `surface.md`，按文件顺序展开直接引用的 Block，固定每个展开 Block 的 revision，并依据配置预算截断 Block 正文。`compilePinned` 从显式 revision pins 重建相同的 Projection。
+`ProjectionCompiler.compile` 保留完整的 `surface.md`，按顺序收集直接引用 Block 的完整文件，并固定每个 Block revision。超出近似预算的文件会被整份省略，而不会截断后伪装成完整文件。`compilePinned` 从显式 revision pins 重建相同的文件 Projection。
 
 `WorkSurfaceError` 携带稳定的 `code` 和 JSON-safe `details`。调用方应按 code 分支，而不是依赖消息文本。
 
@@ -28,7 +28,7 @@
 
 ## 已知限制与延期工作
 
-- **仅直接引用** — Projection 展开不会递归展开 Block 正文中出现的引用。
+- **仅直接引用** — Projection 收集不会递归收集 Block 正文中出现的引用。
 - **近似 token 预算** — 编译器按每个请求 token 预留四个字符，而不调用模型特定 tokenizer。
 - **单 Host 文件系统协调** — 原子文件和可恢复 lock 可保护本地并发进程；分布式 writer 需要不同的发布后端。
 - **仅逻辑删除** — 调用方可以改变 status metadata，但 commit 不能物理移除已有 Block。

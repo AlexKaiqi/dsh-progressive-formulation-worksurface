@@ -1,6 +1,6 @@
 {
   "name": "@pf-worksurface/dsh",
-  "description": "DeepSeek Harness WorkSurface Host, orchestration tool, and structured subagent bridge",
+  "description": "b2f-backed DeepSeek Harness WorkSurface Host, orchestration tool, and structured subagent bridge",
   "version": "0.1.0-rc.5",
   "publishConfig": { "access": "public" },
   "repository": {
@@ -27,16 +27,19 @@
   "dsh": {
     "inventory": {
       "summary": {
-        "zh": "提供结构化 WorkSurface、编排工具和子 Agent 协作桥接。",
-        "en": "Provides a structured WorkSurface, orchestration tools, and a subagent collaboration bridge."
+        "zh": "基于 b2f 提供结构化 WorkSurface、编排工具和子 Agent 协作桥接。",
+        "en": "Provides a b2f-backed structured WorkSurface, orchestration tools, and a subagent collaboration bridge."
       },
       "tags": [
         "automation",
+        "file",
         "subagent",
-        "tool"
+        "tool",
+        "workspace"
       ],
       "dependencies": [
         "@deepseek-ai/dsh-agent",
+        "@deepseek-ai/dsh-block-to-file",
         "@deepseek-ai/dsh-subagent",
         "@deepseek-ai/dsh-system-prompt",
         "@deepseek-ai/dsh-tools"
@@ -55,6 +58,7 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-agent": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-block-to-file": "^0.1.0-rc.5",
     "@deepseek-ai/dsh-invariants": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-sandbox": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-shell-env": "^0.1.0-rc.6",

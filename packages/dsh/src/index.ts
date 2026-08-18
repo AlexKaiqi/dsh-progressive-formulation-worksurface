@@ -4,12 +4,14 @@
  */
 
 export { WorkSurfaceHost } from './host.ts'
-export { resolveWorkSurfaceCliEntrypoint, WorkSurfaceService } from './service.ts'
-export type { Config } from './service.ts'
+export { WorkSurfaceService } from './service.ts'
+export { resolveWorkSurfaceCliEntrypoint } from './config.ts'
+export type { Config } from './config.ts'
 export type {
   AgentCompletion,
   AgentRunResult,
   OrchestratorResult,
+  PendingWorkspace,
   WorkSurfaceConfig,
   WorkSurfaceProfile,
 } from './types.ts'

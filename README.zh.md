@@ -10,6 +10,9 @@
 - [`@pf-worksurface/cli`](packages/cli) 提供经过认证的 `ws` 进程客户端。
 - [`@pf-worksurface/dsh`](packages/dsh) 是可安装的 DeepSeek Harness 插件与 profile 组合包。
 
+`/dsh` bundle 会组合 `@deepseek-ai/dsh-block-to-file` 作为模型可见的文件物化层；`/core` 仍独立于 Harness runtime。
+
+
 ## 开发
 
 需要 Node.js `^22.19.0 || >=24.0.0` 与 pnpm 11.7.0。

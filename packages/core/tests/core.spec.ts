@@ -140,7 +140,7 @@ describe('WorkSurfaceStore', () => {
 })
 
 describe('ProjectionCompiler', () => {
-  test('expands only direct refs in order and records exact revisions', async () => {
+  test('collects complete direct-reference files in order and records exact revisions', async () => {
     const { root, template, store } = await fixture({
       b1: 'first [[block:ws-root/b3]]',
       b2: 'second',
@@ -151,18 +151,28 @@ describe('ProjectionCompiler', () => {
     const working = join(root, 'working')
     await store.checkout({ surface: 'ws-root', targetPath: working })
     const surfacePath = join(working, 'surface.md')
-    await writeFile(surfacePath, `${await readFile(surfacePath, 'utf8')}\nA\n[[block:ws-root/b1]]\nB\n[[block:ws-root/b2]]\n`, 'utf8')
+    await writeFile(
+      surfacePath,
+      `${await readFile(surfacePath, 'utf8')}\nA\n[[block:ws-root/b1]]\nB\n[[block:ws-root/b2]]\n[[block:ws-root/b1]]\n`,
+      'utf8',
+    )
     const committed = await store.commit({ attemptId: 'a1', key: 'attach', workingPath: working, baseRevision: created.revision })
     const projection = await new ProjectionCompiler(store).compile({ surface: 'ws-root', profile: 'research', tokenBudget: 10_000 })
+
     expect(projection.surfaceRevision).toBe(committed.revision)
-    expect(projection.blockRevisions.map(ref => ref.block)).toEqual([BlockId('b1'), BlockId('b2')])
-    expect(projection.renderedContent.indexOf('first')).toBeLessThan(projection.renderedContent.indexOf('\nB\n'))
-    expect(projection.renderedContent).not.toContain('must not recursively expand')
-    expect(projection.renderedContent).not.toContain('must not appear')
+    expect(projection.blockRevisions.map(ref => ref.block)).toEqual([BlockId('b1'), BlockId('b2'), BlockId('b1')])
+    expect(projection.files.map(file => file.relativePath)).toEqual(['surface.md', 'blocks/b1.md', 'blocks/b2.md'])
+    expect(projection.files[0]?.content).toContain('[[block:ws-root/b1]]')
+    expect(projection.files[1]?.content).toContain('first [[block:ws-root/b3]]')
+    expect(projection.files[2]?.content).toContain('second')
+    expect(projection.files.some(file => file.content.includes('must not recursively expand'))).toBe(false)
+    expect(projection.files.some(file => file.content.includes('must not appear'))).toBe(false)
+    expect(projection.files.every(file => file.writable)).toBe(true)
+    expect(projection.omittedFiles).toEqual([])
     expect(projection.surfaceId).toBe(SurfaceId('ws-root'))
   })
 
-  test('keeps the full Surface and original ref when a Block is truncated', async () => {
+  test('keeps the complete Surface and omits an oversized Block as a whole', async () => {
     const { root, template, store } = await fixture({ large: 'x'.repeat(1_000) })
     const created = await store.newSurface({ attemptId: 'a1', key: 'create', templatePath: template, surface: 'ws-root' })
     const working = join(root, 'working')
@@ -170,12 +180,22 @@ describe('ProjectionCompiler', () => {
     const surfacePath = join(working, 'surface.md')
     await writeFile(surfacePath, `${await readFile(surfacePath, 'utf8')}\n[[block:ws-root/large]]\n`, 'utf8')
     await store.commit({ attemptId: 'a1', key: 'attach', workingPath: working, baseRevision: created.revision })
+
     const projection = await new ProjectionCompiler(store).compile({ surface: 'ws-root', profile: 'research', tokenBudget: 80 })
-    expect(projection.renderedContent).toContain('[[block:ws-root/large]]')
-    expect(projection.renderedContent).not.toContain('x'.repeat(1_000))
+    expect(projection.files).toHaveLength(1)
+    expect(projection.files[0]?.relativePath).toBe('surface.md')
+    expect(projection.files[0]?.content).toContain('[[block:ws-root/large]]')
+    expect(projection.omittedFiles).toHaveLength(1)
+    expect(projection.omittedFiles[0]).toMatchObject({
+      blockId: BlockId('large'),
+      reason: 'token-budget',
+      writable: true,
+    })
+    expect(projection.files.some(file => file.content.includes('x'.repeat(1_000)))).toBe(false)
+    expect(projection.budgetExceeded).toBe(true)
   })
 
-  test('pins cross-Surface Blocks and rebuilds an earlier Projection exactly', async () => {
+  test('pins cross-Surface Blocks as read-only and rebuilds an earlier Projection exactly', async () => {
     const { root, template, store } = await fixture({ evidence: 'source v1' })
     const source = await store.newSurface({ attemptId: 'a1', key: 'source', templatePath: template, surface: 'ws-source' })
     await writeFile(join(template, 'surface.md'), '# Root\n\n[[block:ws-source/evidence]]\n')
@@ -183,7 +203,12 @@ describe('ProjectionCompiler', () => {
     const compiler = new ProjectionCompiler(store)
     const first = await compiler.compile({ surface: 'ws-root', profile: 'research', tokenBudget: 10_000 })
     expect(first.blockRevisions).toEqual([createBlockRef('ws-source', 'evidence', source.revision)])
-    expect(first.renderedContent).toContain('source v1')
+    expect(first.files[1]).toMatchObject({
+      surfaceId: SurfaceId('ws-source'),
+      blockId: BlockId('evidence'),
+      writable: false,
+    })
+    expect(first.files[1]?.content).toContain('source v1')
 
     const sourceWorking = join(root, 'source-working')
     await store.checkout({ surface: 'ws-source', targetPath: sourceWorking })
@@ -191,7 +216,7 @@ describe('ProjectionCompiler', () => {
     await writeFile(sourceBlock, (await readFile(sourceBlock, 'utf8')).replace('source v1', 'source v2'))
     await store.commit({ attemptId: 'a1', key: 'source-v2', workingPath: sourceWorking, baseRevision: source.revision })
     const current = await compiler.compile({ surface: 'ws-root', profile: 'research', tokenBudget: 10_000 })
-    expect(current.renderedContent).toContain('source v2')
+    expect(current.files[1]?.content).toContain('source v2')
 
     const rebuilt = await compiler.compilePinned({
       surface: 'ws-root',
@@ -200,7 +225,8 @@ describe('ProjectionCompiler', () => {
       profile: 'research',
       tokenBudget: 10_000,
     })
-    expect(rebuilt.renderedContent).toBe(first.renderedContent)
+    expect(rebuilt.files).toEqual(first.files)
+    expect(rebuilt.omittedFiles).toEqual(first.omittedFiles)
     expect(rebuilt.blockRevisions).toEqual(first.blockRevisions)
   })
 
@@ -229,8 +255,9 @@ describe('ProjectionCompiler', () => {
     })).rejects.toMatchObject({ code: 'invalid-reference' })
 
     const partial = await compiler.compile({ surface: 'ws-root', profile: 'test', tokenBudget: 130 })
-    expect(partial.renderedContent).toContain('[truncated by Projection budget')
-    expect(partial.renderedContent).toContain('xxx')
+    expect(partial.files.map(file => file.relativePath)).toEqual(['surface.md'])
+    expect(partial.omittedFiles.map(file => file.relativePath)).toEqual(['blocks/result.md'])
+    expect(partial.omittedFiles[0]?.reason).toBe('token-budget')
   })
 })
 

@@ -1,8 +1,7 @@
-import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SandboxProvider } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
@@ -27,6 +26,7 @@ import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { WorkSurfaceHostClient } from '@pf-worksurface/cli'
 import { sha256, stableStringify, WorkSurfaceError, WorkSurfaceStore } from '@pf-worksurface/core'
 import WorkSurfaceService, { resolveWorkSurfaceCliEntrypoint } from '../src/index.ts'
+import type { B2FServiceContract } from '../src/b2f.ts'
 import type { Config, WorkSurfaceProfile } from '../src/index.ts'
 
 interface ScriptOutcome {
@@ -36,10 +36,30 @@ interface ScriptOutcome {
   readonly stderr: string
 }
 
+class FixtureB2FService extends Service implements B2FServiceContract {
+  private resolver: (agent?: Agent, session?: unknown) => string
+
+  constructor(ctx: Context, config: { root: string }) {
+    super(ctx, 'b2f')
+    this.resolver = () => config.root
+  }
+
+  setRootResolver(resolver: (agent?: Agent, session?: unknown) => string): void {
+    this.resolver = resolver
+  }
+
+  resolveRoot(agent?: Agent, session?: unknown): string {
+    return this.resolver(agent, session)
+  }
+}
+
+
 class PassthroughSandbox extends SandboxProvider {
   static enforcement: ConfinedArgv['enforcement'] = 'full'
+  static policies: SandboxPolicy[] = []
 
-  confine(argv: readonly string[], _policy: SandboxPolicy): ConfinedArgv {
+  confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
+    PassthroughSandbox.policies.push(policy)
     return { argv: [...argv], enforcement: PassthroughSandbox.enforcement, denialSignatures: [], runnerFailureRules: [] }
   }
 }
@@ -93,6 +113,7 @@ class EditingProvider implements SubagentProvider {
   starts = 0
   disposals = 0
   personas: string[] = []
+  b2fRoots: string[] = []
   requests: ResolvedSubagentStartRequest[] = []
   isolationFailures: string[] = []
   authorityFailures: string[] = []
@@ -112,7 +133,15 @@ class EditingProvider implements SubagentProvider {
     this.personas.push(request.persona ?? '')
     const child = {
       id: `child-${this.starts}`,
-      session: { header: { version: 0, id: `child-${this.starts}`, createdAt: 0 } },
+      session: {
+        header: {
+          version: 0,
+          id: `child-${this.starts}`,
+          createdAt: 0,
+          origin: 'subagent',
+          delegationDepth: 1,
+        },
+      },
     } as unknown as Agent
     const task = request.prompt[0]?.type === 'text' ? request.prompt[0].text : ''
     if (task === 'start-failed') throw new Error('provider start failed')
@@ -139,6 +168,9 @@ class EditingProvider implements SubagentProvider {
       await new Promise<void>((resolve) => { this.quiescenceRelease = resolve })
     }
     const env = this.ctx.shellEnv.collect({ agent: child } as ToolExecution)
+    const b2fRoot = b2fService(this.ctx).resolveRoot(child)
+    this.b2fRoots.push(b2fRoot)
+    if (b2fRoot !== requiredEnv(env.DSH_WS_WORKING_PATH)) throw new Error('child b2f root does not match its checkout')
     const client = new WorkSurfaceHostClient({
       socketPath: requiredEnv(env.DSH_WS_HOST_SOCKET),
       attemptId: requiredEnv(env.DSH_WS_ATTEMPT_ID),
@@ -278,6 +310,7 @@ afterEach(async () => {
   ScriptedSubprocess.runner = async () => ({ exitCode: 0, signal: null, stdout: '', stderr: '' })
   ScriptedSubprocess.omitCollected = false
   PassthroughSandbox.enforcement = 'full'
+  PassthroughSandbox.policies = []
   vi.restoreAllMocks()
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
@@ -305,6 +338,7 @@ function pluginProfiles(profiles: readonly WorkSurfaceProfile[]): Array<{
 
 async function harnessContext(root: string): Promise<{ ctx: Context; provider: EditingProvider }> {
   const ctx = new Context()
+  await ctx.plugin(FixtureB2FService, { root: join(root, 'b2f-fallback') })
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(SubagentRuntime)
@@ -360,7 +394,7 @@ describe('WorkSurfaceService integration', () => {
   })
 
   it('makes a fresh session WorkSurface visible and runnable without a pre-created root', async () => {
-    const { ctx, fiber, service } = await fixture()
+    const { ctx, fiber, service, root } = await fixture()
     const parent = { id: 'fresh-parent', session: { header: { id: 'fresh-parent' } } } as unknown as Agent
 
     const assembly = await ctx.systemPrompt.assemble({ agent: parent })
@@ -373,13 +407,30 @@ describe('WorkSurfaceService integration', () => {
     expect(prompt).toContain('ws help init')
     expect(prompt).toContain('run_orchestrator')
     expect(runtimeContext).toContain('PF WorkSurface Projection')
+    expect(runtimeContext).toContain('file=work/root/surface.md')
+    expect(runtimeContext).not.toContain('worksurface:block')
     expect(runtimeContext).toContain('# Acceptance Criteria')
     expect(runtimeContext).toContain('# Current Decisions')
     expect(runtimeContext).toContain('# Deliverables and Evidence')
     const currentRoot = (await service.openSessionSurface(parent)).surface
+    const pending = await service.openSessionWorkspace(parent)
     expect(prompt).not.toContain(currentRoot)
+    expect(prompt).toContain('work/root')
+    expect(b2fService(ctx).resolveRoot(parent)).toBe(pending.workspaceRoot)
+    expect((await readdir(pending.rootWorkingPath)).sort()).toEqual(['blocks', 'surface.md'])
+    const parentEnv = ctx.shellEnv.collect({ agent: parent } as ToolExecution)
+    expect(parentEnv.DSH_B2F_ROOT).toBe(pending.workspaceRoot)
+    expect(parentEnv.DSH_WS_WORKING_PATH).toBe(pending.rootWorkingPath)
+    expect(parentEnv.DSH_WS_BASE_REVISION).toBe(pending.rootBaseRevision)
     const secondParent = { id: 'second-fresh-parent', session: { header: { id: 'second-fresh-parent' } } } as unknown as Agent
     expect(renderPrompt(await ctx.systemPrompt.assemble({ agent: secondParent }))).toBe(prompt)
+    const delegated = {
+      id: 'delegated-prompt-agent',
+      session: { header: { id: 'delegated-prompt-agent', origin: 'subagent', delegationDepth: 1 } },
+    } as unknown as Agent
+    const delegatedAssembly = await ctx.systemPrompt.assemble({ agent: delegated })
+    expect(renderPrompt(delegatedAssembly)).not.toContain('PF WorkSurface is active')
+    expect(renderContextSnapshot(delegatedAssembly)).not.toContain('PF WorkSurface Projection')
     const schema = assembly.tools.find(tool => tool.name === 'run_orchestrator')
     expect(schema).toBeDefined()
     expect(schema?.description).toContain('complex, multi-stage work')
@@ -390,6 +441,14 @@ describe('WorkSurfaceService integration', () => {
     let observedRoot = ''
     ScriptedSubprocess.runner = async (spec) => {
       observedRoot = spec.env?.WS_ROOT_SURFACE ?? ''
+      expect(spec.cwd).toBe(pending.workspaceRoot)
+      expect(PassthroughSandbox.policies.at(-1)?.workspaceRoot).toBe(pending.workspaceRoot)
+      expect(spec.env?.DSH_B2F_ROOT).toBe(pending.workspaceRoot)
+      expect(spec.env?.WS_ATTEMPT_DIR).toBe(pending.workspaceRoot)
+      expect(spec.env?.WS_WORKING_SURFACE).toBe(pending.rootSurface)
+      expect(spec.env?.WS_WORKING_PATH).toBe(pending.rootWorkingPath)
+      expect(spec.env?.WS_BASE_REVISION).toBe(pending.rootBaseRevision)
+      expect(spec.argv.at(-1)?.startsWith(`${pending.workspaceRoot}/`)).toBe(false)
       return { exitCode: 0, signal: null, stdout: observedRoot, stderr: '' }
     }
     const result = await ctx.tools.execute({
@@ -402,13 +461,70 @@ describe('WorkSurfaceService integration', () => {
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('fresh-session WorkSurface tool failed')
     expect(observedRoot).toMatch(/^ws-/)
-    expect(result.value).toMatchObject({ rootSurface: observedRoot, stdout: observedRoot })
+    expect(result.value).toMatchObject({
+      rootSurface: observedRoot,
+      stdout: observedRoot,
+      workspaceHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+    })
     expect((await service.openSessionSurface(parent)).surface).toBe(observedRoot)
 
     await fiber.dispose()
+    expect(b2fService(ctx).resolveRoot(parent)).toBe(join(root, 'b2f-fallback'))
     const afterUnload = await ctx.systemPrompt.assemble({ agent: parent })
     expect(renderPrompt(afterUnload)).not.toContain('PF WorkSurface')
     expect(renderContextSnapshot(afterUnload)).not.toContain('PF WorkSurface')
+  })
+
+  it('claims b2f workspaces, commits their prepared root checkout, and hashes public inputs', async () => {
+    const { ctx, service } = await fixture()
+    const parent = { id: 'b2f-parent', session: { header: { id: 'b2f-parent' } } } as unknown as Agent
+    const current = await service.openSessionSurface(parent)
+    await ctx.systemPrompt.assemble({ agent: parent })
+    const firstWorkspace = await service.openSessionWorkspace(parent)
+    expect(b2fService(ctx).resolveRoot(parent)).toBe(firstWorkspace.workspaceRoot)
+
+    const firstSurfacePath = join(firstWorkspace.rootWorkingPath, 'surface.md')
+    await writeFile(firstSurfacePath, `${await readFile(firstSurfacePath, 'utf8')}\nFirst b2f edit.\n`)
+    await writeFile(join(firstWorkspace.workspaceRoot, 'input.txt'), 'first input\n')
+    ScriptedSubprocess.runner = async (spec) => {
+      const client = orchestratorClient(spec)
+      await client.call('commit', {
+        workingPath: requiredEnv(spec.env?.WS_WORKING_PATH),
+        baseRevision: requiredEnv(spec.env?.WS_BASE_REVISION),
+        key: 'prepared-root',
+      })
+      return { exitCode: 0, signal: null, stdout: 'committed prepared root', stderr: '' }
+    }
+
+    const first = await service.runOrchestrator(
+      parent,
+      'bash',
+      'ws commit "$WS_WORKING_PATH" --base "$WS_BASE_REVISION" --key prepared-root',
+      current.surface,
+      new AbortController().signal,
+    )
+    expect(first.workspaceHash).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect((await service.store.readSnapshot(current.surface)).surfaceDocument).toContain('First b2f edit.')
+
+    await ctx.systemPrompt.assemble({ agent: parent })
+    const secondWorkspace = await service.openSessionWorkspace(parent)
+    expect(secondWorkspace.root).not.toBe(firstWorkspace.root)
+    expect(await readFile(join(secondWorkspace.rootWorkingPath, 'surface.md'), 'utf8')).toContain('First b2f edit.')
+    const secondSurfacePath = join(secondWorkspace.rootWorkingPath, 'surface.md')
+    await writeFile(secondSurfacePath, `${await readFile(secondSurfacePath, 'utf8')}\nSecond b2f edit.\n`)
+    await writeFile(join(secondWorkspace.workspaceRoot, 'input.txt'), 'second input\n')
+
+    const second = await service.runOrchestrator(
+      parent,
+      'bash',
+      'ws commit "$WS_WORKING_PATH" --base "$WS_BASE_REVISION" --key prepared-root',
+      current.surface,
+      new AbortController().signal,
+    )
+    expect(second.codeHash).toBe(first.codeHash)
+    expect(second.workspaceHash).not.toBe(first.workspaceHash)
+    expect(second.attemptId).not.toBe(first.attemptId)
+    expect((await service.store.readSnapshot(current.surface)).surfaceDocument).toContain('Second b2f edit.')
   })
 
   it('uses the session root when a model sends an empty optional rootSurface', async () => {
@@ -446,6 +562,9 @@ describe('WorkSurfaceService integration', () => {
     const { ctx, fiber, service, provider, root } = await fixture()
     const observed: Record<string, string> = {}
     ScriptedSubprocess.runner = async (spec) => {
+      expect(spec.env?.WS_ROOT_SURFACE).toBe('ws-root')
+      expect(spec.env?.WS_WORKING_SURFACE).toMatch(/^ws-/)
+      expect(spec.env?.WS_WORKING_SURFACE).not.toBe(spec.env?.WS_ROOT_SURFACE)
       const client = orchestratorClient(spec)
       const valid = await client.call('agent.run', {
         surface: 'ws-root', task: 'valid', profile: 'test', key: 'agent-valid',
@@ -481,6 +600,8 @@ describe('WorkSurfaceService integration', () => {
     })
     expect(provider.starts).toBe(4)
     expect(provider.disposals).toBe(4)
+    expect(provider.b2fRoots).toHaveLength(4)
+    expect(provider.b2fRoots.every(root => root.includes(`${join('workspace', 'work')}`))).toBe(true)
     expect(provider.personas[0]).toContain('File state B')
     expect(provider.personas[0]).not.toContain('Conversation state A')
     expect(provider.personas[0]).toMatch(/base revision is sha256:[0-9a-f]{64}/)
@@ -917,6 +1038,7 @@ describe('WorkSurfaceService integration', () => {
     ScriptedSubprocess.runner = async (spec) => {
       const client = orchestratorClient(spec)
       const attemptId = requiredEnv(spec.env?.WS_ATTEMPT_ID)
+      const privateRoot = activeAttemptRoot(service, attemptId)
       const initial = await client.call('show', { surface: 'ws-root' }) as { revision: string }
 
       await writeStartedAgentRecord(service, attemptId, 'reconcile-missing', 'ws-root', 'valid', 'test')
@@ -926,7 +1048,7 @@ describe('WorkSurfaceService integration', () => {
 
       const completedKey = 'reconcile-completed'
       await writeStartedAgentRecord(service, attemptId, completedKey, 'ws-root', 'reconciled', 'test')
-      const completedRoot = join(spec.cwd, 'runtime', 'agents', completedKey)
+      const completedRoot = join(privateRoot, 'runtime', 'agents', completedKey)
       await mkdir(completedRoot, { recursive: true })
       const reconciled = {
         surface: 'ws-root', surfaceRevision: initial.revision, summary: 'reconciled',
@@ -939,7 +1061,7 @@ describe('WorkSurfaceService integration', () => {
 
       const corruptKey = 'reconcile-corrupt'
       await writeStartedAgentRecord(service, attemptId, corruptKey, 'ws-root', 'corrupt', 'test')
-      const corruptRoot = join(spec.cwd, 'runtime', 'agents', corruptKey)
+      const corruptRoot = join(privateRoot, 'runtime', 'agents', corruptKey)
       await mkdir(corruptRoot, { recursive: true })
       await writeFile(join(corruptRoot, 'result.json'), '{')
       await expect(client.call('agent.run', {
@@ -951,6 +1073,63 @@ describe('WorkSurfaceService integration', () => {
     const parent = { id: 'reconcile-parent', session: { header: { id: 'reconcile-parent' } } } as unknown as Agent
     await expect(service.runOrchestrator(parent, 'bash', '# reconcile', 'ws-root', new AbortController().signal))
       .resolves.toMatchObject({ stdout: 'reconcile-covered' })
+  })
+
+  it('prunes attempts beyond the configured retention and archives their audit files', async () => {
+    const root = await trackedRoot('worksurface-attempt-gc-')
+    const template = join(root, 'root-template')
+    await writeTemplate(template, 'File state B', 'ws-root')
+    const store = new WorkSurfaceStore({ root })
+    await store.newSurface({ attemptId: 'bootstrap', key: 'root', templatePath: template, surface: 'ws-root' })
+
+    const attemptsRoot = join(root, 'attempts')
+    await mkdir(attemptsRoot, { recursive: true })
+    const now = Date.now()
+    for (let index = 0; index < 5; index += 1) {
+      const name = `attempt-old-${index}`
+      const attemptRoot = join(attemptsRoot, name)
+      await mkdir(join(attemptRoot, 'control'), { recursive: true })
+      await mkdir(join(attemptRoot, 'runtime', 'agents'), { recursive: true })
+      await mkdir(join(attemptRoot, 'work', 'root'), { recursive: true })
+      await mkdir(join(attemptRoot, 'bin'), { recursive: true })
+      await writeFile(join(attemptRoot, 'runtime', 'result.json'), JSON.stringify({ attemptId: name, index }))
+      await writeFile(join(attemptRoot, 'control', 'main.sh'), `# ${index}`)
+      await writeFile(join(attemptRoot, 'work', 'root', 'surface.md'), 'bulky checkout')
+      const mtime = new Date(now - (5 - index) * 60_000)
+      await utimes(attemptRoot, mtime, mtime)
+    }
+
+    const { ctx, provider } = await harnessContext(root)
+    const fiber = await ctx.plugin(WorkSurfaceService, {
+      root,
+      attemptsRoot,
+      socketPath: join(root, 'run', 'host.sock'),
+      cliEntrypoint: join(process.cwd(), 'packages', 'worksurface', 'cli', 'lib', 'bin.js'),
+      attemptRetention: 2,
+      profiles: pluginProfiles([{
+        name: 'test',
+        provider: provider.name,
+        tokenBudget: 10_000,
+        maxDepth: 3,
+        maxParallel: 1,
+        persona: 'Work only from files.',
+      }]),
+    })
+
+    expect((await readdir(attemptsRoot)).sort()).toEqual(['attempt-old-3', 'attempt-old-4'])
+    const archiveRoot = join(root, 'runtime', 'attempt-results')
+    expect((await readdir(archiveRoot)).sort()).toEqual([
+      'attempt-old-0.json',
+      'attempt-old-1.json',
+      'attempt-old-2.json',
+    ])
+    const archive = JSON.parse(await readFile(join(archiveRoot, 'attempt-old-0.json'), 'utf8')) as {
+      result: { attemptId: string; index: number }
+      control: { 'main.sh': string }
+    }
+    expect(archive.result).toMatchObject({ attemptId: 'attempt-old-0', index: 0 })
+    expect(archive.control['main.sh']).toBe('# 0')
+    await fiber.dispose()
   })
 
   it('validates configuration, profiles, persistent roots, and socket placement', async () => {
@@ -965,6 +1144,8 @@ describe('WorkSurfaceService integration', () => {
       { root: process.cwd(), maxOutputBytes: 1.5, profiles: [profile] },
       { root: process.cwd(), maxCrashReplays: -1, profiles: [profile] },
       { root: process.cwd(), maxCrashReplays: 1.5, profiles: [profile] },
+      { root: process.cwd(), attemptRetention: 0, profiles: [profile] },
+      { root: process.cwd(), attemptRetention: 1.5, profiles: [profile] },
       { root: process.cwd(), profiles: [] },
       { root: process.cwd(), profiles: [{ ...profile, name: '' }] },
       { root: process.cwd(), profiles: [{ ...profile, provider: '' }] },
@@ -993,7 +1174,7 @@ describe('WorkSurfaceService integration', () => {
     const defaultsFiber = await defaultsHarness.ctx.plugin(WorkSurfaceService, { root: defaultsRoot, profiles: [profile] })
     expect(defaultsHarness.ctx.workSurfaces.config).toMatchObject({
       attemptsRoot: join(defaultsRoot, 'attempts'),
-      socketPath: join(homedir(), '.pf-worksurface', 'run', `${sha256(defaultsRoot).slice(0, 16)}.sock`),
+      socketPath: join(defaultsRoot, 'run', 'host.sock'),
       orchestratorGraceMs: 5000,
       maxOutputBytes: 1024 * 1024,
       maxCrashReplays: 1,
@@ -1065,6 +1246,21 @@ function orchestratorClient(spec: SubprocessSpawnSpec): WorkSurfaceHostClient {
     attemptId: requiredEnv(spec.env?.WS_ATTEMPT_ID),
     token: requiredEnv(spec.env?.WS_ATTEMPT_TOKEN),
   })
+}
+
+function b2fService(ctx: Context): B2FServiceContract {
+  const service = (ctx as Context & { b2f?: B2FServiceContract }).b2f
+  if (service === undefined) throw new Error('fixture b2f service is unavailable')
+  return service
+}
+
+function activeAttemptRoot(service: WorkSurfaceService, attemptId: string): string {
+  const attempts = (service as unknown as {
+    attempts: ReadonlyMap<string, { root: string }>
+  }).attempts
+  const attempt = attempts.get(attemptId)
+  if (attempt === undefined) throw new Error(`missing active attempt ${attemptId}`)
+  return attempt.root
 }
 
 async function writeTemplate(path: string, body: string, surface: string): Promise<void> {

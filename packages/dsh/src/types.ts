@@ -23,6 +23,7 @@ export interface WorkSurfaceConfig {
   readonly orchestratorGraceMs: number
   readonly maxOutputBytes: number
   readonly maxCrashReplays: number
+  readonly attemptRetention: number
   readonly profiles: readonly WorkSurfaceProfile[]
 }
 
@@ -42,7 +43,18 @@ export interface AttemptAuthority {
   readonly id: string
   readonly token: string
   readonly rootSurface: SurfaceIdType
+  /** Host-private attempt state; never returned as a b2f or sandbox root. */
   readonly root: string
+  /** Model-writable workspace shared by b2f and the Orchestrator sandbox. */
+  readonly workspaceRoot: string
+  /** Durable session Surface represented by the prepared root checkout. */
+  readonly workspaceSurface: SurfaceIdType
+  /** Prepared checkout of the calling session's durable root Surface. */
+  readonly rootWorkingPath: string
+  /** Commit base for the prepared root checkout. */
+  readonly rootBaseRevision: Revision
+  /** Hash of every public workspace entry before the Orchestrator starts. */
+  readonly workspaceHash: string
   readonly parent: Agent
   readonly surfaces: Set<SurfaceIdType>
   readonly childCredentials: Map<string, ChildCredential>
@@ -56,6 +68,19 @@ export interface ChildCredential {
   readonly token: string
   readonly surface: SurfaceIdType
   readonly workingPath: string
+  readonly baseRevision: Revision
+}
+
+/** Parent workspace prepared before one model step and later claimed by an Orchestrator. */
+export interface PendingWorkspace {
+  readonly ownerId: string
+  /** Host-private root containing control/runtime state and the public workspace. */
+  readonly root: string
+  /** Only this subtree is writable through b2f and the Orchestrator sandbox. */
+  readonly workspaceRoot: string
+  readonly rootSurface: SurfaceIdType
+  readonly rootWorkingPath: string
+  readonly rootBaseRevision: Revision
 }
 
 /** Persisted outcome of one Orchestrator subprocess. */
@@ -63,6 +88,7 @@ export interface OrchestratorResult {
   readonly attemptId: string
   readonly rootSurface: SurfaceIdType
   readonly codeHash: string
+  readonly workspaceHash: string
   readonly exitCode: number | null
   readonly signal: NodeJS.Signals | null
   readonly stdout: string

@@ -1,7 +1,11 @@
-# PF WorkSurface profile layer. It expects the ordinary DeepSeek Harness base
-# bundle to provide Tool, Sandbox, Subprocess, Subagent, and ShellEnv services.
+# PF WorkSurface profile layer. b2f owns model-output materialization; the
+# WorkSurface service resolves each Agent to a least-authority working root.
 
 - insert:
+    - id: block-to-file
+      name: '@deepseek-ai/dsh-block-to-file'
+      config:
+        root: !!js dshHomePath('pf-worksurface/unbound-b2f')
     - id: pf-worksurface
       name: '@pf-worksurface/dsh'
       config:
