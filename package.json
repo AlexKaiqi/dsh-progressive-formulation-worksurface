@@ -15,9 +15,11 @@
   "scripts": {
     "build": "tsc -b && npm run bundle --workspaces --if-present",
     "clean": "tsc -b --clean",
+    "generate:schema": "node scripts/generate-agent-schema.mjs",
+    "check:generated": "node scripts/generate-agent-schema.mjs --check",
     "test": "npm run build && vitest run",
     "typecheck": "tsc -b --pretty false",
-    "check": "npm run typecheck && npm run test"
+    "check": "npm run typecheck && npm run test && npm run check:generated"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",

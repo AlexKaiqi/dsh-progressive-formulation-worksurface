@@ -18,6 +18,13 @@
 修改执行逻辑时改 `service.ts` / `workspace.ts` / `b2f.ts` / `agent-run.ts` / `authority.ts` /
 `attempt.ts` / `attempt-gc.ts` / `config.ts` / `capabilities.ts`，不要动本目录内容。
 
+## 生成物
+
+`AGENT_OUTPUT_SCHEMA` 是子 Agent 返回契约的权威来源——它就是 `subagents.start()`
+运行时真正强制的那份。`packages/dsh/spec/agent-return.schema.json` 是它的独立
+JSON Schema 投影，由 `npm run generate:schema` 生成，**禁止手工编辑**；
+`npm run check` 会用 `--check` 拒绝过期投影，避免同一事实出现两份互相漂移的副本。
+
 ## 模型感知内容的固定测试
 
 - `packages/dsh/tests/model-awareness.spec.ts`

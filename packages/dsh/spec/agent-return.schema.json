@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pf-worksurface.dev/agent-return.schema.json",
+  "title": "PF WorkSurface child-Agent return contract",
+  "description": "Structured completion every child Agent must return. Generated from AGENT_OUTPUT_SCHEMA in packages/dsh/src/model/child-agent.ts; do not edit by hand.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "surface": {
+      "type": "string"
+    },
+    "surfaceRevision": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "surface": {
+            "type": "string"
+          },
+          "block": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "surface",
+          "block",
+          "revision"
+        ]
+      }
+    }
+  },
+  "required": [
+    "surface",
+    "surfaceRevision",
+    "summary",
+    "outputs"
+  ]
+}
