@@ -12,11 +12,12 @@ Install the plugin into the standard Web profile. The Harness plugin command rec
 
 ```sh
 dsh plugin --profile web add '@pf-worksurface/dsh@0.1.0-rc.5'
+dsh plugin --profile web add '@pf-worksurface/web@0.1.0-rc.5'
 dsh --profile web --dump-config
 dsh plugin --profile web exec ws --version
 ```
 
-The same `add` command works with another profile name and preserves its existing bundle order. A profile-level `cordis.patch.yml` can override the inserted `pf-worksurface` row; because a patch replaces the whole `config`, an override restates every field it retains.
+The second line is the optional Web visualization companion and should be installed after `/dsh`. The same `add` command works with another profile name and preserves its existing bundle order. A profile-level `cordis.patch.yml` can override the inserted `pf-worksurface` row; because a patch replaces the whole `config`, an override restates every field it retains.
 
 After an install or upgrade, restart every DSH process that already loaded the profile, then start a fresh Agent task to verify the assembled request. An existing process continues running the package code it loaded at startup.
 
@@ -29,6 +30,8 @@ Plugin activation waits until the canonical store, session template, and authent
 The Host authorizes each NDJSON request. An Orchestrator may access only Surfaces created or admitted by its attempt. A child credential is narrower: it may inspect its assigned Surface and commit only its exact assigned checkout. The service also guards other model tools from receiving the canonical root path.
 
 `ws agent run` compiles a revision-pinned Projection, materializes a fresh checkout, starts an in-process Subagent provider, and requires the child to return `{ surface, surfaceRevision, summary, outputs }`. Completion is accepted only after the assigned Surface has a new commit and every output names an existing Block at that exact current revision. Final prose is never treated as a result fallback.
+
+Sessions and independent Surfaces have a durable one-to-one binding: the top-level Session binds the root Surface and a delegated child Session binds its child Surface. Control logic may create an unbound draft Surface first, but once an Agent starts that Surface cannot be rebound to another Session. Re-delegation continues the original Session or derives a new Surface. The binding also records the exact Projection revisions consumed by the child so the read-only information-dependency graph is auditable. A Web profile can install `@pf-worksurface/web` to render that graph and each node's attached conversation.
 
 Every external effect is journaled by attempt and key. Attempt identity includes both the immutable control-script hash and a deterministic hash of the public workspace, so the same script with different b2f inputs cannot replay the wrong effects. A crash after `HEAD` publication is reconciled from the commit record, signal-terminated Orchestrators may be replayed up to `maxCrashReplays`, and the service waits for in-flight child operations to become quiescent before releasing attempt authority.
 
@@ -71,6 +74,14 @@ The complete `surface.md` and directly referenced Block files consume data-depen
 #### KV Cache effect
 
 The persona is per-run because Surface content, revision, and working path change; it does not create a stable cross-run prefix.
+
+## Real-model evaluation
+
+Static tests prove that guidance and tool contracts are present; they do not prove that a model can use them. Real-model cases for proactive adoption, correct skipping, root commits, Block/Surface granularity, delegation, conflict recovery, traceable delivery, and repeatability live under [`evals/`](evals/README.md).
+
+```sh
+npm run eval:check
+```
 
 ## Known Limitations and Deferred Work
 

@@ -1,0 +1,43 @@
+{
+  "name": "@pf-worksurface/web",
+  "description": "Web-only Session-scoped WorkSurface dependency graph for DeepSeek Harness",
+  "version": "0.1.0-rc.5",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./app": "./app.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": ["index.js", "client.js", "app.js", "styles.css", "cordis.patch.yml", "README.md", "evals"],
+  "license": "MIT",
+  "scripts": {
+    "bundle": "node --check index.js && node --check client.js && node --check app.js && npm run eval:check",
+    "eval:check": "node evals/validate-suite.mjs",
+    "eval:seed": "node evals/seed.mjs",
+    "prepack": "npm run bundle"
+  },
+  "engines": { "node": "^22.19.0 || >=24.0.0" },
+  "peerDependencies": {
+    "@pf-worksurface/core": "workspace:^",
+    "@pf-worksurface/dsh": "workspace:^"
+  },
+  "dsh": {
+    "inventory": {
+      "summary": {
+        "zh": "按顶层 Session 展示 Surface 工作节点、版本固定的信息依赖与关联对话。",
+        "en": "Visualizes Session-scoped Surface nodes, revision-pinned information dependencies, and attached conversations."
+      },
+      "tags": ["visualization", "web", "subagent", "workspace"],
+      "dependencies": ["@pf-worksurface/dsh"]
+    },
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-client-runtime"],
+      "immediately": false
+    }
+  }
+}

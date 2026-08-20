@@ -12,11 +12,12 @@
 
 ```sh
 dsh plugin --profile web add '@pf-worksurface/dsh@0.1.0-rc.5'
+dsh plugin --profile web add '@pf-worksurface/web@0.1.0-rc.5'
 dsh --profile web --dump-config
 dsh plugin --profile web exec ws --version
 ```
 
-同一条 `add` command 可以换成其他 profile name，并保留其现有 bundle 顺序。Profile 层的 `cordis.patch.yml` 可以覆盖插入的 `pf-worksurface` 配置项；由于 patch 会替换整个 `config`，覆盖时必须重述所有需要保留的字段。
+第二行是可选的 Web 可视化伴侣，应放在 `/dsh` 之后安装。同一条 `add` command 可以换成其他 profile name，并保留其现有 bundle 顺序。Profile 层的 `cordis.patch.yml` 可以覆盖插入的 `pf-worksurface` 配置项；由于 patch 会替换整个 `config`，覆盖时必须重述所有需要保留的字段。
 
 安装或升级后，需要重启所有已经加载该 profile 的 DSH process，然后新建一个 Agent task 来验证组装后的请求。现有 process 会继续运行它在启动时加载的 package code。
 
@@ -29,6 +30,8 @@ Plugin activation 会等待 canonical store、session template 和已认证 Host
 Host 对每个 NDJSON 请求进行授权。Orchestrator 只能访问其 attempt 创建或纳入的 Surface。Child credential 更窄：它只能查看被分配的 Surface，并且只能 commit 精确分配给它的 checkout。Service 还会阻止其他 model tool 接收 canonical root path。
 
 `ws agent run` 编译 revision-pinned Projection，物化新的 checkout，启动 in-process Subagent provider，并要求 child 返回 `{ surface, surfaceRevision, summary, outputs }`。只有在被分配 Surface 已产生新 commit，且每个 output 都指向该精确当前 revision 中存在的 Block 时，完成结果才会被接受。Final prose 绝不会作为结果 fallback。
+
+Session 与独立 Surface 使用持久的一对一绑定：顶层 Session 绑定 root Surface，delegated child Session 绑定 Child Surface。控制逻辑可以先创建未绑定的 draft Surface，但同一 Surface 一旦启动 Agent 就不能改绑另一个 Session；需要重新委派时应继续原 Session，或派生一个新 Surface。绑定同时保存 child 实际读取的 Projection revision，用于构建可审计的信息依赖图。Web profile 可另外安装 `@pf-worksurface/web` 来显示该图与各节点的关联对话。
 
 每个外部 effect 都按 attempt 与 key 记入 journal。Attempt identity 同时包含不可变 control-script hash 与公开 workspace 的确定性 hash，因此同一脚本配不同 b2f 输入时不会错误 replay。发生在 `HEAD` 发布后的 crash 可从 commit record 对账；由 signal 终止的 Orchestrator 最多按 `maxCrashReplays` 重放；service 会等待进行中的 child operation 达到静止状态，之后才释放 attempt authority。
 
@@ -71,6 +74,14 @@ Parent 会得到 b2f file-block 指令、静态 PF WorkSurface guidance、一个
 #### KV Cache 影响
 
 由于 Surface 内容、revision 和 working path 会变化，persona 属于每次 run；它不会形成稳定的跨 run prefix。
+
+## 真实模型评估
+
+静态测试只能证明 guidance 和工具契约被提供，不能证明模型真的会用。真实模型的主动采用、正确跳过、根提交、Block/Surface 粒度、委派、冲突恢复、可追溯交付和稳定性用例维护在 [`evals/`](evals/README.zh.md)。
+
+```sh
+npm run eval:check
+```
 
 ## 已知限制与延期工作
 

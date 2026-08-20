@@ -4,13 +4,20 @@ English | [中文](README.zh.md)
 
 Progressive Formalization WorkSurface is one DeepSeek Harness plugin product. It gives a parent Agent a durable, file-native WorkSurface, an ordinary-script orchestration tool, and revision-pinned collaboration with child Agents.
 
-The repository contains three implementation packages, not three separate plugins:
+The repository contains four implementation packages. The first three form the canonical WorkSurface plugin; the Web package is an optional visualization companion:
 
 - [`@pf-worksurface/core`](packages/core) owns the immutable file store, projections, and effect journal.
 - [`@pf-worksurface/cli`](packages/cli) provides the authenticated `ws` process client.
 - [`@pf-worksurface/dsh`](packages/dsh) is the installable DeepSeek Harness plugin and profile bundle.
+- [`@pf-worksurface/web`](packages/web) adds the Conversation / WorkSurface Graph switch, the Surface DAG, and attached Session conversations to a Web profile.
 
 The `/dsh` bundle composes `@deepseek-ai/dsh-block-to-file` as its model-facing materialization layer; `/core` remains independent of the Harness runtime.
+
+The domain boundary is: the top-level Session owns the whole WorkGraph; one independent Surface maps to one Agent Session; Blocks inside the Surface are concepts, evidence, or decisions. A Block is promoted to a child Surface only when it needs an independent Agent, acceptance boundary, version, or lifecycle. Graph edges come from revision-pinned BlockRefs actually consumed by a Projection, never from the structural `parent` field.
+
+The Web plugin's product-level E2E dimensions, cases, deterministic fixtures, and real DSH run records are maintained under [`packages/web/evals`](packages/web/evals/README.md) and validated during the Web package build.
+
+Whether a real model can decide when to use WorkSurface, commit correctly, choose Block versus Surface granularity, delegate, and recover is evaluated separately under [`packages/dsh/evals`](packages/dsh/evals/README.md); static prompt assertions are not treated as model capability evidence.
 
 
 ## Development

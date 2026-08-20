@@ -123,6 +123,15 @@ importers:
         specifier: ^0.1.0-rc.6
         version: 0.1.0-rc.6(f8724372086ccc1457fc84e7becee2e0)
 
+  packages/web:
+    dependencies:
+      '@pf-worksurface/core':
+        specifier: workspace:^
+        version: link:../core
+      '@pf-worksurface/dsh':
+        specifier: workspace:^
+        version: link:../dsh
+
 packages:
 
   '@deepseek-ai/cordis@4.0.1':
