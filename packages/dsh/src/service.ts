@@ -4,8 +4,10 @@ import { delimiter, join, resolve } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-shell-env'
+import type {} from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-subagent'
+import type {} from '@deepseek-ai/dsh-subprocess'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import {
   deriveSurfaceId,
@@ -17,7 +19,7 @@ import {
   WorkSurfaceError,
   WorkSurfaceStore,
 } from '@pf-worksurface/core'
-import type { Revision, SurfaceIdType } from '@pf-worksurface/core'
+import type { Revision, SurfaceIdType, WorkSurfaceGraphSnapshot } from '@pf-worksurface/core'
 import type { WorkSurfaceRpcRequest } from '@pf-worksurface/cli'
 import { runAgent } from './agent-run.ts'
 import { prepareAttempt } from './attempt.ts'
@@ -168,6 +170,18 @@ export class WorkSurfaceService extends Service {
     return { surface, revision: (await this.store.readHead(surface)).revision }
   }
 
+  /** Resolve a top-level or delegated Session to its owning WorkGraph. */
+  async graphForSession(sessionId: string): Promise<WorkSurfaceGraphSnapshot> {
+    const binding = await this.store.readSessionBinding({ sessionId })
+    if (binding === undefined) throw new WorkSurfaceError('not-found', `Session '${sessionId}' has no WorkSurface binding`, { sessionId })
+    return this.store.graphSnapshot(binding.rootSurface)
+  }
+
+  /** Build the WorkGraph rooted at an explicitly known top-level Surface. */
+  async graphSnapshot(rootSurface: string): Promise<WorkSurfaceGraphSnapshot> {
+    return this.store.graphSnapshot(rootSurface)
+  }
+
   /**
    * Prepare the parent workspace before model generation so b2f has a synchronous root.
    * @param agent - Agent that owns the pending workspace.
@@ -180,7 +194,10 @@ export class WorkSurfaceService extends Service {
   ): Promise<PendingWorkspace> {
     const agentId = String(agent.id)
     const ready = this.pendingWorkspaces.get(agentId)
-    if (ready !== undefined) return ready
+    if (ready !== undefined) {
+      assertWorkspaceSurface(ready, current)
+      return ready
+    }
 
     let initialization = this.pendingWorkspaceInitializations.get(agentId)
     if (initialization === undefined) {
@@ -199,7 +216,9 @@ export class WorkSurfaceService extends Service {
       this.pendingWorkspaceInitializations.set(agentId, initialization)
     }
     try {
-      return await initialization
+      const workspace = await initialization
+      assertWorkspaceSurface(workspace, current)
+      return workspace
     } finally {
       if (this.pendingWorkspaceInitializations.get(agentId) === initialization) {
         this.pendingWorkspaceInitializations.delete(agentId)
@@ -330,8 +349,14 @@ export class WorkSurfaceService extends Service {
   ): Promise<OrchestratorResult> {
     if (script.trim() === '') throw new WorkSurfaceError('invalid-working-copy', 'Orchestrator script must not be blank')
     const rootSurface = SurfaceId(rootSurfaceInput)
-    await this.store.readHead(rootSurface)
-    const workspace = await this.openSessionWorkspace(parent)
+    const rootHead = await this.store.readHead(rootSurface)
+    const workspace = await this.openSessionWorkspace(parent, { surface: rootSurface, revision: rootHead.revision })
+    await this.store.bindSession({
+      surface: rootSurface,
+      sessionId: String(parent.id),
+      role: 'root',
+      rootSurface,
+    })
     const workspaceHash = await hashWorkspace(workspace.workspaceRoot)
     const codeHash = sha256(`${language} ${script}`)
     const attemptId = `attempt-${sha256(`${parent.id} ${rootSurface} ${codeHash} ${workspaceHash}`).slice(0, 24)}`
@@ -446,6 +471,12 @@ export class WorkSurfaceService extends Service {
       if ((error instanceof WorkSurfaceError) === false || error.code !== 'already-exists') throw error
       await this.store.readHead(surface)
     }
+    await this.store.bindSession({
+      surface,
+      sessionId: String(agent.id),
+      role: 'root',
+      rootSurface: surface,
+    })
     return surface
   }
 
@@ -524,4 +555,19 @@ export class WorkSurfaceService extends Service {
 
 function sessionSurfaceId(agent: Agent): SurfaceIdType {
   return deriveSurfaceId('session-root', String(agent.id))
+}
+
+function assertWorkspaceSurface(
+  workspace: PendingWorkspace,
+  current?: { readonly surface: SurfaceIdType; readonly revision: Revision },
+): void {
+  if (current === undefined) return
+  if (workspace.rootSurface !== current.surface || workspace.rootBaseRevision !== current.revision) {
+    throw new WorkSurfaceError('session-binding-conflict', 'the prepared Session workspace belongs to a different Surface revision', {
+      preparedSurface: workspace.rootSurface,
+      preparedRevision: workspace.rootBaseRevision,
+      requestedSurface: current.surface,
+      requestedRevision: current.revision,
+    })
+  }
 }

@@ -16,6 +16,7 @@ import {
   parseSurfaceDocument,
 } from './markdown.ts'
 import type {
+  BindSurfaceSessionOptions,
   BlockId as BlockIdType,
   BlockRef,
   CheckoutResult,
@@ -26,6 +27,11 @@ import type {
   SurfaceHead,
   SurfaceId as SurfaceIdType,
   SurfaceSnapshot,
+  SurfaceSessionBinding,
+  SurfaceSessionInput,
+  WorkSurfaceDependencyEdge,
+  WorkSurfaceGraphNode,
+  WorkSurfaceGraphSnapshot,
 } from './types.ts'
 
 interface StoreOptions {
@@ -74,6 +80,12 @@ interface CommitRecord<T = unknown> {
 interface MutableSnapshot {
   readonly surfaceDocument: string
   readonly blocks: Map<BlockIdType, string>
+}
+
+interface SurfaceSessionIndex {
+  readonly version: 1
+  readonly bySurface: Readonly<Record<string, SurfaceSessionBinding>>
+  readonly bySession: Readonly<Record<string, string>>
 }
 
 const UTF8 = new TextDecoder('utf-8', { fatal: true })
@@ -310,6 +322,220 @@ export class WorkSurfaceStore {
     return records
   }
 
+  /**
+   * Durably bind one independent Surface to exactly one Agent Session.
+   * Repeating the same complete binding is idempotent; either identity being reused is rejected.
+   */
+  async bindSession(options: BindSurfaceSessionOptions): Promise<SurfaceSessionBinding> {
+    await this.init()
+    const surface = SurfaceId(options.surface)
+    const rootSurface = SurfaceId(options.rootSurface)
+    const sessionId = requireSessionId(options.sessionId, 'sessionId')
+    const parentSessionId = options.parentSessionId === undefined
+      ? undefined
+      : requireSessionId(options.parentSessionId, 'parentSessionId')
+    await this.readHead(surface)
+    await this.readHead(rootSurface)
+    if (options.role === 'root' && (surface !== rootSurface || parentSessionId !== undefined || options.input !== undefined)) {
+      throw new WorkSurfaceError('invalid-working-copy', 'root Session binding must bind the root Surface without parent or delegated input')
+    }
+    if (options.role === 'delegated' && parentSessionId === undefined) {
+      throw new WorkSurfaceError('invalid-working-copy', 'delegated Session binding requires parentSessionId')
+    }
+    if (options.input !== undefined) await this.validateSessionInput(surface, options.input)
+
+    const paths = this.sessionBindingPaths()
+    await mkdir(paths.root, { recursive: true, mode: 0o700 })
+    return withRecoverableLock(paths.lock, async () => {
+      const index = await this.readSessionIndex()
+      const existingForSurface = index.bySurface[surface]
+      const existingSurfaceForSession = index.bySession[sessionId]
+      const candidate = {
+        surface,
+        sessionId,
+        role: options.role,
+        rootSurface,
+        ...(parentSessionId === undefined ? {} : { parentSessionId }),
+        ...(options.input === undefined ? {} : { input: options.input }),
+      }
+      if (existingForSurface !== undefined) {
+        if (sameBindingIdentity(existingForSurface, candidate)) return existingForSurface
+        throw new WorkSurfaceError('session-binding-conflict', `Surface '${surface}' is already bound to Session '${existingForSurface.sessionId}'`, {
+          surface,
+          existingSessionId: existingForSurface.sessionId,
+          requestedSessionId: sessionId,
+        })
+      }
+      if (existingSurfaceForSession !== undefined) {
+        throw new WorkSurfaceError('session-binding-conflict', `Session '${sessionId}' is already bound to Surface '${existingSurfaceForSession}'`, {
+          sessionId,
+          existingSurface: existingSurfaceForSession,
+          requestedSurface: surface,
+        })
+      }
+      const now = new Date().toISOString()
+      const binding: SurfaceSessionBinding = { ...candidate, createdAt: now, updatedAt: now }
+      await writeJsonAtomic(paths.index, {
+        version: 1,
+        bySurface: { ...index.bySurface, [surface]: binding },
+        bySession: { ...index.bySession, [sessionId]: surface },
+      } satisfies SurfaceSessionIndex)
+      return binding
+    })
+  }
+
+  /** Record the final committed revision without changing the immutable Session/Surface pair. */
+  async completeSessionBinding(surfaceInput: string, sessionIdInput: string, outputRevision: Revision): Promise<SurfaceSessionBinding> {
+    const surface = SurfaceId(surfaceInput)
+    const sessionId = requireSessionId(sessionIdInput, 'sessionId')
+    assertRevision(outputRevision)
+    await this.readSnapshot(surface, outputRevision)
+    const paths = this.sessionBindingPaths()
+    return withRecoverableLock(paths.lock, async () => {
+      const index = await this.readSessionIndex()
+      const existing = index.bySurface[surface]
+      if (existing === undefined || existing.sessionId !== sessionId) {
+        throw new WorkSurfaceError('session-binding-conflict', `Surface '${surface}' is not bound to Session '${sessionId}'`, { surface, sessionId })
+      }
+      if (existing.outputRevision === outputRevision) return existing
+      if (existing.outputRevision !== undefined) {
+        throw new WorkSurfaceError('session-binding-conflict', `Session '${sessionId}' already completed at another revision`, {
+          existingRevision: existing.outputRevision,
+          requestedRevision: outputRevision,
+        })
+      }
+      const binding: SurfaceSessionBinding = { ...existing, outputRevision, updatedAt: new Date().toISOString() }
+      await writeJsonAtomic(paths.index, {
+        ...index,
+        bySurface: { ...index.bySurface, [surface]: binding },
+      } satisfies SurfaceSessionIndex)
+      return binding
+    })
+  }
+
+  /** Read the binding for either identity. */
+  async readSessionBinding(identity: { readonly surface: string } | { readonly sessionId: string }): Promise<SurfaceSessionBinding | undefined> {
+    const index = await this.readSessionIndex()
+    if ('surface' in identity) return index.bySurface[SurfaceId(identity.surface)]
+    const sessionId = requireSessionId(identity.sessionId, 'sessionId')
+    const surface = index.bySession[sessionId]
+    return surface === undefined ? undefined : index.bySurface[surface]
+  }
+
+  /** Return all durable bindings in stable creation order. */
+  async listSessionBindings(): Promise<readonly SurfaceSessionBinding[]> {
+    const index = await this.readSessionIndex()
+    return Object.values(index.bySurface).sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.surface.localeCompare(right.surface))
+  }
+
+  /** Build the current Surface DAG for one top-level Session Surface. */
+  async graphSnapshot(rootSurfaceInput: string): Promise<WorkSurfaceGraphSnapshot> {
+    const rootSurface = SurfaceId(rootSurfaceInput)
+    await this.readHead(rootSurface)
+    const bindings = await this.listSessionBindings()
+    const bindingBySurface = new Map(bindings.map(binding => [binding.surface, binding]))
+    const snapshots = new Map<SurfaceIdType, SurfaceSnapshot>()
+    for (const name of await readdir(join(this.canonicalRoot, 'surfaces'))) {
+      const surface = SurfaceId(name)
+      snapshots.set(surface, await this.readSnapshot(surface))
+    }
+    const included = new Set<SurfaceIdType>([rootSurface])
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const [surface, snapshot] of snapshots) {
+        const parent = parseSurfaceDocument(snapshot.surfaceDocument).parent
+        if (parent !== null && included.has(parent) && !included.has(surface)) {
+          included.add(surface)
+          changed = true
+        }
+      }
+    }
+    const nodes: WorkSurfaceGraphNode[] = []
+    for (const surface of [...included].sort()) {
+      const snapshot = snapshots.get(surface)
+      if (snapshot === undefined) continue
+      const envelope = parseSurfaceDocument(snapshot.surfaceDocument)
+      const binding = bindingBySurface.get(surface)
+      nodes.push({
+        surface,
+        sessionId: binding?.sessionId ?? null,
+        phase: binding === undefined ? 'draft' : binding.outputRevision === undefined ? 'bound' : 'completed',
+        revision: snapshot.revision,
+        parent: envelope.parent,
+        status: envelope.status,
+        surfaceDocument: snapshot.surfaceDocument,
+        blocks: [...snapshot.blocks].map(([block, content]) => {
+          const parsed = parseBlockDocument(content, `Block '${block}'`)
+          return { block, kind: parsed.kind, status: parsed.status, content }
+        }),
+      })
+    }
+    const edges: WorkSurfaceDependencyEdge[] = []
+    for (const target of nodes) {
+      const binding = bindingBySurface.get(target.surface)
+      const refs = binding?.input?.blockRevisions ?? await this.currentInputRefs(target.surface, target.revision, target.surfaceDocument)
+      const omitted = new Set((binding?.input?.omittedBlockRevisions ?? []).map(blockRefKey))
+      for (const [index, ref] of refs.entries()) {
+        if (ref.surface === target.surface || !included.has(ref.surface)) continue
+        edges.push({
+          id: sha256(`${ref.surface}\0${target.surface}\0${ref.block}\0${ref.revision}\0${target.revision}\0${index}`),
+          kind: 'information',
+          source: ref.surface,
+          target: target.surface,
+          sourceBlock: ref.block,
+          sourceRevision: ref.revision,
+          targetRevision: binding?.input?.surfaceRevision ?? target.revision,
+          omitted: omitted.has(blockRefKey(ref)),
+        })
+      }
+    }
+    return {
+      rootSurface,
+      rootSessionId: bindingBySurface.get(rootSurface)?.sessionId ?? null,
+      createdAt: new Date().toISOString(),
+      nodes,
+      edges,
+    }
+  }
+
+  private sessionBindingPaths() {
+    const root = join(this.runtimeRoot, 'surface-sessions')
+    return { root, index: join(root, 'index.json'), lock: join(root, 'index.lock') }
+  }
+
+  private async readSessionIndex(): Promise<SurfaceSessionIndex> {
+    const value = await readJsonOptional<SurfaceSessionIndex>(this.sessionBindingPaths().index)
+    if (value === undefined) return { version: 1, bySurface: {}, bySession: {} }
+    if (value.version !== 1 || typeof value.bySurface !== 'object' || typeof value.bySession !== 'object') {
+      throw new WorkSurfaceError('canonical-corrupt', 'invalid Surface/Session binding index')
+    }
+    return value
+  }
+
+  private async validateSessionInput(surface: SurfaceIdType, input: SurfaceSessionInput): Promise<void> {
+    if (input.profile.trim() === '') throw new WorkSurfaceError('unsupported-profile', 'Session input profile must not be blank')
+    await this.readSnapshot(surface, input.surfaceRevision)
+    await this.validateOutputRefs(input.blockRevisions)
+    const available = new Set(input.blockRevisions.map(blockRefKey))
+    for (const omitted of input.omittedBlockRevisions) {
+      if (!available.has(blockRefKey(omitted))) {
+        throw new WorkSurfaceError('invalid-reference', 'omitted Session input must also occur in blockRevisions', { omitted })
+      }
+    }
+  }
+
+  private async currentInputRefs(surface: SurfaceIdType, revision: Revision, document: string): Promise<readonly BlockRef[]> {
+    const refs: BlockRef[] = []
+    for (const reference of parseBlockReferences(document)) {
+      refs.push({
+        ...reference,
+        revision: reference.surface === surface ? revision : (await this.readHead(reference.surface)).revision,
+      })
+    }
+    return refs
+  }
+
   private paths(surface: SurfaceIdType) {
     const surfaceRoot = join(this.canonicalRoot, 'surfaces', surface)
     return {
@@ -412,6 +638,29 @@ export class WorkSurfaceStore {
     }
     return undefined
   }
+}
+
+function requireSessionId(value: string, label: string): string {
+  if (value.trim() === '' || value.includes('\0')) throw new WorkSurfaceError('invalid-id', `${label} must be a non-blank Session id`)
+  return value
+}
+
+function blockRefKey(ref: BlockRef): string {
+  return `${ref.surface}\0${ref.block}\0${ref.revision}`
+}
+
+function sameBindingIdentity(
+  existing: SurfaceSessionBinding,
+  candidate: Omit<SurfaceSessionBinding, 'createdAt' | 'updatedAt' | 'outputRevision'>,
+): boolean {
+  return stableStringify({
+    surface: existing.surface,
+    sessionId: existing.sessionId,
+    role: existing.role,
+    rootSurface: existing.rootSurface,
+    parentSessionId: existing.parentSessionId,
+    input: existing.input,
+  }) === stableStringify(candidate)
 }
 
 function instantiateTemplate(template: MutableSnapshot, surface: SurfaceIdType, parent: SurfaceIdType | null): MutableSnapshot {

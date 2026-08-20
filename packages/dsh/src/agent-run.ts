@@ -2,7 +2,9 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
+import type {} from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-subagent'
+import type {} from '@deepseek-ai/dsh-subprocess'
 import type { Context } from '@deepseek-ai/cordis'
 import { EffectJournal, ProjectionCompiler, WorkSurfaceError, WorkSurfaceStore } from '@pf-worksurface/core'
 import type { SurfaceIdType } from '@pf-worksurface/core'
@@ -118,6 +120,23 @@ export async function runAgent(
         attempt.childCredentials.set(run.id, credential)
         let settled: Awaited<typeof run.result>
         try {
+          await host.store.bindSession({
+            surface: request.surface,
+            sessionId: run.id,
+            role: 'delegated',
+            rootSurface: attempt.rootSurface,
+            parentSessionId: String(attempt.parent.id),
+            input: {
+              surfaceRevision: projection.surfaceRevision,
+              blockRevisions: projection.blockRevisions,
+              omittedBlockRevisions: projection.omittedFiles.map(file => ({
+                surface: file.surfaceId,
+                block: file.blockId,
+                revision: file.revision,
+              })),
+              profile: projection.profile,
+            },
+          })
           settled = await run.result
         } finally {
           await run.dispose()
@@ -154,6 +173,7 @@ export async function runAgent(
           }
         }
         await host.store.validateOutputRefs(completion.outputs)
+        await host.store.completeSessionBinding(request.surface, run.id, completion.surfaceRevision)
         await writeFileAtomic(join(runRoot, 'result.json'), `${JSON.stringify(completion, null, 2)}
 `, { mode: 0o600, dirMode: 0o700 })
         await writeFileAtomic(join(runRoot, 'binding.json'), `${JSON.stringify({ agentId: childId, surface: request.surface }, null, 2)}
@@ -161,7 +181,7 @@ export async function runAgent(
           mode: 0o600,
           dirMode: 0o700,
         })
-        host.ctx.emit('worksurface/agent-end', { attemptId: attempt.id, agentId: childId, ...completion })
+        host.ctx.emit('worksurface/agent-end', { attemptId: attempt.id, agentId: run.id, ...completion })
         return completion
       } finally {
         attempt.activeAgents -= 1

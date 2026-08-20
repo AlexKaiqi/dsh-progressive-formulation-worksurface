@@ -1,0 +1,116 @@
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, test } from 'vitest'
+import { ProjectionCompiler, WorkSurfaceError, WorkSurfaceStore } from '../src/index.ts'
+
+const roots: string[] = []
+
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
+})
+
+async function template(root: string, name: string, surfaceBody: string, blocks: Record<string, string> = {}): Promise<string> {
+  const path = join(root, name)
+  await mkdir(join(path, 'blocks'), { recursive: true })
+  await writeFile(join(path, 'surface.md'), surfaceBody)
+  for (const [id, body] of Object.entries(blocks)) {
+    await writeFile(join(path, 'blocks', `${id}.md`), `---
+block_id: ${id}
+surface_id: template
+kind: evidence
+status: accepted
+derived_from: []
+---
+${body}
+`)
+  }
+  return path
+}
+
+async function graphFixture(): Promise<{ root: string; store: WorkSurfaceStore }> {
+  const root = await mkdtemp(join(tmpdir(), 'worksurface-graph-'))
+  roots.push(root)
+  return { root, store: new WorkSurfaceStore({ root: join(root, 'store') }) }
+}
+
+describe('Surface/Session binding', () => {
+  test('is one-to-one, durable, and idempotent for the same identity pair', async () => {
+    const { root, store } = await graphFixture()
+    const source = await template(root, 'root-template', '# Root\n')
+    await store.newSurface({ attemptId: 'a', key: 'root', templatePath: source, surface: 'ws-root' })
+    const first = await store.bindSession({ surface: 'ws-root', sessionId: 'session-root', role: 'root', rootSurface: 'ws-root' })
+    await expect(store.bindSession({ surface: 'ws-root', sessionId: 'session-root', role: 'root', rootSurface: 'ws-root' }))
+      .resolves.toEqual(first)
+    await expect(store.bindSession({ surface: 'ws-root', sessionId: 'session-other', role: 'root', rootSurface: 'ws-root' }))
+      .rejects.toMatchObject({ code: 'session-binding-conflict' } satisfies Partial<WorkSurfaceError>)
+
+    const reopened = new WorkSurfaceStore({ root: join(root, 'store') })
+    await expect(reopened.readSessionBinding({ sessionId: 'session-root' })).resolves.toEqual(first)
+  })
+
+  test('rejects binding one Session to a second Surface', async () => {
+    const { root, store } = await graphFixture()
+    const source = await template(root, 'template', '# Surface\n')
+    await store.newSurface({ attemptId: 'a', key: 'root', templatePath: source, surface: 'ws-root' })
+    await store.newSurface({ attemptId: 'a', key: 'child', templatePath: source, surface: 'ws-child', parent: 'ws-root' })
+    await store.bindSession({ surface: 'ws-root', sessionId: 'session-root', role: 'root', rootSurface: 'ws-root' })
+    await expect(store.bindSession({
+      surface: 'ws-child', sessionId: 'session-root', role: 'delegated', rootSurface: 'ws-root', parentSessionId: 'session-root',
+    })).rejects.toMatchObject({ code: 'session-binding-conflict' } satisfies Partial<WorkSurfaceError>)
+  })
+})
+
+describe('WorkGraph projection', () => {
+  test('keeps draft nodes and derives multi-parent edges from exact delegated input revisions', async () => {
+    const { root, store } = await graphFixture()
+    const rootTemplate = await template(root, 'root-template', '# Root\n', { root_fact: 'root fact' })
+    const sourceTemplate = await template(root, 'source-template', '# Source\n', { source_fact: 'source fact' })
+    const targetTemplate = await template(
+      root,
+      'target-template',
+      '# Target\n\n[[block:ws-root/root_fact]]\n[[block:ws-source/source_fact]]\n',
+    )
+    await store.newSurface({ attemptId: 'a', key: 'root', templatePath: rootTemplate, surface: 'ws-root' })
+    await store.newSurface({ attemptId: 'a', key: 'source', templatePath: sourceTemplate, surface: 'ws-source', parent: 'ws-root' })
+    await store.newSurface({ attemptId: 'a', key: 'target', templatePath: targetTemplate, surface: 'ws-target', parent: 'ws-root' })
+    await store.bindSession({ surface: 'ws-root', sessionId: 'session-root', role: 'root', rootSurface: 'ws-root' })
+    await store.bindSession({
+      surface: 'ws-source', sessionId: 'session-source', role: 'delegated', rootSurface: 'ws-root', parentSessionId: 'session-root',
+    })
+    const projection = await new ProjectionCompiler(store).compile({ surface: 'ws-target', profile: 'research', tokenBudget: 10_000 })
+    await store.bindSession({
+      surface: 'ws-target',
+      sessionId: 'session-target',
+      role: 'delegated',
+      rootSurface: 'ws-root',
+      parentSessionId: 'session-root',
+      input: {
+        surfaceRevision: projection.surfaceRevision,
+        blockRevisions: projection.blockRevisions,
+        omittedBlockRevisions: [],
+        profile: projection.profile,
+      },
+    })
+    await store.completeSessionBinding('ws-target', 'session-target', projection.surfaceRevision)
+
+    const graph = await store.graphSnapshot('ws-root')
+    expect(graph.rootSessionId).toBe('session-root')
+    expect(graph.nodes.map(node => [node.surface, node.phase])).toEqual([
+      ['ws-root', 'bound'],
+      ['ws-source', 'bound'],
+      ['ws-target', 'completed'],
+    ])
+    expect(graph.edges.map(edge => [edge.source, edge.target, edge.sourceBlock, edge.sourceRevision])).toEqual([
+      ['ws-root', 'ws-target', 'root_fact', projection.blockRevisions[0]?.revision],
+      ['ws-source', 'ws-target', 'source_fact', projection.blockRevisions[1]?.revision],
+    ])
+
+    const draftTemplate = await template(root, 'draft-template', '# Draft\n')
+    await store.newSurface({ attemptId: 'a', key: 'draft', templatePath: draftTemplate, surface: 'ws-draft', parent: 'ws-root' })
+    expect((await store.graphSnapshot('ws-root')).nodes.find(node => node.surface === 'ws-draft')).toMatchObject({
+      sessionId: null,
+      phase: 'draft',
+    })
+  })
+})

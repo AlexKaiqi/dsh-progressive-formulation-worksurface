@@ -14,6 +14,7 @@ export type WorkSurfaceErrorCode =
   | 'not-found'
   | 'physical-delete-forbidden'
   | 'revision-conflict'
+  | 'session-binding-conflict'
   | 'target-not-empty'
   | 'unauthorized'
   | 'unsupported-profile'
@@ -74,6 +75,7 @@ export const RECOVERY: Record<WorkSurfaceErrorCode, string> = {
   'not-found': 'run `ws show <surface>` to confirm the target exists at the revision you expect',
   'physical-delete-forbidden': 'supersede the block with a new revision instead of deleting it',
   'revision-conflict': 'run `ws show <surface>` for the current revision, rebase your edit on it, then commit with --base set to that revision',
+  'session-binding-conflict': 'use the Session already bound to this Surface, or run `ws new` to create a child Surface before starting a different Session',
   'target-not-empty': 'choose an empty target path, or remove the existing contents before checking out',
   unauthorized: 'stay inside the attempt workspace and under the Surface named by WS_ROOT_SURFACE; use `ws checkout` to obtain a writable path',
   'unsupported-profile': 'run `ws show --projection` without --profile, or pass a profile declared in the plugin configuration',

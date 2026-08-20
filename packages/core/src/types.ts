@@ -63,6 +63,81 @@ export interface SurfaceSnapshot {
   readonly blocks: ReadonlyMap<BlockId, string>
 }
 
+/** Why a durable Agent Session owns a Surface. */
+export type SurfaceSessionRole = 'root' | 'delegated'
+
+/** Exact model input that caused a delegated Session to consume other Surfaces. */
+export interface SurfaceSessionInput {
+  readonly surfaceRevision: Revision
+  readonly blockRevisions: readonly BlockRef[]
+  readonly omittedBlockRevisions: readonly BlockRef[]
+  readonly profile: string
+}
+
+/** Durable one-to-one identity binding between one independent Surface and one Agent Session. */
+export interface SurfaceSessionBinding {
+  readonly surface: SurfaceId
+  readonly sessionId: string
+  readonly role: SurfaceSessionRole
+  readonly rootSurface: SurfaceId
+  readonly parentSessionId?: string
+  readonly input?: SurfaceSessionInput
+  readonly outputRevision?: Revision
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
+/** Request for creating an immutable Surface/Session identity binding. */
+export interface BindSurfaceSessionOptions {
+  readonly surface: string
+  readonly sessionId: string
+  readonly role: SurfaceSessionRole
+  readonly rootSurface: string
+  readonly parentSessionId?: string
+  readonly input?: SurfaceSessionInput
+}
+
+/** Parsed Block content rendered inside one graph node. */
+export interface WorkSurfaceGraphBlock {
+  readonly block: BlockId
+  readonly kind: string
+  readonly status: string
+  readonly content: string
+}
+
+/** One independent work unit in a Session-scoped WorkGraph. */
+export interface WorkSurfaceGraphNode {
+  readonly surface: SurfaceId
+  readonly sessionId: string | null
+  readonly phase: 'draft' | 'bound' | 'completed'
+  readonly revision: Revision
+  readonly parent: SurfaceId | null
+  readonly status: string
+  readonly surfaceDocument: string
+  readonly blocks: readonly WorkSurfaceGraphBlock[]
+}
+
+/** Revision-pinned information flow between two Surface nodes. */
+export interface WorkSurfaceDependencyEdge {
+  readonly id: string
+  readonly kind: 'information'
+  readonly source: SurfaceId
+  readonly target: SurfaceId
+  readonly sourceBlock: BlockId
+  readonly sourceRevision: Revision
+  readonly targetRevision: Revision
+  readonly omitted: boolean
+}
+
+/** Read-only graph projection owned by one top-level Session Surface. */
+export interface WorkSurfaceGraphSnapshot {
+  readonly rootSurface: SurfaceId
+  readonly rootSessionId: string | null
+  readonly createdAt: string
+  readonly nodes: readonly WorkSurfaceGraphNode[]
+  readonly edges: readonly WorkSurfaceDependencyEdge[]
+}
+
 /** File kind carried by a model-facing WorkSurface Projection. */
 export type WorkSurfaceProjectionFileKind = 'surface' | 'block'
 

@@ -564,13 +564,14 @@ describe('WorkSurfaceService integration', () => {
     ScriptedSubprocess.runner = async (spec) => {
       expect(spec.env?.WS_ROOT_SURFACE).toBe('ws-root')
       expect(spec.env?.WS_WORKING_SURFACE).toMatch(/^ws-/)
-      expect(spec.env?.WS_WORKING_SURFACE).not.toBe(spec.env?.WS_ROOT_SURFACE)
+      expect(spec.env?.WS_WORKING_SURFACE).toBe(spec.env?.WS_ROOT_SURFACE)
       const client = orchestratorClient(spec)
+      const validSurface = await createAgentSurface(client, spec, 'agent-valid')
       const valid = await client.call('agent.run', {
-        surface: 'ws-root', task: 'valid', profile: 'test', key: 'agent-valid',
+        surface: validSurface, task: 'valid', profile: 'test', key: 'agent-valid',
       }) as { surfaceRevision: string }
       const replay = await client.call('agent.run', {
-        surface: 'ws-root', task: 'valid', profile: 'test', key: 'agent-valid',
+        surface: validSurface, task: 'valid', profile: 'test', key: 'agent-valid',
       }) as { surfaceRevision: string }
       expect(replay).toEqual(valid)
       for (const [name, task, key] of [
@@ -579,8 +580,9 @@ describe('WorkSurfaceService integration', () => {
         ['wrong', 'wrong-revision', 'agent-wrong'],
         ['key-conflict', 'different task', 'agent-valid'],
       ] as const) {
+        const surface = name === 'key-conflict' ? validSurface : await createAgentSurface(client, spec, key)
         try {
-          await client.call('agent.run', { surface: 'ws-root', task, profile: 'test', key })
+          await client.call('agent.run', { surface, task, profile: 'test', key })
           observed[name] = 'unexpected-success'
         } catch (error) {
           observed[name] = (error as { code?: string }).code ?? 'unknown'
@@ -602,7 +604,7 @@ describe('WorkSurfaceService integration', () => {
     expect(provider.disposals).toBe(4)
     expect(provider.b2fRoots).toHaveLength(4)
     expect(provider.b2fRoots.every(root => root.includes(`${join('workspace', 'work')}`))).toBe(true)
-    expect(provider.personas[0]).toContain('File state B')
+    expect(provider.personas[0]).toContain('Agent Surface agent-valid')
     expect(provider.personas[0]).not.toContain('Conversation state A')
     expect(provider.personas[0]).toMatch(/base revision is sha256:[0-9a-f]{64}/)
     expect(ctx.tools.schemas().some(schema => schema.name === 'run_orchestrator')).toBe(true)
@@ -669,8 +671,9 @@ describe('WorkSurfaceService integration', () => {
     let agentCall: Promise<unknown> | undefined
     ScriptedSubprocess.runner = async (spec) => {
       const client = orchestratorClient(spec)
+      const surface = await createAgentSurface(client, spec, 'quiescence')
       agentCall = client.call('agent.run', {
-        surface: 'ws-root', task: 'quiescence', profile: 'test', key: 'agent-quiescence',
+        surface, task: 'quiescence', profile: 'test', key: 'agent-quiescence',
       })
       await provider.quiescenceReady
       return { exitCode: 0, signal: null, stdout: 'script-ended', stderr: '' }
@@ -941,8 +944,9 @@ describe('WorkSurfaceService integration', () => {
     ScriptedSubprocess.runner = async (spec) => {
       const client = orchestratorClient(spec)
       for (const [task, code] of invalidTasks) {
+        const surface = await createAgentSurface(client, spec, task)
         await expectCode(client.call('agent.run', {
-          surface: 'ws-root', task, profile: 'test', key: task,
+          surface, task, profile: 'test', key: task,
         }), code)
       }
       for (const [task, code] of [
@@ -954,25 +958,29 @@ describe('WorkSurfaceService integration', () => {
         ['wrong-output-revision', 'invalid-reference'],
         ['start-failed', 'effect-failed'],
       ] as const) {
+        const surface = await createAgentSurface(client, spec, task)
         await expectCode(client.call('agent.run', {
-          surface: 'ws-root', task, profile: 'test', key: task,
+          surface, task, profile: 'test', key: task,
         }), code)
       }
+      const authoritySurface = await createAgentSurface(client, spec, 'authority-errors')
       await client.call('agent.run', {
-        surface: 'ws-root', task: 'authority-errors', profile: 'test', key: 'authority-errors',
+        surface: authoritySurface, task: 'authority-errors', profile: 'test', key: 'authority-errors',
       })
+      const optionSurface = await createAgentSurface(client, spec, 'option-errors')
       await expectCode(client.call('agent.run', {
-        surface: 'ws-root', task: 'valid', profile: 'missing', key: 'missing-profile',
+        surface: optionSurface, task: 'valid', profile: 'missing', key: 'missing-profile',
       }), 'unsupported-profile')
       await expectCode(client.call('agent.run', {
-        surface: 'ws-root', task: 'valid', profile: 'test', key: 'bad/key',
+        surface: optionSurface, task: 'valid', profile: 'test', key: 'bad/key',
       }), 'invalid-id')
+      const retrySurface = await createAgentSurface(client, spec, 'retry-stopped')
       await expectCode(client.call('agent.run', {
-        surface: 'ws-root', task: 'stopped', profile: 'test', key: 'retry-stopped',
+        surface: retrySurface, task: 'stopped', profile: 'test', key: 'retry-stopped',
       }), 'effect-failed')
       await expectCode(client.call('agent.run', {
-        surface: 'ws-root', task: 'stopped', profile: 'test', key: 'retry-stopped', retry: true,
-      }), 'effect-failed')
+        surface: retrySurface, task: 'stopped', profile: 'test', key: 'retry-stopped', retry: true,
+      }), 'session-binding-conflict')
       return { exitCode: 0, signal: null, stdout: 'child-errors-covered', stderr: '' }
     }
 
@@ -1001,18 +1009,21 @@ describe('WorkSurfaceService integration', () => {
     const { service, provider } = await fixture({ profiles })
     ScriptedSubprocess.runner = async (spec) => {
       const client = orchestratorClient(spec)
+      const firstSurface = await createAgentSurface(client, spec, 'parallel-first')
+      const secondSurface = await createAgentSurface(client, spec, 'parallel-second')
       const first = client.call('agent.run', {
-        surface: 'ws-root', task: 'quiescence', profile: 'plain', key: 'parallel-first',
+        surface: firstSurface, task: 'quiescence', profile: 'plain', key: 'parallel-first',
       })
       await provider.quiescenceReady
       await expectCode(client.call('agent.run', {
-        surface: 'ws-root', task: 'parallel-second', profile: 'plain', key: 'parallel-second',
+        surface: secondSurface, task: 'parallel-second', profile: 'plain', key: 'parallel-second',
       }), 'effect-failed')
       provider.releaseQuiescence()
       await first
       for (const profile of ['provider-only', 'model-only', 'both']) {
+        const surface = await createAgentSurface(client, spec, `profile-${profile}`)
         await client.call('agent.run', {
-          surface: 'ws-root', task: `valid-${profile}`, profile, key: `valid-${profile}`,
+          surface, task: `valid-${profile}`, profile, key: `valid-${profile}`,
         })
       }
       return { exitCode: 0, signal: null, stdout: 'profiles-covered', stderr: '' }
@@ -1039,33 +1050,36 @@ describe('WorkSurfaceService integration', () => {
       const client = orchestratorClient(spec)
       const attemptId = requiredEnv(spec.env?.WS_ATTEMPT_ID)
       const privateRoot = activeAttemptRoot(service, attemptId)
-      const initial = await client.call('show', { surface: 'ws-root' }) as { revision: string }
+      const missingSurface = await createAgentSurface(client, spec, 'reconcile-missing')
+      const completedSurface = await createAgentSurface(client, spec, 'reconcile-completed')
+      const corruptSurface = await createAgentSurface(client, spec, 'reconcile-corrupt')
+      const initial = await client.call('show', { surface: completedSurface }) as { revision: string }
 
-      await writeStartedAgentRecord(service, attemptId, 'reconcile-missing', 'ws-root', 'valid', 'test')
+      await writeStartedAgentRecord(service, attemptId, 'reconcile-missing', missingSurface, 'valid', 'test')
       await client.call('agent.run', {
-        surface: 'ws-root', task: 'valid', profile: 'test', key: 'reconcile-missing',
+        surface: missingSurface, task: 'valid', profile: 'test', key: 'reconcile-missing',
       })
 
       const completedKey = 'reconcile-completed'
-      await writeStartedAgentRecord(service, attemptId, completedKey, 'ws-root', 'reconciled', 'test')
+      await writeStartedAgentRecord(service, attemptId, completedKey, completedSurface, 'reconciled', 'test')
       const completedRoot = join(privateRoot, 'runtime', 'agents', completedKey)
       await mkdir(completedRoot, { recursive: true })
       const reconciled = {
-        surface: 'ws-root', surfaceRevision: initial.revision, summary: 'reconciled',
-        outputs: [{ surface: 'ws-root', block: 'result', revision: initial.revision }],
+        surface: completedSurface, surfaceRevision: initial.revision, summary: 'reconciled',
+        outputs: [{ surface: completedSurface, block: 'result', revision: initial.revision }],
       }
       await writeFile(join(completedRoot, 'result.json'), JSON.stringify(reconciled))
       await expect(client.call('agent.run', {
-        surface: 'ws-root', task: 'reconciled', profile: 'test', key: completedKey,
+        surface: completedSurface, task: 'reconciled', profile: 'test', key: completedKey,
       })).resolves.toEqual(reconciled)
 
       const corruptKey = 'reconcile-corrupt'
-      await writeStartedAgentRecord(service, attemptId, corruptKey, 'ws-root', 'corrupt', 'test')
+      await writeStartedAgentRecord(service, attemptId, corruptKey, corruptSurface, 'corrupt', 'test')
       const corruptRoot = join(privateRoot, 'runtime', 'agents', corruptKey)
       await mkdir(corruptRoot, { recursive: true })
       await writeFile(join(corruptRoot, 'result.json'), '{')
       await expect(client.call('agent.run', {
-        surface: 'ws-root', task: 'corrupt', profile: 'test', key: corruptKey,
+        surface: corruptSurface, task: 'corrupt', profile: 'test', key: corruptKey,
       })).rejects.toBeDefined()
       return { exitCode: 0, signal: null, stdout: 'reconcile-covered', stderr: '' }
     }
@@ -1246,6 +1260,15 @@ function orchestratorClient(spec: SubprocessSpawnSpec): WorkSurfaceHostClient {
     attemptId: requiredEnv(spec.env?.WS_ATTEMPT_ID),
     token: requiredEnv(spec.env?.WS_ATTEMPT_TOKEN),
   })
+}
+
+async function createAgentSurface(client: WorkSurfaceHostClient, spec: SubprocessSpawnSpec, key: string): Promise<string> {
+  const slug = key.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 72)
+  const surface = `ws-agent-${slug}`
+  const template = join(spec.cwd, `template-${slug}`)
+  await writeTemplate(template, `Agent Surface ${slug}`, surface)
+  await client.call('new', { templatePath: template, key: `surface-${slug}`, parent: 'ws-root', surface })
+  return surface
 }
 
 function b2fService(ctx: Context): B2FServiceContract {

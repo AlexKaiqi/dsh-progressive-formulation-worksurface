@@ -21,6 +21,7 @@ export { WorkSurfaceStore } from './store.ts'
 export { ProjectionCompiler, createBlockRef } from './projection.ts'
 export type {
   BlockEnvelope,
+  BindSurfaceSessionOptions,
   BlockId as BlockIdType,
   BlockRef,
   CheckoutResult,
@@ -39,4 +40,11 @@ export type {
   SurfaceHead,
   SurfaceId as SurfaceIdType,
   SurfaceSnapshot,
+  SurfaceSessionBinding,
+  SurfaceSessionInput,
+  SurfaceSessionRole,
+  WorkSurfaceDependencyEdge,
+  WorkSurfaceGraphBlock,
+  WorkSurfaceGraphNode,
+  WorkSurfaceGraphSnapshot,
 } from './types.ts'
