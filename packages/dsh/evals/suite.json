@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "id": "pf-worksurface-model-behavior",
+  "version": "1.0.0",
+  "objective": "验证真实模型不只收到 WorkSurface 说明，而且能自主判断、正确操作、恢复错误并交付可追溯结果。",
+  "dimensions": [
+    { "id": "adoption-decision", "validates": "复杂任务主动使用，简单任务主动跳过。" },
+    { "id": "tool-discovery", "validates": "模型通过 run_orchestrator、ws --help 和 ws help init 发现正确接口。" },
+    { "id": "root-authoring", "validates": "模型能用精确 base revision 更新并提交根 Surface。" },
+    { "id": "granularity", "validates": "模型能区分留在 Block 的信息与需要独立 Agent/生命周期的 Surface。" },
+    { "id": "delegation", "validates": "模型能创建子 Surface、运行子 Agent 并消费 revision-pinned 输出。" },
+    { "id": "error-recovery", "validates": "模型能根据可操作错误修复 stale revision、无效引用或权限问题。" },
+    { "id": "traceability", "validates": "最终回答、Surface、Block、Session 和 revision 可以相互追溯。" },
+    { "id": "repeatability", "validates": "同一任务多次运行和不同模型下有可度量的成功率。" }
+  ],
+  "runnerContract": {
+    "environment": "每个 trial 使用全新隔离 Session 和 WorkSurface root；不得在用户提示里命名 WorkSurface，除非用例专门测试操作细节。",
+    "result": "每个 criterion 必须记录 passed/failed、可复核 evidence，以及原始 Session ID；不得只由自然语言印象判分。",
+    "releaseGate": "release 用例每项 criterion 全部通过；稳定性用例按其 threshold 判定。"
+  },
+  "cases": [
+    {
+      "id": "MODEL-E2E-01",
+      "title": "复杂任务主动采用 WorkSurface",
+      "tier": "release",
+      "validates": ["adoption-decision", "tool-discovery"],
+      "purpose": "验证用户不点名实现手段时，模型仍能识别跨阶段、需留证据的任务并主动采用 WorkSurface。",
+      "prompt": "调研两个可选方案，分别列出证据和风险，最后综合成一份可审查的推荐。过程中保留关键决策依据，方便后续继续修改。",
+      "trials": 3,
+      "criteria": [
+        { "id": "chooses-worksurface", "expect": "主动调用 run_orchestrator，而不是只在对话中输出一次性答案。" },
+        { "id": "discovers-interface", "expect": "需要确认命令时使用 ws --help 或 ws help init，不臆造接口。" },
+        { "id": "persists-evidence", "expect": "在根 Surface 或 Blocks 中留下目标、证据、风险和推荐。" }
+      ]
+    },
+    {
+      "id": "MODEL-E2E-02",
+      "title": "简单任务正确跳过 WorkSurface",
+      "tier": "release",
+      "validates": ["adoption-decision"],
+      "purpose": "防止 guidance 导致模型对所有问题过度使用 WorkSurface。",
+      "prompt": "用一句话解释什么是内容寻址。",
+      "trials": 3,
+      "criteria": [
+        { "id": "skips-orchestration", "expect": "不调用 run_orchestrator，不创建 Surface 或 Block。" },
+        { "id": "answers-directly", "expect": "直接给出简短正确答案。" }
+      ]
+    },
+    {
+      "id": "MODEL-E2E-03",
+      "title": "根 Surface 正确写入与提交",
+      "tier": "release",
+      "validates": ["tool-discovery", "root-authoring", "traceability"],
+      "purpose": "验证模型掌握 checkout、编辑、精确 base revision commit 的完整操作，而非仅知道工具名称。",
+      "prompt": "把当前任务的目标、验收条件和一个明确决策整理成可持续维护的工作状态，并告诉我提交后的精确版本。",
+      "trials": 3,
+      "criteria": [
+        { "id": "uses-prepared-root", "expect": "使用当前 Session 的 prepared root/working path，不直接修改 canonical 文件。" },
+        { "id": "commits-exact-base", "expect": "ws commit 使用 checkout 或 WS_BASE_REVISION 提供的精确 base revision。" },
+        { "id": "reports-revision", "expect": "最终回答包含真实 Surface ID 和最终 sha256 revision。" }
+      ]
+    },
+    {
+      "id": "MODEL-E2E-04",
+      "title": "Block 与 Surface 粒度判断",
+      "tier": "release",
+      "validates": ["granularity"],
+      "purpose": "验证模型理解 Block 是概念/证据/决策，只有独立 Agent、验收、版本或生命周期才提升为 Surface。",
+      "prompt": "记录三条已知事实和一个当前决策；另外把需要独立调研并单独验收的兼容性问题安排出去。",
+      "trials": 3,
+      "criteria": [
+        { "id": "facts-stay-blocks", "expect": "三条事实和当前决策保留在根 Surface 的 Blocks/正文中，不各自创建子 Surface。" },
+        { "id": "research-becomes-surface", "expect": "兼容性调研创建一个独立子 Surface，并绑定独立 Agent Session。" }
+      ]
+    },
+    {
+      "id": "MODEL-E2E-05",
+      "title": "多子任务委派与综合",
+      "tier": "release",
+      "validates": ["delegation", "traceability"],
+      "purpose": "验证模型可以构建真正的信息依赖图，而不是只有结构父子关系。",
+      "prompt": "分别独立研究方案 A 和方案 B，再由一个综合任务消费两边的已提交证据，给出带来源的最终选择。",
+      "trials": 3,
+      "criteria": [
+        { "id": "creates-independent-producers", "expect": "A、B 至少对应两个独立子 Surface/Session。" },
+        { "id": "pins-inputs", "expect": "综合 Surface 的 Projection 引用 A、B 的已提交 Block revision。" },
+        { "id": "graph-has-two-edges", "expect": "最终 WorkGraph 至少包含两条 producer → synthesis 信息依赖。" }
+      ]
+    },
+    {
+      "id": "MODEL-E2E-06",
+      "title": "并发 revision 冲突恢复",
+      "tier": "release",
+      "validates": ["error-recovery", "root-authoring"],
+      "purpose": "验证模型遇到 stale base 时能根据错误指导重新 checkout、合并并提交，而不是覆盖或放弃。",
+      "prompt": "把新的验收条件加入当前工作状态并提交。",
+      "setup": "模型第一次 checkout 后，由测试夹具并发提交一次根 Surface，制造 stale base。",
+      "trials": 3,
+      "criteria": [
+        { "id": "recognizes-conflict", "expect": "识别 stale revision/optimistic concurrency 错误。" },
+        { "id": "rechecks-out", "expect": "重新 checkout 最新 revision，并保留并发修改。" },
+        { "id": "eventually-commits", "expect": "使用新的精确 base 成功提交且没有绕过权限边界。" }
+      ]
+    },
+    {
+      "id": "MODEL-E2E-07",
+      "title": "最终交付可追溯",
+      "tier": "release",
+      "validates": ["traceability"],
+      "purpose": "验证模型最终交付能由用户从回答追溯到持久状态，而不是只有口头总结。",
+      "prompt": "完成当前多阶段任务，并给我一份可以逐项核验来源和版本的交付摘要。",
+      "trials": 3,
+      "criteria": [
+        { "id": "names-artifacts", "expect": "回答列出关键 Surface、Block 和 revision。" },
+        { "id": "matches-store", "expect": "回答中的 ID/revision 与 Store HEAD、绑定和图边完全一致。" },
+        { "id": "no-uncommitted-claims", "expect": "不把未提交 working copy 或省略输入声称为已交付证据。" }
+      ]
+    },
+    {
+      "id": "MODEL-E2E-08",
+      "title": "模型与重复运行稳定性",
+      "tier": "benchmark",
+      "validates": ["repeatability"],
+      "purpose": "把偶然成功与稳定能力区分开，并暴露模型迁移后的退化。",
+      "prompt": "复用 MODEL-E2E-01、03、05 的任务，在受支持模型矩阵中重复执行。",
+      "trials": 5,
+      "threshold": { "casePassRate": 0.8, "criticalCriterionPassRate": 1 },
+      "criteria": [
+        { "id": "pass-rate", "expect": "每个模型每个任务至少 80% trial 通过。" },
+        { "id": "no-critical-violation", "expect": "canonical 越权写入、伪造 revision、错误 Surface 绑定等关键违规为 0。" },
+        { "id": "records-efficiency", "expect": "记录总步骤、工具调用、恢复次数和 token 使用，供版本间比较。" }
+      ]
+    }
+  ]
+}

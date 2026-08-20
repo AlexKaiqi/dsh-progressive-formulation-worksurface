@@ -18,10 +18,11 @@
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
-  "files": ["lib/index.js", "lib/invariant.js", "cordis.patch.yml", "lib/types/**/*.d.ts"],
+  "files": ["lib/index.js", "lib/invariant.js", "cordis.patch.yml", "lib/types/**/*.d.ts", "evals"],
   "license": "MIT",
   "scripts": {
-    "bundle": "tsdown",
+    "bundle": "tsdown && npm run eval:check",
+    "eval:check": "node evals/validate-suite.mjs",
     "prepack": "tsc -b && tsdown"
   },
   "dsh": {
