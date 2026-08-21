@@ -18,6 +18,7 @@ export {
 } from './markdown.ts'
 export { EffectJournal } from './journal.ts'
 export { WorkSurfaceStore } from './store.ts'
+export { WorkSessionLog } from './work-session.ts'
 export { ProjectionCompiler, createBlockRef } from './projection.ts'
 export type {
   BlockEnvelope,
@@ -32,6 +33,7 @@ export type {
   FaultPoint,
   NewSurfaceResult,
   OmittedWorkSurfaceProjectionFile,
+  OrchestratorDefinition,
   WorkSurfaceProjectionFile,
   WorkSurfaceProjectionFileKind,
   WorkSurfaceProjectionSnapshot,
@@ -47,4 +49,9 @@ export type {
   WorkSurfaceGraphBlock,
   WorkSurfaceGraphNode,
   WorkSurfaceGraphSnapshot,
+  WorkSessionEvent,
+  WorkSessionEventDataMap,
+  WorkSessionEventType,
+  WorkSessionHeader,
+  WorkSessionSnapshot,
 } from './types.ts'

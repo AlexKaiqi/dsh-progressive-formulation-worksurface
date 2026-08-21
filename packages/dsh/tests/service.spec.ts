@@ -1,3 +1,4 @@
+import { spawn as spawnChild } from 'node:child_process'
 import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -14,7 +15,7 @@ import type {
   SubagentResult,
   SubagentRun,
 } from '@deepseek-ai/dsh-subagent'
-import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+import { scrubbedParentEnv, SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import type {
   SubprocessHandle,
   SubprocessSpawnSpec,
@@ -66,6 +67,7 @@ class PassthroughSandbox extends SandboxProvider {
 
 class ScriptedSubprocess extends SubprocessRuntime {
   static omitCollected = false
+  static executableResolver: (command: string) => Promise<string> = async command => `/fixture/${command}`
   static runner: (spec: SubprocessSpawnSpec) => Promise<ScriptOutcome> = async () => ({
     exitCode: 0,
     signal: null,
@@ -74,7 +76,7 @@ class ScriptedSubprocess extends SubprocessRuntime {
   })
 
   async resolveExecutable(command: string): Promise<string> {
-    return `/fixture/${command}`
+    return ScriptedSubprocess.executableResolver(command)
   }
 
   spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
@@ -307,6 +309,7 @@ function invalidStructuredCompletion(
 const roots: string[] = []
 
 afterEach(async () => {
+  ScriptedSubprocess.executableResolver = async command => `/fixture/${command}`
   ScriptedSubprocess.runner = async () => ({ exitCode: 0, signal: null, stdout: '', stderr: '' })
   ScriptedSubprocess.omitCollected = false
   PassthroughSandbox.enforcement = 'full'
@@ -369,7 +372,7 @@ async function fixture(options: FixtureOptions = {}): Promise<{
     root,
     attemptsRoot: join(root, 'attempts'),
     socketPath: join(root, 'runtime', 'host.sock'),
-    cliEntrypoint: join(process.cwd(), 'packages', 'worksurface', 'cli', 'lib', 'bin.js'),
+    cliEntrypoint: join(process.cwd(), 'packages', 'cli', 'lib', 'bin.js'),
     orchestratorGraceMs: 1000,
     maxOutputBytes: 1024 * 1024,
     maxCrashReplays: 1,
@@ -505,6 +508,18 @@ describe('WorkSurfaceService integration', () => {
     )
     expect(first.workspaceHash).toMatch(/^sha256:[0-9a-f]{64}$/)
     expect((await service.store.readSnapshot(current.surface)).surfaceDocument).toContain('First b2f edit.')
+    const firstEvents = (await service.store.readWorkSession(current.surface)).events
+    expect(firstEvents.map(event => event.type)).toEqual(expect.arrayContaining([
+      'agent/session-bound',
+      'orchestrator/defined',
+      'orchestrator/run-started',
+      'surface/revision-published',
+      'orchestrator/run-completed',
+    ]))
+    await expect(service.store.readOrchestratorDefinition(`sha256:${first.codeHash}`)).resolves.toMatchObject({
+      language: 'bash',
+      source: 'ws commit "$WS_WORKING_PATH" --base "$WS_BASE_REVISION" --key prepared-root',
+    })
 
     await ctx.systemPrompt.assemble({ agent: parent })
     const secondWorkspace = await service.openSessionWorkspace(parent)
@@ -525,6 +540,69 @@ describe('WorkSurfaceService integration', () => {
     expect(second.workspaceHash).not.toBe(first.workspaceHash)
     expect(second.attemptId).not.toBe(first.attemptId)
     expect((await service.store.readSnapshot(current.surface)).surfaceDocument).toContain('Second b2f edit.')
+  })
+
+  it('runs Bash, the generated ws wrapper, the CLI socket client, and a child Agent end to end', async () => {
+    const { service, provider, root } = await fixture()
+    ScriptedSubprocess.executableResolver = async command => {
+      if (command !== 'bash') throw new Error(`unexpected real E2E executable '${command}'`)
+      return '/bin/bash'
+    }
+    ScriptedSubprocess.runner = runLocalProcess
+    const script = [
+      'set -eu',
+      'template="$WS_ATTEMPT_DIR/child-template"',
+      'mkdir -p "$template/blocks"',
+      "cat > \"$template/surface.md\" <<'EOF'",
+      '# Real E2E child',
+      'EOF',
+      "cat > \"$template/blocks/result.md\" <<'EOF'",
+      '---',
+      'block_id: result',
+      'surface_id: template',
+      'kind: result',
+      'status: active',
+      'derived_from: []',
+      '---',
+      'Initial E2E evidence.',
+      'EOF',
+      'ws new --from "$template" --key child-new --parent "$WS_ROOT_SURFACE" --surface ws-real-e2e-child --json > "$WS_ATTEMPT_DIR/results/new.json"',
+      'ws agent run --surface ws-real-e2e-child --task real-e2e --profile test --key child-agent --result "$WS_ATTEMPT_DIR/results/child.json" --json > "$WS_ATTEMPT_DIR/results/agent.json"',
+    ].join('\n')
+    const parent = { id: 'real-e2e-parent', session: { header: { id: 'real-e2e-parent' } } } as unknown as Agent
+
+    const result = await service.runOrchestrator(parent, 'bash', script, 'ws-root', new AbortController().signal)
+
+    expect(result).toMatchObject({ exitCode: 0, signal: null, stderr: '' })
+    expect(provider.starts).toBe(1)
+    expect(await service.store.readSessionBinding({ surface: 'ws-real-e2e-child' })).toMatchObject({
+      sessionId: 'child-1',
+      role: 'delegated',
+      rootSurface: 'ws-root',
+      outputRevision: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+    })
+    const graph = await service.store.graphSnapshot('ws-root')
+    expect(graph.nodes.map(node => node.surface).sort()).toEqual(['ws-real-e2e-child', 'ws-root'])
+    expect(graph.nodes.find(node => node.surface === 'ws-real-e2e-child')).toMatchObject({
+      sessionId: 'child-1',
+      phase: 'completed',
+      parent: 'ws-root',
+    })
+    expect((await service.store.readWorkSession('ws-root')).events.map(event => event.type)).toEqual(expect.arrayContaining([
+      'orchestrator/defined',
+      'orchestrator/run-started',
+      'child/created',
+      'child/session-started',
+      'child/session-completed',
+      'orchestrator/run-completed',
+    ]))
+    expect((await service.store.readWorkSession('ws-real-e2e-child')).events.map(event => event.type)).toEqual([
+      'surface/created',
+      'agent/session-bound',
+      'surface/revision-published',
+      'agent/session-completed',
+    ])
+    expect((await readdir(join(root, 'canonical', 'surfaces'))).sort()).toEqual(['ws-real-e2e-child', 'ws-root'])
   })
 
   it('uses the session root when a model sends an empty optional rootSurface', async () => {
@@ -1118,7 +1196,7 @@ describe('WorkSurfaceService integration', () => {
       root,
       attemptsRoot,
       socketPath: join(root, 'run', 'host.sock'),
-      cliEntrypoint: join(process.cwd(), 'packages', 'worksurface', 'cli', 'lib', 'bin.js'),
+      cliEntrypoint: join(process.cwd(), 'packages', 'cli', 'lib', 'bin.js'),
       attemptRetention: 2,
       profiles: pluginProfiles([{
         name: 'test',
@@ -1131,7 +1209,7 @@ describe('WorkSurfaceService integration', () => {
     })
 
     expect((await readdir(attemptsRoot)).sort()).toEqual(['attempt-old-3', 'attempt-old-4'])
-    const archiveRoot = join(root, 'runtime', 'attempt-results')
+    const archiveRoot = join(root, 'runtime', 'orchestrator', 'attempt-results')
     expect((await readdir(archiveRoot)).sort()).toEqual([
       'attempt-old-0.json',
       'attempt-old-1.json',
@@ -1187,7 +1265,7 @@ describe('WorkSurfaceService integration', () => {
     const defaultsHarness = await harnessContext(defaultsRoot)
     const defaultsFiber = await defaultsHarness.ctx.plugin(WorkSurfaceService, { root: defaultsRoot, profiles: [profile] })
     expect(defaultsHarness.ctx.workSurfaces.config).toMatchObject({
-      attemptsRoot: join(defaultsRoot, 'attempts'),
+      attemptsRoot: join(defaultsRoot, 'runtime', 'orchestrator', 'runs'),
       socketPath: join(defaultsRoot, 'run', 'host.sock'),
       orchestratorGraceMs: 5000,
       maxOutputBytes: 1024 * 1024,
@@ -1262,6 +1340,31 @@ function orchestratorClient(spec: SubprocessSpawnSpec): WorkSurfaceHostClient {
   })
 }
 
+async function runLocalProcess(spec: SubprocessSpawnSpec): Promise<ScriptOutcome> {
+  const [executable, ...argv] = spec.argv
+  if (executable === undefined) throw new Error('real E2E subprocess requires an executable')
+  return new Promise<ScriptOutcome>((resolve, reject) => {
+    const child = spawnChild(executable, argv, {
+      cwd: spec.cwd,
+      env: { ...scrubbedParentEnv(), ...spec.env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', chunk => { stdout += chunk })
+    child.stderr.on('data', chunk => { stderr += chunk })
+    const abort = (): void => { child.kill('SIGTERM') }
+    spec.signal?.addEventListener('abort', abort, { once: true })
+    child.once('error', reject)
+    child.once('close', (exitCode, signal) => {
+      spec.signal?.removeEventListener('abort', abort)
+      resolve({ exitCode, signal, stdout, stderr })
+    })
+  })
+}
+
 async function createAgentSurface(client: WorkSurfaceHostClient, spec: SubprocessSpawnSpec, key: string): Promise<string> {
   const slug = key.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 72)
   const surface = `ws-agent-${slug}`
@@ -1321,7 +1424,7 @@ async function writeStartedAgentRecord(
   task: string,
   profile: string,
 ): Promise<void> {
-  const directory = join(service.store.runtimeRoot, 'agent-effects', attemptId)
+  const directory = join(service.store.runtimeRoot, 'orchestrator', 'agent-effects', attemptId)
   await mkdir(directory, { recursive: true })
   const requestHash = sha256(stableStringify({ type: 'agent.run', request: { surface, task, profile } }))
   await writeFile(join(directory, `${sha256(key)}.json`), JSON.stringify({

@@ -6,14 +6,14 @@ Progressive Formalization WorkSurface is one DeepSeek Harness plugin product. It
 
 The repository contains four implementation packages. The first three form the canonical WorkSurface plugin; the Web package is an optional visualization companion:
 
-- [`@pf-worksurface/core`](packages/core) owns the immutable file store, projections, and effect journal.
+- [`@pf-worksurface/core`](packages/core) owns immutable Surface revisions, Surface-local Work Sessions, projections, Orchestrator definitions, and the effect journal.
 - [`@pf-worksurface/cli`](packages/cli) provides the authenticated `ws` process client.
 - [`@pf-worksurface/dsh`](packages/dsh) is the installable DeepSeek Harness plugin and profile bundle.
 - [`@pf-worksurface/web`](packages/web) adds the Conversation / WorkSurface Graph switch, the Surface DAG, and attached Session conversations to a Web profile.
 
 The `/dsh` bundle composes `@deepseek-ai/dsh-block-to-file` as its model-facing materialization layer; `/core` remains independent of the Harness runtime.
 
-The domain boundary is: the top-level Session owns the whole WorkGraph; one independent Surface maps to one Agent Session; Blocks inside the Surface are concepts, evidence, or decisions. A Block is promoted to a child Surface only when it needs an independent Agent, acceptance boundary, version, or lifecycle. Graph edges come from revision-pinned BlockRefs actually consumed by a Projection, never from the structural `parent` field.
+The domain boundary is: every physically flat Surface owns exactly one append-only Work Session. A parent Session records its direct child Surface boundaries; recursively folding from the root produces the WorkGraph. An Agent Session can be immutably attached when an Agent executes the Surface, while draft Surfaces already have their Work Session before delegation. Blocks inside a Surface are concepts, evidence, or decisions. A Block is promoted to a child Surface only when it needs an independent Agent, acceptance boundary, version, or lifecycle. Information edges come from revision-pinned BlockRefs actually consumed by a Projection, never from timestamps or filesystem nesting. The complete storage and fact-source decision is documented in [`docs/work-session-storage.md`](docs/work-session-storage.md).
 
 The Web plugin's product-level E2E dimensions, cases, deterministic fixtures, and real DSH run records are maintained under [`packages/web/evals`](packages/web/evals/README.md) and validated during the Web package build.
 

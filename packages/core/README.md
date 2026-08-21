@@ -2,17 +2,19 @@
 
 English | [中文](README.zh.md)
 
-`@pf-worksurface/core` owns the file-native WorkSurface domain: immutable content-addressed revisions, atomic `HEAD` publication, validated working-copy commits, direct-reference Projections, and replayable effect records. It has no dependency on the DeepSeek Harness Agent loop.
+`@pf-worksurface/core` owns the file-native WorkSurface domain: immutable content-addressed revisions, one append-only Work Session per flat Surface, immutable Orchestrator definitions, validated working-copy commits, direct-reference Projections, and replayable effect records. It has no dependency on the DeepSeek Harness Agent loop.
 
 ## File contract
 
 A Surface is a directory containing `surface.md` and `blocks/<block-id>.md`. Runtime-owned YAML front matter binds each document to its Surface and Block identity; editable Markdown remains ordinary UTF-8 text. References use `[[block:<surface-id>/<block-id>]]`.
 
-Creating a Surface instantiates runtime-owned identities into a template. Committing validates the entire working copy, rejects dangling references and metadata/path mismatches, forbids physical Block deletion, and compares the caller's base revision with the current `HEAD`. Every accepted snapshot is stored under its SHA-256 revision before an atomic `HEAD.json` update publishes it.
+Creating a Surface instantiates runtime-owned identities into a template. Committing validates the entire working copy, rejects dangling references and metadata/path mismatches, forbids physical Block deletion, and compares the caller's base revision with the current Session-folded head. Every accepted snapshot is stored under its SHA-256 revision before a Work Session event publishes it; `HEAD.json` is only a repairable projection.
+
+Every `canonical/surfaces/<surface-id>` directory also contains `session/header.json`, a materialized Session `HEAD.json`, and contiguous immutable events. Child Surfaces remain siblings on disk. The parent Work Session's `child/created` event is the authority that makes a child reachable; `graphSnapshot()` recursively folds those events rather than scanning current front matter to infer membership. See [`../../docs/work-session-storage.md`](../../docs/work-session-storage.md).
 
 ## Public API
 
-`WorkSurfaceStore` provides `newSurface`, `checkout`, `commit`, `readHead`, `readSnapshot`, `readBlock`, `validateOutputRefs`, and `history`. Mutating calls require an attempt id and stable idempotency key. Reusing a key with the same request returns the recorded result; reusing it with different parameters fails with `idempotency-key-conflict`.
+`WorkSurfaceStore` provides `newSurface`, `checkout`, `commit`, `readHead`, `readSnapshot`, `readBlock`, `validateOutputRefs`, `history`, `readWorkSession`, `defineOrchestrator`, and `readOrchestratorDefinition`. `store.sessions` exposes typed idempotent event append and replay. Mutating calls require an attempt id and stable idempotency key. Reusing a key with the same request returns the recorded result; reusing it with different parameters fails with `idempotency-key-conflict`.
 
 `ProjectionCompiler.compile` preserves the complete `surface.md`, collects complete directly referenced Block files in order, and pins every Block revision. Files that do not fit the configured approximate budget are omitted as whole files instead of being truncated. `compilePinned` rebuilds the same file Projection from explicit revision pins.
 

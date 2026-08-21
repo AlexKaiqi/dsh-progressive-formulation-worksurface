@@ -56,7 +56,7 @@ export function resolveConfig(config: Config): WorkSurfaceConfig {
   const root = resolve(config.root)
   return {
     root,
-    attemptsRoot: resolve(config.attemptsRoot ?? join(root, 'attempts')),
+    attemptsRoot: resolve(config.attemptsRoot ?? join(root, 'runtime', 'orchestrator', 'runs')),
     socketPath: resolve(config.socketPath ?? defaultSocketPath(root)),
     cliEntrypoint: config.cliEntrypoint === undefined
       ? resolveWorkSurfaceCliEntrypoint()

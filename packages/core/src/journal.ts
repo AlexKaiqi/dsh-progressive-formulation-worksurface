@@ -46,6 +46,13 @@ export class EffectJournal {
           originalCode: existing.error?.code ?? 'effect-failed',
         })
       }
+      if (existing?.status === 'failed' && options.retry) {
+        const reconciled = await options.reconcile()
+        if (reconciled !== undefined) {
+          await writeRecord(path, { ...baseRecord(options, requestHash), status: 'completed', result: reconciled })
+          return reconciled
+        }
+      }
       if (existing?.status === 'started' || existing?.status === 'interrupted') {
         const reconciled = await options.reconcile()
         if (reconciled !== undefined) {

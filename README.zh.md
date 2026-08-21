@@ -6,14 +6,14 @@
 
 仓库包含四个实现包。其中前三个组成 canonical WorkSurface 插件，Web 包是可选的可视化伴侣：
 
-- [`@pf-worksurface/core`](packages/core) 负责不可变文件存储、Projection 和 effect journal。
+- [`@pf-worksurface/core`](packages/core) 负责不可变 Surface revision、Surface-local Work Session、Projection、Orchestrator definition 和 effect journal。
 - [`@pf-worksurface/cli`](packages/cli) 提供经过认证的 `ws` 进程客户端。
 - [`@pf-worksurface/dsh`](packages/dsh) 是可安装的 DeepSeek Harness 插件与 profile 组合包。
 - [`@pf-worksurface/web`](packages/web) 在 Web profile 中提供“对话 / 工作面图”切换、Surface DAG 与关联 Session 对话。
 
 `/dsh` bundle 会组合 `@deepseek-ai/dsh-block-to-file` 作为模型可见的文件物化层；`/core` 仍独立于 Harness runtime。
 
-数据边界是：顶层 Session 拥有整张 WorkGraph；一个独立 Surface 对应一个 Agent Session；Surface 内的 Block 是概念、证据或决策。只有需要独立 Agent、验收、版本或生命周期的 Block 才提升为 Child Surface。图上的连线来自实际 Projection 中 revision-pinned 的 BlockRef，不使用结构性 `parent` 字段冒充信息依赖。
+数据边界是：每个物理平级的 Surface 都拥有且仅拥有一条 append-only Work Session；父 Session 记录直接 Child Surface 的边界，从 root 递归 fold 得到 WorkGraph。Agent 实际执行 Surface 时可以不可变地附着一个 Agent Session，而 draft Surface 在委派前已经拥有 Work Session。Surface 内的 Block 是概念、证据或决策；只有需要独立 Agent、验收、版本或生命周期的 Block 才提升为 Child Surface。信息依赖来自实际 Projection 中 revision-pinned 的 BlockRef，不从时间戳或文件目录嵌套推断。完整的目录与事实源决策见 [`docs/work-session-storage.zh.md`](docs/work-session-storage.zh.md)。
 
 Web 插件的产品级端到端评估维度、用例、固定测试数据和真实 DSH 执行记录维护在 [`packages/web/evals`](packages/web/evals/README.zh.md)。它与单元测试分开管理，并在 Web 包构建时校验。
 

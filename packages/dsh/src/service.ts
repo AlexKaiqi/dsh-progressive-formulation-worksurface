@@ -12,6 +12,7 @@ import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import {
   deriveSurfaceId,
   EffectJournal,
+  asWorkSurfaceError,
   parseSurfaceDocument,
   ProjectionCompiler,
   sha256,
@@ -104,7 +105,7 @@ export class WorkSurfaceService extends Service {
     this.config = resolveConfig(config)
     this.store = new WorkSurfaceStore({ root: this.config.root })
     this.projections = new ProjectionCompiler(this.store)
-    this.agentJournal = new EffectJournal(join(this.store.runtimeRoot, 'agent-effects'))
+    this.agentJournal = new EffectJournal(join(this.store.runtimeRoot, 'orchestrator', 'agent-effects'))
     this.host = new WorkSurfaceHost(this.config.socketPath, this)
     this.sessionTemplatePath = join(this.store.runtimeRoot, 'templates', 'session-root')
     validateProfiles(this.config.profiles)
@@ -350,6 +351,7 @@ export class WorkSurfaceService extends Service {
     if (script.trim() === '') throw new WorkSurfaceError('invalid-working-copy', 'Orchestrator script must not be blank')
     const rootSurface = SurfaceId(rootSurfaceInput)
     const rootHead = await this.store.readHead(rootSurface)
+    const definition = await this.store.defineOrchestrator(language, script)
     const workspace = await this.openSessionWorkspace(parent, { surface: rootSurface, revision: rootHead.revision })
     await this.store.bindSession({
       surface: rootSurface,
@@ -358,7 +360,7 @@ export class WorkSurfaceService extends Service {
       rootSurface,
     })
     const workspaceHash = await hashWorkspace(workspace.workspaceRoot)
-    const codeHash = sha256(`${language} ${script}`)
+    const codeHash = definition.codeHash
     const attemptId = `attempt-${sha256(`${parent.id} ${rootSurface} ${codeHash} ${workspaceHash}`).slice(0, 24)}`
     if (this.attempts.has(attemptId)) throw new WorkSurfaceError('effect-failed', `attempt '${attemptId}' is already running`)
     const authority: AttemptAuthority = {
@@ -381,9 +383,33 @@ export class WorkSurfaceService extends Service {
       this.pendingWorkspaces.delete(String(parent.id))
     }
     await prepareAttempt(authority, language, script, codeHash, this.config.cliEntrypoint)
+    await this.store.sessions.append({
+      surface: rootSurface,
+      type: 'orchestrator/defined',
+      data: {
+        definitionRevision: definition.revision,
+        language: definition.language,
+        codeHash: definition.codeHash,
+      },
+      idempotencyKey: `orchestrator-defined:${definition.revision}`,
+    })
+    await this.store.sessions.append({
+      surface: rootSurface,
+      type: 'orchestrator/run-started',
+      data: {
+        runId: attemptId,
+        definitionRevision: definition.revision,
+        workspaceHash,
+        inputRevision: rootHead.revision,
+      },
+      correlationId: attemptId,
+      attemptId,
+      idempotencyKey: `orchestrator-run-started:${attemptId}`,
+    })
     this.attempts.set(attemptId, authority)
-    this.ctx.emit('worksurface/attempt-start', { attemptId, rootSurface, codeHash, workspaceHash })
+    let terminalRecorded = false
     try {
+      this.ctx.emit('worksurface/attempt-start', { attemptId, rootSurface, codeHash, workspaceHash })
       const harness = this.requireHarness()
       const command = language === 'bash' ? 'bash' : 'python3'
       const executable = await harness.subprocess.resolveExecutable(command, undefined, signal)
@@ -430,6 +456,7 @@ export class WorkSurfaceService extends Service {
         if (outcome.signal === null || signal.aborted || replayCount >= this.config.maxCrashReplays) break
         replayCount += 1
       } while (true)
+      await Promise.allSettled([...authority.operations])
       const rootRevision = (await this.store.readHead(rootSurface)).revision
       const result: OrchestratorResult = {
         attemptId,
@@ -448,8 +475,47 @@ export class WorkSurfaceService extends Service {
         mode: 0o600,
         dirMode: 0o700,
       })
+      if (outcome.signal === null) {
+        await this.store.sessions.append({
+          surface: rootSurface,
+          type: 'orchestrator/run-completed',
+          data: {
+            runId: attemptId,
+            outputRevision: rootRevision,
+            exitCode: outcome.exitCode,
+            signal: null,
+            replayCount,
+          },
+          correlationId: attemptId,
+          attemptId,
+          idempotencyKey: `orchestrator-run-terminal:${attemptId}`,
+        })
+      } else {
+        await this.store.sessions.append({
+          surface: rootSurface,
+          type: 'orchestrator/run-interrupted',
+          data: { runId: attemptId, outputRevision: rootRevision, signal: outcome.signal, replayCount },
+          correlationId: attemptId,
+          attemptId,
+          idempotencyKey: `orchestrator-run-terminal:${attemptId}`,
+        })
+      }
+      terminalRecorded = true
       this.ctx.emit('worksurface/attempt-end', result)
       return result
+    } catch (error) {
+      const failure = asWorkSurfaceError(error)
+      if (!terminalRecorded) {
+        await this.store.sessions.append({
+          surface: rootSurface,
+          type: 'orchestrator/run-failed',
+          data: { runId: attemptId, code: failure.code, message: failure.message },
+          correlationId: attemptId,
+          attemptId,
+          idempotencyKey: `orchestrator-run-terminal:${attemptId}`,
+        })
+      }
+      throw error
     } finally {
       await Promise.allSettled([...authority.operations])
       this.attempts.delete(attemptId)
@@ -548,7 +614,7 @@ export class WorkSurfaceService extends Service {
         ...[...this.attempts.values()].map(attempt => resolve(attempt.root)),
         ...[...this.pendingWorkspaces.values()].map(workspace => resolve(workspace.root)),
       ]),
-      runtimeRoot: this.store.runtimeRoot,
+      runtimeRoot: join(this.store.runtimeRoot, 'orchestrator'),
     })
   }
 }

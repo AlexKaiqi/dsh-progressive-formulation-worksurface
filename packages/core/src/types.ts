@@ -28,7 +28,7 @@ export interface BlockEnvelope {
   readonly derivedFrom: readonly unknown[]
 }
 
-/** Immutable canonical Surface head. */
+/** Current Surface revision folded from its canonical Work Session. */
 export interface SurfaceHead {
   readonly revision: Revision
   readonly commitId: string
@@ -61,6 +61,114 @@ export interface SurfaceSnapshot {
   readonly revision: Revision
   readonly surfaceDocument: string
   readonly blocks: ReadonlyMap<BlockId, string>
+}
+
+/** Immutable identity metadata for the Work Session owned by one Surface. */
+export interface WorkSessionHeader {
+  readonly version: 1
+  readonly surfaceId: SurfaceId
+  readonly parentSurfaceId: SurfaceId | null
+  readonly createdAt: string
+}
+
+/** Accepted domain facts recorded by a Surface-local Work Session. */
+export interface WorkSessionEventDataMap {
+  readonly 'surface/created': {
+    readonly parentSurfaceId: SurfaceId | null
+    readonly revision: Revision
+    readonly commitId: string
+  }
+  readonly 'child/created': {
+    readonly childSurfaceId: SurfaceId
+    readonly initialRevision: Revision
+  }
+  readonly 'child/session-started': {
+    readonly childSurfaceId: SurfaceId
+    readonly childSessionId: string
+    readonly input?: SurfaceSessionInput
+  }
+  readonly 'child/session-completed': {
+    readonly childSurfaceId: SurfaceId
+    readonly childSessionId: string
+    readonly outputRevision: Revision
+  }
+  readonly 'surface/revision-published': {
+    readonly revision: Revision
+    readonly previousRevision: Revision
+    readonly commitId: string
+  }
+  readonly 'agent/session-bound': {
+    readonly sessionId: string
+    readonly role: SurfaceSessionRole
+    readonly rootSurface: SurfaceId
+    readonly parentSessionId?: string
+    readonly input?: SurfaceSessionInput
+  }
+  readonly 'agent/session-completed': {
+    readonly sessionId: string
+    readonly outputRevision: Revision
+  }
+  readonly 'orchestrator/defined': {
+    readonly definitionRevision: Revision
+    readonly language: 'bash' | 'python'
+    readonly codeHash: string
+  }
+  readonly 'orchestrator/run-started': {
+    readonly runId: string
+    readonly definitionRevision: Revision
+    readonly workspaceHash: string
+    readonly inputRevision: Revision
+  }
+  readonly 'orchestrator/run-completed': {
+    readonly runId: string
+    readonly outputRevision: Revision
+    readonly exitCode: number | null
+    readonly signal: string | null
+    readonly replayCount: number
+  }
+  readonly 'orchestrator/run-interrupted': {
+    readonly runId: string
+    readonly outputRevision: Revision
+    readonly signal: string
+    readonly replayCount: number
+  }
+  readonly 'orchestrator/run-failed': {
+    readonly runId: string
+    readonly code: string
+    readonly message: string
+  }
+}
+
+/** Name of one accepted Work Session domain fact. */
+export type WorkSessionEventType = keyof WorkSessionEventDataMap
+
+/** One immutable, contiguous event in a Surface-local Work Session. */
+export type WorkSessionEvent<T extends WorkSessionEventType = WorkSessionEventType> = {
+  readonly version: 1
+  readonly surface: SurfaceId
+  readonly seq: number
+  readonly eventId: string
+  readonly type: T
+  readonly data: WorkSessionEventDataMap[T]
+  readonly createdAt: string
+  readonly causationId?: string
+  readonly correlationId?: string
+  readonly attemptId?: string
+  readonly idempotencyKey: string
+}
+
+/** Complete immutable replay input for one Surface's Work Session. */
+export interface WorkSessionSnapshot {
+  readonly header: WorkSessionHeader
+  readonly events: readonly WorkSessionEvent[]
+}
+
+/** Immutable content-addressed Orchestrator definition. */
+export interface OrchestratorDefinition {
+  readonly revision: Revision
+  readonly language: 'bash' | 'python'
+  readonly codeHash: string
+  readonly source: string
 }
 
 /** Why a durable Agent Session owns a Surface. */

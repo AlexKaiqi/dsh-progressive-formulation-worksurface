@@ -134,6 +134,17 @@ describe('EffectJournal', () => {
     await expect(journal.run(failure)).rejects.toMatchObject({ code: 'effect-failed', message: 'failed once' })
     await expect(journal.run({ ...failure, retry: true, execute: async () => 'recovered' })).resolves.toBe('recovered')
 
+    const publishedFailure = { ...base, key: 'published-failure', execute: async () => { throw new Error('failed after publish') } }
+    await expect(journal.run(publishedFailure)).rejects.toMatchObject({ code: 'effect-failed' })
+    let reranPublished = false
+    await expect(journal.run({
+      ...publishedFailure,
+      retry: true,
+      reconcile: async () => 'reconciled-after-failure',
+      execute: async () => { reranPublished = true; return 'unexpected' },
+    })).resolves.toBe('reconciled-after-failure')
+    expect(reranPublished).toBe(false)
+
     const missingErrorKey = 'missing-error'
     const missingErrorPath = join(root, 'attempt-1', `${sha256(missingErrorKey)}.json`)
     await writeFile(missingErrorPath, `${JSON.stringify({

@@ -31,15 +31,15 @@ Host 对每个 NDJSON 请求进行授权。Orchestrator 只能访问其 attempt 
 
 `ws agent run` 编译 revision-pinned Projection，物化新的 checkout，启动 in-process Subagent provider，并要求 child 返回 `{ surface, surfaceRevision, summary, outputs }`。只有在被分配 Surface 已产生新 commit，且每个 output 都指向该精确当前 revision 中存在的 Block 时，完成结果才会被接受。Final prose 绝不会作为结果 fallback。
 
-Session 与独立 Surface 使用持久的一对一绑定：顶层 Session 绑定 root Surface，delegated child Session 绑定 Child Surface。控制逻辑可以先创建未绑定的 draft Surface，但同一 Surface 一旦启动 Agent 就不能改绑另一个 Session；需要重新委派时应继续原 Session，或派生一个新 Surface。绑定同时保存 child 实际读取的 Projection revision，用于构建可审计的信息依赖图。Web profile 可另外安装 `@pf-worksurface/web` 来显示该图与各节点的关联对话。
+每个物理平级的 Surface 从创建起就拥有一条 append-only Work Session。父 Work Session 记录直接 child 的创建与执行边界，child Work Session 记录自己的 revision 与 Agent attachment；递归 fold 这些局部历史得到 WorkGraph。顶层 Agent Session 附着 root Surface，delegated Agent Session 附着 Child Surface，任一身份都只能附着一次。Child 实际读取的 Projection revision 保存在 canonical Work Session 事件中，用于构建可审计的信息依赖图。Orchestrator program 按内容寻址保存在 `canonical/orchestrator/definitions/<sha256>`；run 生命周期事实留在调用方 Surface Session，attempt workspace 仍只是 runtime state。Web profile 可另外安装 `@pf-worksurface/web` 来显示该图与各节点的关联对话。
 
-每个外部 effect 都按 attempt 与 key 记入 journal。Attempt identity 同时包含不可变 control-script hash 与公开 workspace 的确定性 hash，因此同一脚本配不同 b2f 输入时不会错误 replay。发生在 `HEAD` 发布后的 crash 可从 commit record 对账；由 signal 终止的 Orchestrator 最多按 `maxCrashReplays` 重放；service 会等待进行中的 child operation 达到静止状态，之后才释放 attempt authority。
+每个外部 effect 都按 attempt 与 key 记入 journal。Attempt identity 同时包含不可变 control-script hash 与公开 workspace 的确定性 hash，因此同一脚本配不同 b2f 输入时不会错误 replay。不可变 commit 已落盘后的 crash 会通过幂等完成对应 Work Session 发布来恢复；由 signal 终止的 Orchestrator 最多按 `maxCrashReplays` 重放；service 会等待进行中的 child operation 达到静止状态，之后才释放 attempt authority。
 
 ## 配置
 
 `root` 是必填项，必须是 operating-system temporary root 之外的持久路径。`profiles` 是非空列表；每个 profile 指定 `name`、Subagent `provider`、Projection `tokenBudget`、`maxDepth`、`maxParallel`，以及可选的 `toolAllow`、`persona`、`agentProvider` 和 `agentModel`。
 
-`attemptsRoot` 默认位于 `root` 下方。`socketPath` 默认位于 `root/run/host.sock`，与 canonical、journal 和 attempts 统一在同一个数据根目录下；仅当 `root` 过长导致 socket path 超过可移植 Unix 限制时才回退到 `~/.pf-worksurface/run` 下的 hash 命名 socket。`cliEntrypoint` 从已安装 CLI package 解析。`orchestratorGraceMs` 默认为 5000，`maxOutputBytes` 默认为 1 MiB，`maxCrashReplays` 默认为 1，`attemptRetention` 默认为 10。Attempt 目录名会带创建时间。每个 attempt 都包含私有 control/runtime 区和模型可写 `workspace/`；pending workspace 在被认领前不会被 GC。超过保留数量的旧 attempt 会把 `runtime/result.json` 与 `control/` 归档到 `runtime/attempt-results/` 后删除。显式 socket 必须位于 `attemptsRoot` 外，并满足可移植的 Unix path limit。
+`attemptsRoot` 默认位于 `root/runtime/orchestrator/runs`。`socketPath` 默认位于 `root/run/host.sock`，与 canonical、journal 和 attempts 统一在同一个数据根目录下；仅当 `root` 过长导致 socket path 超过可移植 Unix 限制时才回退到 `~/.pf-worksurface/run` 下的 hash 命名 socket。`cliEntrypoint` 从已安装 CLI package 解析。`orchestratorGraceMs` 默认为 5000，`maxOutputBytes` 默认为 1 MiB，`maxCrashReplays` 默认为 1，`attemptRetention` 默认为 10。Attempt 目录名会带创建时间。每个 attempt 都包含私有 control/runtime 区和模型可写 `workspace/`；pending workspace 在被认领前不会被 GC。超过保留数量的旧 attempt 会把 `runtime/result.json` 与 `control/` 归档到 `runtime/orchestrator/attempt-results/` 后删除。显式 socket 必须位于 `attemptsRoot` 外，并满足可移植的 Unix path limit。
 
 Package default export 是 `WorkSurfaceService`；挂载后的 service 可通过 `ctx.workSurfaces` 使用。只读观测 lifecycle event 包括 `worksurface/attempt-start`、`worksurface/attempt-end`、`worksurface/agent-start` 和 `worksurface/agent-end`。
 
