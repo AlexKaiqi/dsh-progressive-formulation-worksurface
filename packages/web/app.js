@@ -42,6 +42,14 @@ export function layoutGraph(nodes, edges) {
   return positions
 }
 
+/** Move one card by the pointer delta in graph coordinates without changing its grab offset. */
+export function draggedPosition(cardStart, pointerStart, pointerCurrent, zoom) {
+  return {
+    x: Math.max(20, cardStart.x + (pointerCurrent.x - pointerStart.x) / zoom),
+    y: Math.max(20, cardStart.y + (pointerCurrent.y - pointerStart.y) / zoom),
+  }
+}
+
 function escapeHtml(value) {
   return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;')
 }
@@ -260,19 +268,32 @@ function phaseLabel(phase) {
 function installDrag(card, surface) {
   card.addEventListener('pointerdown', event => {
     if (event.target.closest('button')) return
-    const start = { x: event.clientX, y: event.clientY, ...state.positions[surface] }
+    const cardStart = { ...state.positions[surface] }
+    const pointerStart = { x: event.clientX, y: event.clientY }
     card.setPointerCapture(event.pointerId)
     card.classList.add('dragging')
     const move = moveEvent => {
-      state.positions[surface] = { x: Math.max(20, start.x + (moveEvent.clientX - start.x) / state.zoom), y: Math.max(20, start.y + (moveEvent.clientY - start.y) / state.zoom) }
+      state.positions[surface] = draggedPosition(
+        cardStart,
+        pointerStart,
+        { x: moveEvent.clientX, y: moveEvent.clientY },
+        state.zoom,
+      )
       card.style.left = `${state.positions[surface].x}px`
       card.style.top = `${state.positions[surface].y}px`
       sizeCanvas()
       renderEdges()
     }
-    const up = () => { card.classList.remove('dragging'); card.removeEventListener('pointermove', move); savePositions() }
+    const up = () => {
+      card.classList.remove('dragging')
+      card.removeEventListener('pointermove', move)
+      card.removeEventListener('pointerup', up)
+      card.removeEventListener('pointercancel', up)
+      savePositions()
+    }
     card.addEventListener('pointermove', move)
-    card.addEventListener('pointerup', up, { once: true })
+    card.addEventListener('pointerup', up)
+    card.addEventListener('pointercancel', up)
   })
 }
 

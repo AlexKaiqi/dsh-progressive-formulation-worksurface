@@ -3,7 +3,7 @@ import { parse } from 'yaml'
 import { describe, expect, test } from 'vitest'
 // The Web companion intentionally ships browser-native JavaScript.
 // @ts-expect-error no declaration file is needed for its internal test surface
-import { compactSummary, graphPayloadKey, layoutGraph, markdownBody, setGraphVisibility } from '../app.js'
+import { compactSummary, draggedPosition, graphPayloadKey, layoutGraph, markdownBody, setGraphVisibility } from '../app.js'
 // @ts-expect-error no declaration file is needed for its internal test surface
 import { projectSessionConversation } from '../index.js'
 
@@ -32,6 +32,13 @@ describe('WorkSurface Web graph', () => {
     const hoverRule = /\.surface-card:hover\s*\{([^}]*)\}/.exec(css)?.[1]
     expect(hoverRule).toBeDefined()
     expect(hoverRule).not.toMatch(/\btransform\s*:/)
+  })
+
+  test('keeps the card grab offset while dragging at any zoom', () => {
+    const card = { x: 70, y: 90 }
+    const pointer = { x: 500, y: 300 }
+    expect(draggedPosition(card, pointer, pointer, 1)).toEqual(card)
+    expect(draggedPosition(card, pointer, { x: 510, y: 290 }, 0.5)).toEqual({ x: 90, y: 70 })
   })
 
   test('hides the stale error state after a later graph refresh succeeds', () => {
