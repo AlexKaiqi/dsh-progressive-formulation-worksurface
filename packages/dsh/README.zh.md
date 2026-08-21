@@ -23,7 +23,7 @@ dsh plugin --profile web exec ws --version
 
 ## Runtime 契约
 
-每个 parent model step 开始前，Service 会创建 session 的持久 root Surface 和一个 pending attempt。公开的 `workspace/` 被注册为该 Agent 的 b2f root，并在 `work/root` 放置 revision-pinned root checkout；私有 `control/`、`runtime/` 和 `bin/` 始终位于 b2f 与 sandbox 边界之外。`run_orchestrator` 会认领这个 pending attempt，在同一公开 workspace 中执行原样 Bash 或 Python 源码，并提供 `ws` wrapper 与 attempt-scoped credentials。省略或留空 `rootSurface` 时使用 session root。Canonical storage 永不成为模型可写 root。
+每个 parent model step 开始前，Service 会创建 session 的持久 root Surface 和一个 pending attempt。公开的 `workspace/` 只认领 parent b2f 中 `work/` 下的路径，并在 `work/root` 放置 revision-pinned root checkout；普通源码路径继续相对于 parent Session workspace 解析。私有 `control/`、`runtime/` 和 `bin/` 始终位于 b2f 与 sandbox 边界之外。`run_orchestrator` 会认领这个 pending attempt，在同一公开 workspace 中执行原样 Bash 或 Python 源码，并提供 `ws` wrapper 与 attempt-scoped credentials。省略或留空 `rootSurface` 时使用 session root。Canonical storage 永不成为模型可写 root。
 
 Plugin activation 会等待 canonical store、session template 和已认证 Host socket 全部就绪。无效的持久 root、socket placement、profile 与数值限制会拒绝 activation，不会留下只挂载了一部分的 tool surface。
 
@@ -88,4 +88,3 @@ npm run eval:check
 - **仅支持 in-process child provider** — least-authority shell environment binding 依赖本地 child Agent identity；remote Subagent provider 会被拒绝。
 - **macOS sandbox 证明具有平台特定性** — 已提供的 integration gate 在 macOS 上执行真实 Seatbelt profile；等价的 Landlock 和 Windows ACL integration coverage 仍延期。
 - **没有 distributed Host** — 已认证 transport 是私有 local socket，canonical publication 假设一个共享文件系统。
-- **observer containment 尚未隔离** — lifecycle listener 使用普通 Cordis event delivery，应保持 non-throwing。

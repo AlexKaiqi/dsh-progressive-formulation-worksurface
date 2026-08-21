@@ -64,23 +64,31 @@ export async function runAgent(
         throw new WorkSurfaceError('effect-failed', `profile '${profile.name}' parallel limit ${profile.maxParallel} reached`)
       }
       attempt.activeAgents += 1
-      const runRoot = join(attempt.root, 'runtime', 'agents', keyComponent)
-      const workingPath = join(attempt.workspaceRoot, 'work', `${request.surface}-${keyComponent}`)
-      const projection = await host.projections.compile({
-        surface: request.surface,
-        profile: profile.name,
-        tokenBudget: profile.tokenBudget,
-        revision: head.revision,
-      })
-      await mkdir(runRoot, { recursive: true, mode: 0o700 })
-      await writeFileAtomic(join(runRoot, 'projection.json'), `${JSON.stringify(projection, null, 2)}
-`, { mode: 0o600, dirMode: 0o700 })
-      await rm(workingPath, { recursive: true, force: true })
-      await host.store.checkout({ surface: request.surface, targetPath: workingPath, revision: head.revision })
-      const childToken = randomBytes(32).toString('hex')
       let childId: string | undefined
       try {
-        host.ctx.emit('worksurface/agent-start', { attemptId: attempt.id, surface: request.surface, profile: profile.name })
+        const runRoot = join(attempt.root, 'runtime', 'agents', keyComponent)
+        const workingPath = join(attempt.workspaceRoot, 'work', `${request.surface}-${keyComponent}`)
+        const projection = await host.projections.compile({
+          surface: request.surface,
+          profile: profile.name,
+          tokenBudget: profile.tokenBudget,
+          revision: head.revision,
+        })
+        await mkdir(runRoot, { recursive: true, mode: 0o700 })
+        await writeFileAtomic(join(runRoot, 'projection.json'), `${JSON.stringify(projection, null, 2)}
+`, { mode: 0o600, dirMode: 0o700 })
+        await rm(workingPath, { recursive: true, force: true })
+        await host.store.checkout({ surface: request.surface, targetPath: workingPath, revision: head.revision })
+        const childToken = randomBytes(32).toString('hex')
+        try {
+          host.ctx.emit('worksurface/agent-start', {
+            attemptId: attempt.id,
+            surface: request.surface,
+            profile: profile.name,
+          })
+        } catch {
+          // Lifecycle observers cannot control child execution.
+        }
         const run = await host.requireHarness().subagents.start(profile.provider, {
           label: `WorkSurface ${request.surface}`,
           prompt: [{ type: 'text', text: request.task }],
@@ -110,33 +118,35 @@ export async function runAgent(
           await run.dispose()
           throw new WorkSurfaceError('unsupported-profile', `profile '${profile.name}' must use an in-process subagent provider`)
         }
+        const ready = host.store.bindSession({
+          surface: request.surface,
+          sessionId: run.id,
+          role: 'delegated',
+          rootSurface: attempt.rootSurface,
+          parentSessionId: String(attempt.parent.id),
+          input: {
+            surfaceRevision: projection.surfaceRevision,
+            blockRevisions: projection.blockRevisions,
+            omittedBlockRevisions: projection.omittedFiles.map(file => ({
+              surface: file.surfaceId,
+              block: file.blockId,
+              revision: file.revision,
+            })),
+            profile: projection.profile,
+          },
+        }).then(() => undefined)
         const credential: ChildCredential = {
           attemptId: attempt.id,
           token: childToken,
           surface: request.surface,
           workingPath,
           baseRevision: head.revision,
+          ready,
         }
         attempt.childCredentials.set(run.id, credential)
         let settled: Awaited<typeof run.result>
         try {
-          await host.store.bindSession({
-            surface: request.surface,
-            sessionId: run.id,
-            role: 'delegated',
-            rootSurface: attempt.rootSurface,
-            parentSessionId: String(attempt.parent.id),
-            input: {
-              surfaceRevision: projection.surfaceRevision,
-              blockRevisions: projection.blockRevisions,
-              omittedBlockRevisions: projection.omittedFiles.map(file => ({
-                surface: file.surfaceId,
-                block: file.blockId,
-                revision: file.revision,
-              })),
-              profile: projection.profile,
-            },
-          })
+          await ready
           settled = await run.result
         } finally {
           await run.dispose()
@@ -181,7 +191,15 @@ export async function runAgent(
           mode: 0o600,
           dirMode: 0o700,
         })
-        host.ctx.emit('worksurface/agent-end', { attemptId: attempt.id, agentId: run.id, ...completion })
+        try {
+          host.ctx.emit('worksurface/agent-end', {
+            attemptId: attempt.id,
+            agentId: run.id,
+            ...completion,
+          })
+        } catch {
+          // Lifecycle observers cannot change a committed child result.
+        }
         return completion
       } finally {
         attempt.activeAgents -= 1

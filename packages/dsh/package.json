@@ -41,7 +41,10 @@
       "dependencies": [
         "@deepseek-ai/dsh-agent",
         "@deepseek-ai/dsh-block-to-file",
+        "@deepseek-ai/dsh-sandbox",
+        "@deepseek-ai/dsh-shell-env",
         "@deepseek-ai/dsh-subagent",
+        "@deepseek-ai/dsh-subprocess",
         "@deepseek-ai/dsh-system-prompt",
         "@deepseek-ai/dsh-tools"
       ]

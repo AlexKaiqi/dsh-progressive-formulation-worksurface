@@ -38,19 +38,37 @@ interface ScriptOutcome {
 }
 
 class FixtureB2FService extends Service implements B2FServiceContract {
-  private resolver: (agent?: Agent, session?: unknown) => string
+  private readonly fallback: (agent?: Agent, session?: unknown) => string
+  private readonly resolvers: Array<{
+    resolve: (agent?: Agent, session?: unknown, paths?: readonly string[]) => string | undefined
+  }> = []
 
   constructor(ctx: Context, config: { root: string }) {
     super(ctx, 'b2f')
-    this.resolver = () => config.root
+    this.fallback = () => config.root
   }
 
-  setRootResolver(resolver: (agent?: Agent, session?: unknown) => string): void {
-    this.resolver = resolver
+  registerRootResolver(
+    resolver: (agent?: Agent, session?: unknown, paths?: readonly string[]) => string | undefined,
+  ): () => void {
+    const entry = { resolve: resolver }
+    this.resolvers.push(entry)
+    return () => {
+      const index = this.resolvers.lastIndexOf(entry)
+      if (index >= 0) this.resolvers.splice(index, 1)
+    }
   }
 
-  resolveRoot(agent?: Agent, session?: unknown): string {
-    return this.resolver(agent, session)
+  setRootResolver(resolver: (agent?: Agent, session?: unknown) => string): () => void {
+    return this.registerRootResolver(resolver)
+  }
+
+  resolveRoot(agent?: Agent, session?: unknown, paths?: readonly string[]): string {
+    for (let index = this.resolvers.length - 1; index >= 0; index -= 1) {
+      const root = this.resolvers[index]?.resolve(agent, session, paths)
+      if (root !== undefined) return root
+    }
+    return this.fallback(agent, session)
   }
 }
 
@@ -419,7 +437,9 @@ describe('WorkSurfaceService integration', () => {
     const pending = await service.openSessionWorkspace(parent)
     expect(prompt).not.toContain(currentRoot)
     expect(prompt).toContain('work/root')
-    expect(b2fService(ctx).resolveRoot(parent)).toBe(pending.workspaceRoot)
+    expect(b2fService(ctx).resolveRoot(parent)).toBe(join(root, 'b2f-fallback'))
+    expect(b2fService(ctx).resolveRoot(parent, undefined, ['source/file.ts'])).toBe(join(root, 'b2f-fallback'))
+    expect(b2fService(ctx).resolveRoot(parent, undefined, ['work/root/surface.md'])).toBe(pending.workspaceRoot)
     expect((await readdir(pending.rootWorkingPath)).sort()).toEqual(['blocks', 'surface.md'])
     const parentEnv = ctx.shellEnv.collect({ agent: parent } as ToolExecution)
     expect(parentEnv.DSH_B2F_ROOT).toBe(pending.workspaceRoot)
@@ -478,13 +498,59 @@ describe('WorkSurfaceService integration', () => {
     expect(renderContextSnapshot(afterUnload)).not.toContain('PF WorkSurface')
   })
 
+  it('removes unclaimed workspaces on Agent disposal and plugin unload', async () => {
+    const { ctx, fiber, service, root } = await fixture()
+    const disposed = { id: 'disposed-pending', session: { header: { id: 'disposed-pending' } } } as unknown as Agent
+    const first = await service.openSessionWorkspace(disposed)
+
+    ctx.emit('agent/disposed', { agent: disposed })
+
+    expect(b2fService(ctx).resolveRoot(disposed)).toBe(join(root, 'b2f-fallback'))
+    await vi.waitFor(async () => {
+      await expect(stat(first.root)).rejects.toMatchObject({ code: 'ENOENT' })
+    })
+
+    const unloading = { id: 'unloading-pending', session: { header: { id: 'unloading-pending' } } } as unknown as Agent
+    const second = await service.openSessionWorkspace(unloading)
+    await fiber.dispose()
+    await expect(stat(second.root)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('does not publish a pending workspace after its Agent is disposed', async () => {
+    const { ctx, service, root } = await fixture()
+    const agent = { id: 'disposed-initializing', session: { header: { id: 'disposed-initializing' } } } as unknown as Agent
+    const current = await service.openSessionSurface(agent)
+    const originalCheckout = service.store.checkout.bind(service.store)
+    let releaseCheckout: () => void = () => {}
+    const checkoutGate = new Promise<void>((resolve) => {
+      releaseCheckout = resolve
+    })
+    const checkout = vi.spyOn(service.store, 'checkout').mockImplementation(async request => {
+      await checkoutGate
+      return originalCheckout(request)
+    })
+
+    const opening = service.openSessionWorkspace(agent, current)
+    await vi.waitFor(() => expect(checkout).toHaveBeenCalledOnce())
+    ctx.emit('agent/disposed', { agent })
+    releaseCheckout()
+
+    await expect(opening).rejects.toMatchObject({ code: 'cancelled' })
+    await vi.waitFor(async () => {
+      expect(await readdir(join(root, 'attempts'))).toEqual([])
+    })
+    expect(b2fService(ctx).resolveRoot(agent)).toBe(join(root, 'b2f-fallback'))
+    await expect(service.openSessionWorkspace(agent, current)).rejects.toMatchObject({ code: 'cancelled' })
+  })
+
   it('claims b2f workspaces, commits their prepared root checkout, and hashes public inputs', async () => {
     const { ctx, service } = await fixture()
     const parent = { id: 'b2f-parent', session: { header: { id: 'b2f-parent' } } } as unknown as Agent
     const current = await service.openSessionSurface(parent)
     await ctx.systemPrompt.assemble({ agent: parent })
     const firstWorkspace = await service.openSessionWorkspace(parent)
-    expect(b2fService(ctx).resolveRoot(parent)).toBe(firstWorkspace.workspaceRoot)
+    expect(b2fService(ctx).resolveRoot(parent)).not.toBe(firstWorkspace.workspaceRoot)
+    expect(b2fService(ctx).resolveRoot(parent, undefined, ['work/root/surface.md'])).toBe(firstWorkspace.workspaceRoot)
 
     const firstSurfacePath = join(firstWorkspace.rootWorkingPath, 'surface.md')
     await writeFile(firstSurfacePath, `${await readFile(firstSurfacePath, 'utf8')}\nFirst b2f edit.\n`)
@@ -1066,6 +1132,58 @@ describe('WorkSurfaceService integration', () => {
     await expect(service.runOrchestrator(parent, 'bash', '# child errors', 'ws-root', new AbortController().signal))
       .resolves.toMatchObject({ stdout: 'child-errors-covered' })
     expect(provider.authorityFailures).toEqual(Array.from({ length: 6 }, () => 'unauthorized'))
+  })
+
+  it('releases the child concurrency slot when preparation fails', async () => {
+    const { service, provider } = await fixture()
+    const compile = vi.spyOn(service.projections, 'compile')
+      .mockRejectedValueOnce(new WorkSurfaceError('effect-failed', 'projection preparation failed'))
+    ScriptedSubprocess.runner = async (spec) => {
+      const client = orchestratorClient(spec)
+      const failedSurface = await createAgentSurface(client, spec, 'prepare-failed')
+      await expectCode(client.call('agent.run', {
+        surface: failedSurface, task: 'valid', profile: 'test', key: 'prepare-failed',
+      }), 'effect-failed')
+
+      const recoveredSurface = await createAgentSurface(client, spec, 'prepare-recovered')
+      await client.call('agent.run', {
+        surface: recoveredSurface, task: 'valid', profile: 'test', key: 'prepare-recovered',
+      })
+      return { exitCode: 0, signal: null, stdout: 'slot-released', stderr: '' }
+    }
+
+    const parent = { id: 'prepare-failure-parent', session: { header: { id: 'prepare-failure-parent' } } } as unknown as Agent
+    await expect(service.runOrchestrator(parent, 'bash', '# prepare failure', 'ws-root', new AbortController().signal))
+      .resolves.toMatchObject({ stdout: 'slot-released' })
+    expect(provider.starts).toBe(1)
+    compile.mockRestore()
+  })
+
+  it('contains lifecycle observer failures', async () => {
+    const { ctx, service, provider } = await fixture()
+    for (const event of [
+      'worksurface/attempt-start',
+      'worksurface/attempt-end',
+      'worksurface/agent-start',
+      'worksurface/agent-end',
+    ] as const) {
+      ctx.on(event, () => {
+        throw new Error(`${event} observer failed`)
+      })
+    }
+    ScriptedSubprocess.runner = async (spec) => {
+      const client = orchestratorClient(spec)
+      const surface = await createAgentSurface(client, spec, 'observer-contained')
+      await client.call('agent.run', {
+        surface, task: 'valid', profile: 'test', key: 'observer-contained',
+      })
+      return { exitCode: 0, signal: null, stdout: 'observers-contained', stderr: '' }
+    }
+
+    const parent = { id: 'observer-parent', session: { header: { id: 'observer-parent' } } } as unknown as Agent
+    await expect(service.runOrchestrator(parent, 'bash', '# observer failures', 'ws-root', new AbortController().signal))
+      .resolves.toMatchObject({ stdout: 'observers-contained' })
+    expect(provider.starts).toBe(1)
   })
 
   it('enforces child concurrency and composes every optional profile field', async () => {

@@ -69,6 +69,8 @@ export interface ChildCredential {
   readonly surface: SurfaceIdType
   readonly workingPath: string
   readonly baseRevision: Revision
+  /** Session attachment must settle before any child Host operation executes. */
+  readonly ready: Promise<unknown>
 }
 
 /** Parent workspace prepared before one model step and later claimed by an Orchestrator. */

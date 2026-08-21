@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, rm } from 'node:fs/promises'
 import { delimiter, join, resolve } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -93,6 +93,8 @@ export class WorkSurfaceService extends Service {
   private readonly sessionSurfaceInitializations = new WeakMap<Agent, Promise<SurfaceIdType>>()
   private readonly pendingWorkspaceInitializations = new Map<string, Promise<PendingWorkspace>>()
   private readonly pendingWorkspaces = new Map<string, PendingWorkspace>()
+  private readonly disposedAgentIds = new Set<string>()
+  private disposingPendingWorkspaces = false
   private sessionTemplatePreparation: Promise<void> | undefined
   private harness: {
     readonly sandbox: Context['sandbox']
@@ -113,8 +115,17 @@ export class WorkSurfaceService extends Service {
     assertOutsideImplicitTemporaryRoots(this.config.socketPath, 'WorkSurface Host socket')
     assertSocketPath(this.config.socketPath, this.config.attemptsRoot)
 
-    const restoreB2F = installB2FRootResolver(ctx, agent => this.resolveB2FRoot(agent))
+    const restoreB2F = installB2FRootResolver(ctx, (agent, paths) => this.resolveB2FRoot(agent, paths))
     ctx.effect(() => restoreB2F, 'worksurface.b2fRoot()')
+    ctx.on('agent/disposed', ({ agent }) => {
+      const agentId = String(agent.id)
+      this.disposedAgentIds.add(agentId)
+      void this.disposePendingWorkspace(agentId).catch(() => {})
+    })
+    ctx.effect(() => () => {
+      this.disposingPendingWorkspaces = true
+      return this.disposePendingWorkspaces()
+    }, 'worksurface.pendingWorkspaces()')
 
     const lifecycle = ctx.effect(async () => {
       await this.store.init()
@@ -194,6 +205,9 @@ export class WorkSurfaceService extends Service {
     current?: { surface: SurfaceIdType; revision: Revision },
   ): Promise<PendingWorkspace> {
     const agentId = String(agent.id)
+    if (this.disposingPendingWorkspaces || this.disposedAgentIds.has(agentId)) {
+      throw new WorkSurfaceError('cancelled', `Agent '${agentId}' no longer owns a pending workspace`)
+    }
     const ready = this.pendingWorkspaces.get(agentId)
     if (ready !== undefined) {
       assertWorkspaceSurface(ready, current)
@@ -211,6 +225,10 @@ export class WorkSurfaceService extends Service {
           sessionRoot.surface,
           sessionRoot.revision,
         )
+        if (this.disposingPendingWorkspaces || this.disposedAgentIds.has(agentId)) {
+          await rm(workspace.root, { recursive: true, force: true })
+          throw new WorkSurfaceError('cancelled', `Agent '${agentId}' no longer owns a pending workspace`)
+        }
         this.pendingWorkspaces.set(agentId, workspace)
         return workspace
       })()
@@ -236,6 +254,7 @@ export class WorkSurfaceService extends Service {
   async dispatch(request: WorkSurfaceRpcRequest, signal: AbortSignal): Promise<unknown> {
     if (signal.aborted) throw new WorkSurfaceError('cancelled', 'Host request was cancelled')
     const authority = authorizeRequest(this.attempts, request)
+    if (authority.child !== undefined) await authority.child.ready
     const params = request.params
     switch (request.method) {
       case 'new': {
@@ -361,7 +380,7 @@ export class WorkSurfaceService extends Service {
     })
     const workspaceHash = await hashWorkspace(workspace.workspaceRoot)
     const codeHash = definition.codeHash
-    const attemptId = `attempt-${sha256(`${parent.id} ${rootSurface} ${codeHash} ${workspaceHash}`).slice(0, 24)}`
+    const attemptId = `attempt-${sha256(`${parent.id}\0${rootSurface}\0${codeHash}\0${workspaceHash}`).slice(0, 24)}`
     if (this.attempts.has(attemptId)) throw new WorkSurfaceError('effect-failed', `attempt '${attemptId}' is already running`)
     const authority: AttemptAuthority = {
       id: attemptId,
@@ -409,7 +428,11 @@ export class WorkSurfaceService extends Service {
     this.attempts.set(attemptId, authority)
     let terminalRecorded = false
     try {
-      this.ctx.emit('worksurface/attempt-start', { attemptId, rootSurface, codeHash, workspaceHash })
+      try {
+        this.ctx.emit('worksurface/attempt-start', { attemptId, rootSurface, codeHash, workspaceHash })
+      } catch {
+        // Lifecycle observers cannot control Orchestrator execution.
+      }
       const harness = this.requireHarness()
       const command = language === 'bash' ? 'bash' : 'python3'
       const executable = await harness.subprocess.resolveExecutable(command, undefined, signal)
@@ -501,7 +524,11 @@ export class WorkSurfaceService extends Service {
         })
       }
       terminalRecorded = true
-      this.ctx.emit('worksurface/attempt-end', result)
+      try {
+        this.ctx.emit('worksurface/attempt-end', result)
+      } catch {
+        // Lifecycle observers cannot change a persisted attempt result.
+      }
       return result
     } catch (error) {
       const failure = asWorkSurfaceError(error)
@@ -564,9 +591,10 @@ export class WorkSurfaceService extends Service {
     }
   }
 
-  private resolveB2FRoot(agent: Agent): string | undefined {
+  private resolveB2FRoot(agent: Agent, paths?: readonly string[]): string | undefined {
     const child = childBinding(this.attempts, String(agent.id))
     if (child !== undefined) return child.credential.workingPath
+    if (paths === undefined || paths.length === 0 || !paths.every(isWorkSurfacePath)) return undefined
     return this.parentWorkspace(String(agent.id))?.workspaceRoot
   }
 
@@ -585,6 +613,22 @@ export class WorkSurfaceService extends Service {
       }
     }
     return undefined
+  }
+
+  private async disposePendingWorkspace(agentId: string): Promise<void> {
+    const initialization = this.pendingWorkspaceInitializations.get(agentId)
+    if (initialization !== undefined) await initialization.catch(() => undefined)
+    const workspace = this.pendingWorkspaces.get(agentId)
+    if (workspace === undefined) return
+    if (this.pendingWorkspaces.delete(agentId) === false) return
+    await rm(workspace.root, { recursive: true, force: true })
+  }
+
+  private async disposePendingWorkspaces(): Promise<void> {
+    await Promise.allSettled([...this.pendingWorkspaceInitializations.values()])
+    const workspaces = [...this.pendingWorkspaces.values()]
+    this.pendingWorkspaces.clear()
+    await Promise.all(workspaces.map(workspace => rm(workspace.root, { recursive: true, force: true })))
   }
 
   private defaultProfile(): WorkSurfaceProfile {
@@ -621,6 +665,11 @@ export class WorkSurfaceService extends Service {
 
 function sessionSurfaceId(agent: Agent): SurfaceIdType {
   return deriveSurfaceId('session-root', String(agent.id))
+}
+
+function isWorkSurfacePath(path: string): boolean {
+  const normalized = path.replaceAll('\\', '/')
+  return normalized === 'work' || normalized.startsWith('work/')
 }
 
 function assertWorkspaceSurface(

@@ -23,7 +23,7 @@ After an install or upgrade, restart every DSH process that already loaded the p
 
 ## Runtime contract
 
-Before each parent model step, the service creates the session's durable root Surface and a pending attempt. Its public `workspace/` is registered as that Agent's b2f root and contains a revision-pinned root checkout at `work/root`; private `control/`, `runtime/`, and `bin/` remain outside the b2f and sandbox boundary. `run_orchestrator` claims the pending attempt, executes unchanged Bash or Python source from the same public workspace, and exposes a generated `ws` wrapper plus attempt-scoped credentials. An omitted or blank `rootSurface` selects the session root. Canonical storage is outside every model-writable root.
+Before each parent model step, the service creates the session's durable root Surface and a pending attempt. Its public `workspace/` selectively handles parent b2f paths under `work/` and contains a revision-pinned root checkout at `work/root`; ordinary source paths continue to resolve against the parent Session workspace. Private `control/`, `runtime/`, and `bin/` remain outside the b2f and sandbox boundary. `run_orchestrator` claims the pending attempt, executes unchanged Bash or Python source from the same public workspace, and exposes a generated `ws` wrapper plus attempt-scoped credentials. An omitted or blank `rootSurface` selects the session root. Canonical storage is outside every model-writable root.
 
 Plugin activation waits until the canonical store, session template, and authenticated Host socket are ready. Invalid persistent roots, socket placement, profiles, and numeric limits reject activation instead of leaving a partially mounted tool surface.
 
@@ -88,4 +88,3 @@ npm run eval:check
 - **In-process child providers only** — least-authority shell environment binding depends on a local child Agent identity; remote Subagent providers are rejected.
 - **macOS sandbox proof is platform-specific** — the shipped integration gate exercises the real Seatbelt profile on macOS; equivalent Landlock and Windows ACL integration coverage remains deferred.
 - **No distributed Host** — the authenticated transport is a private local socket and canonical publication assumes one shared filesystem.
-- **Observer containment is not yet isolated** — lifecycle listeners use ordinary Cordis event delivery and should remain non-throwing.
