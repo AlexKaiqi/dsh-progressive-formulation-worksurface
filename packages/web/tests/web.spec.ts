@@ -55,6 +55,10 @@ describe('WorkSurface Web graph', () => {
     expect(patch[0].insert[0].name).toBe('@pf-worksurface/web')
     const client = await readFile(new URL('../client.js', import.meta.url), 'utf8')
     expect(client).toContain("id: '@pf-worksurface/web'")
+    expect(client).toContain("module.exports.inject = ['sessions', 'locale']")
+    expect(client).toContain('ctx.locale.register(NS, dictionaries)')
+    expect(client).toContain("'pt-BR'")
+    expect(client).toContain("ar: { dialog: 'المحادثة'")
   })
 
   test('projects only a child Session live tail and filters runtime context', () => {

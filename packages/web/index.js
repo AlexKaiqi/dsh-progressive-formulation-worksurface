@@ -55,7 +55,7 @@ function sendJson(res, status, body) {
 }
 
 function page() {
-  return '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WorkSurface 图</title><link rel="stylesheet" href="/worksurface-map/styles.css"></head><body><div id="app"></div><script type="module" src="/worksurface-map/app.js"></script></body></html>'
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WorkGraph</title><link rel="stylesheet" href="/worksurface-map/styles.css"></head><body><div id="app"></div><script type="module" src="/worksurface-map/app.js"></script></body></html>'
 }
 
 /** Mount the read-only WorkGraph and conversation APIs on the existing DSH Web Server. */
