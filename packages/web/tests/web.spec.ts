@@ -27,6 +27,13 @@ describe('WorkSurface Web graph', () => {
     expect(graphPayloadKey(payload)).toBe(graphPayloadKey({ ...structuredClone(payload), graph: { ...payload.graph, createdAt: 'next-poll' } }))
   })
 
+  test('does not move a Surface card when the pointer enters it', async () => {
+    const css = await readFile(new URL('../styles.css', import.meta.url), 'utf8')
+    const hoverRule = /\.surface-card:hover\s*\{([^}]*)\}/.exec(css)?.[1]
+    expect(hoverRule).toBeDefined()
+    expect(hoverRule).not.toMatch(/\btransform\s*:/)
+  })
+
   test('hides the stale error state after a later graph refresh succeeds', () => {
     const style = { display: 'grid', removeProperty: (name: string) => { if (name === 'display') style.display = '' } }
     const empty = { hidden: false, style }

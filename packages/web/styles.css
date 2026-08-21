@@ -125,7 +125,7 @@ main { position: relative; height: calc(100% - 70px); }
   box-shadow: var(--shadow);
   overflow: hidden;
   cursor: grab;
-  transition: border-color .15s, box-shadow .15s, transform .15s;
+  transition: border-color .15s, box-shadow .15s;
 }
 .surface-card.entering { animation: card-in .22s ease-out both; }
 @keyframes card-in {
@@ -135,7 +135,6 @@ main { position: relative; height: calc(100% - 70px); }
 .surface-card:hover {
   border-color: var(--line-strong);
   box-shadow: 0 13px 34px #2448a51a;
-  transform: translateY(-1px);
 }
 .surface-card.selected {
   border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
