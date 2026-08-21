@@ -1,7 +1,7 @@
 {
   "name": "@pf-worksurface/dsh",
   "description": "b2f-backed DeepSeek Harness WorkSurface Host, orchestration tool, and structured subagent bridge",
-  "version": "0.1.0-rc.5",
+  "version": "0.1.0-rc.6",
   "publishConfig": { "access": "public" },
   "repository": {
     "type": "git",
@@ -62,7 +62,7 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-agent": "^0.1.0-rc.6",
-    "@deepseek-ai/dsh-block-to-file": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-block-to-file": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-invariants": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-sandbox": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-shell-env": "^0.1.0-rc.6",

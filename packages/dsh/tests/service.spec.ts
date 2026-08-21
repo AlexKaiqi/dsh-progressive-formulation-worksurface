@@ -27,7 +27,14 @@ import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { WorkSurfaceHostClient } from '@pf-worksurface/cli'
 import { sha256, stableStringify, WorkSurfaceError, WorkSurfaceStore } from '@pf-worksurface/core'
 import WorkSurfaceService, { resolveWorkSurfaceCliEntrypoint } from '../src/index.ts'
-import type { B2FServiceContract } from '../src/b2f.ts'
+import type {
+  B2FPublicationReceipt,
+  B2FPublicationRequest,
+  B2FPublisher,
+  B2FRootResolution,
+  B2FRootScope,
+  B2FServiceContract,
+} from '../src/b2f.ts'
 import type { Config, WorkSurfaceProfile } from '../src/index.ts'
 
 interface ScriptOutcome {
@@ -40,8 +47,9 @@ interface ScriptOutcome {
 class FixtureB2FService extends Service implements B2FServiceContract {
   private readonly fallback: (agent?: Agent, session?: unknown) => string
   private readonly resolvers: Array<{
-    resolve: (agent?: Agent, session?: unknown, paths?: readonly string[]) => string | undefined
+    resolve: (agent?: Agent, session?: unknown, paths?: readonly string[]) => B2FRootResolution | Promise<B2FRootResolution>
   }> = []
+  private readonly publishers: B2FPublisher[] = []
 
   constructor(ctx: Context, config: { root: string }) {
     super(ctx, 'b2f')
@@ -49,7 +57,7 @@ class FixtureB2FService extends Service implements B2FServiceContract {
   }
 
   registerRootResolver(
-    resolver: (agent?: Agent, session?: unknown, paths?: readonly string[]) => string | undefined,
+    resolver: (agent?: Agent, session?: unknown, paths?: readonly string[]) => B2FRootResolution | Promise<B2FRootResolution>,
   ): () => void {
     const entry = { resolve: resolver }
     this.resolvers.push(entry)
@@ -59,16 +67,45 @@ class FixtureB2FService extends Service implements B2FServiceContract {
     }
   }
 
+  registerPublisher(publisher: B2FPublisher): () => void {
+    this.publishers.push(publisher)
+    return () => {
+      const index = this.publishers.lastIndexOf(publisher)
+      if (index >= 0) this.publishers.splice(index, 1)
+    }
+  }
+
+  async publish(request: B2FPublicationRequest): Promise<B2FPublicationReceipt | undefined> {
+    for (let index = this.publishers.length - 1; index >= 0; index -= 1) {
+      const receipt = await this.publishers[index]?.(request)
+      if (receipt !== undefined) return receipt
+    }
+    return undefined
+  }
+
   setRootResolver(resolver: (agent?: Agent, session?: unknown) => string): () => void {
     return this.registerRootResolver(resolver)
   }
 
   resolveRoot(agent?: Agent, session?: unknown, paths?: readonly string[]): string {
     for (let index = this.resolvers.length - 1; index >= 0; index -= 1) {
-      const root = this.resolvers[index]?.resolve(agent, session, paths)
-      if (root !== undefined) return root
+      const selected = this.resolvers[index]?.resolve(agent, session, paths)
+      if (selected !== undefined && typeof (selected as Promise<B2FRootResolution>).then === 'function') {
+        throw new Error('fixture root requires asynchronous resolution')
+      }
+      if (typeof selected === 'string') return selected
+      if (selected !== undefined) return selected.root
     }
     return this.fallback(agent, session)
+  }
+
+  async resolveScope(agent?: Agent, session?: unknown, paths?: readonly string[]): Promise<B2FRootScope> {
+    for (let index = this.resolvers.length - 1; index >= 0; index -= 1) {
+      const selected = await this.resolvers[index]?.resolve(agent, session, paths)
+      if (typeof selected === 'string') return { root: selected, scope: `root:${selected}` }
+      if (selected !== undefined) return selected
+    }
+    return { root: this.fallback(agent, session), scope: 'workspace' }
   }
 }
 
@@ -434,7 +471,10 @@ describe('WorkSurfaceService integration', () => {
     expect(runtimeContext).toContain('# Current Decisions')
     expect(runtimeContext).toContain('# Deliverables and Evidence')
     const currentRoot = (await service.openSessionSurface(parent)).surface
+    expect(ctx.shellEnv.collect({ agent: parent } as ToolExecution).DSH_B2F_ROOT).toBeUndefined()
+    const selected = await b2fService(ctx).resolveScope(parent, undefined, ['work/root/surface.md'])
     const pending = await service.openSessionWorkspace(parent)
+    expect(selected).toMatchObject({ root: pending.workspaceRoot, scope: 'worksurface', authorization: 'mounted-workspace' })
     expect(prompt).not.toContain(currentRoot)
     expect(prompt).toContain('work/root')
     expect(b2fService(ctx).resolveRoot(parent)).toBe(join(root, 'b2f-fallback'))
@@ -496,6 +536,45 @@ describe('WorkSurfaceService integration', () => {
     const afterUnload = await ctx.systemPrompt.assemble({ agent: parent })
     expect(renderPrompt(afterUnload)).not.toContain('PF WorkSurface')
     expect(renderContextSnapshot(afterUnload)).not.toContain('PF WorkSurface')
+  })
+
+  it('promotes parent b2f Surface edits to the canonical revision exactly once', async () => {
+    const { ctx, fiber, service } = await fixture()
+    const parent = { id: 'publishing-parent', session: { header: { id: 'publishing-parent' } } } as unknown as Agent
+    const current = await service.openSessionSurface(parent)
+    const pending = await service.openSessionWorkspace(parent)
+    const documentPath = join(pending.rootWorkingPath, 'surface.md')
+    const document = await readFile(documentPath, 'utf8')
+    await writeFile(documentPath, document.replace('# Goal\n\n', '# Goal\n\nDurable publication.\n\n'))
+
+    const first = await b2fService(ctx).publish({
+      agent: parent,
+      root: pending.workspaceRoot,
+      scope: 'worksurface',
+      paths: ['work/root/surface.md'],
+      report: { status: 'committed', commit: 'workspace-commit-1', repoRevision: 'workspace-revision-1' },
+    })
+    expect(first).toMatchObject({ scope: 'worksurface', noOp: false, revision: expect.stringMatching(/^sha256:/) })
+    expect((await service.store.readSnapshot(current.surface)).surfaceDocument).toContain('Durable publication.')
+    expect((await service.openSessionWorkspace(parent)).rootBaseRevision).toBe(first?.revision)
+
+    const replay = await b2fService(ctx).publish({
+      agent: parent,
+      root: pending.workspaceRoot,
+      scope: 'worksurface',
+      paths: ['work/root/surface.md'],
+      report: { status: 'unchanged', commit: null, repoRevision: 'workspace-revision-1' },
+    })
+    expect(replay).toEqual({ scope: 'worksurface', revision: first?.revision, noOp: true })
+    expect(await b2fService(ctx).publish({
+      agent: parent,
+      root: pending.workspaceRoot,
+      scope: 'worksurface',
+      paths: ['work/input.txt'],
+      report: { status: 'committed', commit: 'workspace-commit-2', repoRevision: 'workspace-revision-2' },
+    })).toBeUndefined()
+
+    await fiber.dispose()
   })
 
   it('removes unclaimed workspaces on Agent disposal and plugin unload', async () => {
@@ -1492,8 +1571,8 @@ async function createAgentSurface(client: WorkSurfaceHostClient, spec: Subproces
   return surface
 }
 
-function b2fService(ctx: Context): B2FServiceContract {
-  const service = (ctx as Context & { b2f?: B2FServiceContract }).b2f
+function b2fService(ctx: Context): FixtureB2FService {
+  const service = (ctx as Context & { b2f?: FixtureB2FService }).b2f
   if (service === undefined) throw new Error('fixture b2f service is unavailable')
   return service
 }

@@ -83,6 +83,8 @@ export interface PendingWorkspace {
   readonly rootSurface: SurfaceIdType
   readonly rootWorkingPath: string
   readonly rootBaseRevision: Revision
+  /** b2f repository revision already promoted to the canonical Surface. */
+  readonly publishedRepoRevision?: string
 }
 
 /** Persisted outcome of one Orchestrator subprocess. */

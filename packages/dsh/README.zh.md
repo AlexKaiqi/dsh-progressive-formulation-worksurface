@@ -6,13 +6,13 @@
 
 ## 安装
 
-`0.1.0-rc.5` 包族以 DeepSeek Harness `0.1.0-rc.6` 为目标。`/dsh` bundle 会先组合 `@deepseek-ai/dsh-block-to-file`，并依赖匹配的 `/core` 与 `/cli` 包，因此 consumer 只需安装一个产品。默认配置把状态放在 Harness home 下，并使用 base profile 的进程内 `spawn` Subagent provider。
+`0.1.0-rc.6` 包族以 DeepSeek Harness `0.1.0-rc.6` 为目标。`/dsh` bundle 会先组合 `@deepseek-ai/dsh-block-to-file`，并依赖匹配的 `/core` 与 `/cli` 包，因此 consumer 只需安装一个产品。默认配置把状态放在 Harness home 下，并使用 base profile 的进程内 `spawn` Subagent provider。
 
 把插件安装到标准 Web profile。Harness plugin command 会识别其 bundle metadata，并把它追加到该 profile 的现有 bundle 之后：
 
 ```sh
-dsh plugin --profile web add '@pf-worksurface/dsh@0.1.0-rc.5'
-dsh plugin --profile web add '@pf-worksurface/web@0.1.0-rc.5'
+dsh plugin --profile web add '@pf-worksurface/dsh@0.1.0-rc.6'
+dsh plugin --profile web add '@pf-worksurface/web@0.1.0-rc.6'
 dsh --profile web --dump-config
 dsh plugin --profile web exec ws --version
 ```
@@ -23,7 +23,7 @@ dsh plugin --profile web exec ws --version
 
 ## Runtime 契约
 
-每个 parent model step 开始前，Service 会创建 session 的持久 root Surface 和一个 pending attempt。公开的 `workspace/` 只认领 parent b2f 中 `work/` 下的路径，并在 `work/root` 放置 revision-pinned root checkout；普通源码路径继续相对于 parent Session workspace 解析。私有 `control/`、`runtime/` 和 `bin/` 始终位于 b2f 与 sandbox 边界之外。`run_orchestrator` 会认领这个 pending attempt，在同一公开 workspace 中执行原样 Bash 或 Python 源码，并提供 `ws` wrapper 与 attempt-scoped credentials。省略或留空 `rootSurface` 时使用 session root。Canonical storage 永不成为模型可写 root。
+每个 parent model step 开始前，Service 只解析 session 的持久 root Surface 以生成 Projection，不再预创建 pending attempt workspace。只有当 parent b2f 首次解析 `work/` 下的路径或执行 `run_orchestrator` 时，才会按需创建公开 `workspace/` 及其位于 `work/root` 的 revision-pinned checkout；普通源码路径继续相对于 parent Session workspace 解析。成功的 `work/root` 写入会经过 awaited publication barrier，在同消息工具执行前推进 canonical Surface revision。私有 `control/`、`runtime/` 和 `bin/` 始终位于 b2f 与 sandbox 边界之外。`run_orchestrator` 会认领这个 pending attempt，在同一公开 workspace 中执行原样 Bash 或 Python 源码，并提供 `ws` wrapper 与 attempt-scoped credentials。省略或留空 `rootSurface` 时使用 session root。Canonical storage 永不成为模型可写 root。
 
 Plugin activation 会等待 canonical store、session template 和已认证 Host socket 全部就绪。无效的持久 root、socket placement、profile 与数值限制会拒绝 activation，不会留下只挂载了一部分的 tool surface。
 

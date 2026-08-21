@@ -1,7 +1,7 @@
 {
   "name": "@pf-worksurface/cli",
   "description": "Git-style ws CLI for WorkSurface file effects and DeepSeek Harness IPC",
-  "version": "0.1.0-rc.5",
+  "version": "0.1.0-rc.6",
   "publishConfig": {
     "access": "public"
   },

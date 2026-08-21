@@ -7,7 +7,7 @@ export function worksurfaceGuidance(): string {
     + 'Use it proactively without waiting for the user to name it when work needs durable decisions, competing alternatives, delegation, later resumption, review, or evidence-backed delivery. '
     + 'Skip it for simple questions and bounded one-step changes whose existing files already contain the complete durable result. '
     + 'Before delegating, initialize the root with the goal, known facts, assumptions, constraints, acceptance criteria, open questions, current decisions, and expected deliverables. '
-    + 'The current b2f workspace already contains the root checkout at work/root; write surface.md or blocks/<block-id>.md there with file blocks. '
+    + 'WorkSurface b2f paths under work/ are routed to a prepared root checkout at work/root; ordinary source paths stay in the Session workspace. Write surface.md or blocks/<block-id>.md under work/root with file blocks; successful writes are published to the canonical Surface before same-message tools run. '
     + 'Keep accepted state and supporting evidence current, and mark superseded content explicitly. Create child Surfaces only for independently owned deliverables. '
     + 'Call run_orchestrator with an ordinary Bash or Python script; it runs in that same workspace, where WS_WORKING_SURFACE, WS_WORKING_PATH, and WS_BASE_REVISION identify the prepared session checkout. In Code Mode call tools.run_orchestrator from run_code. '
     + 'Use ws --help for commands and ws help init for authoring guidance. '

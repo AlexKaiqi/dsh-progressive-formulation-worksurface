@@ -6,13 +6,13 @@ English | [中文](README.zh.md)
 
 ## Installation
 
-The `0.1.0-rc.5` package family targets DeepSeek Harness `0.1.0-rc.6`. The `/dsh` bundle composes `@deepseek-ai/dsh-block-to-file` before WorkSurface and depends on the matching `/core` and `/cli` packages, so a consumer installs one product. Its default rows store state under the Harness home and use the base profile's in-process `spawn` Subagent provider.
+The `0.1.0-rc.6` package family targets DeepSeek Harness `0.1.0-rc.6`. The `/dsh` bundle composes `@deepseek-ai/dsh-block-to-file` before WorkSurface and depends on the matching `/core` and `/cli` packages, so a consumer installs one product. Its default rows store state under the Harness home and use the base profile's in-process `spawn` Subagent provider.
 
 Install the plugin into the standard Web profile. The Harness plugin command recognizes its bundle metadata and appends it after the profile's existing bundles:
 
 ```sh
-dsh plugin --profile web add '@pf-worksurface/dsh@0.1.0-rc.5'
-dsh plugin --profile web add '@pf-worksurface/web@0.1.0-rc.5'
+dsh plugin --profile web add '@pf-worksurface/dsh@0.1.0-rc.6'
+dsh plugin --profile web add '@pf-worksurface/web@0.1.0-rc.6'
 dsh --profile web --dump-config
 dsh plugin --profile web exec ws --version
 ```
@@ -23,7 +23,7 @@ After an install or upgrade, restart every DSH process that already loaded the p
 
 ## Runtime contract
 
-Before each parent model step, the service creates the session's durable root Surface and a pending attempt. Its public `workspace/` selectively handles parent b2f paths under `work/` and contains a revision-pinned root checkout at `work/root`; ordinary source paths continue to resolve against the parent Session workspace. Private `control/`, `runtime/`, and `bin/` remain outside the b2f and sandbox boundary. `run_orchestrator` claims the pending attempt, executes unchanged Bash or Python source from the same public workspace, and exposes a generated `ws` wrapper plus attempt-scoped credentials. An omitted or blank `rootSurface` selects the session root. Canonical storage is outside every model-writable root.
+Before each parent model step, the service resolves the session's durable root Surface for Projection but does not create a pending attempt workspace. The public `workspace/` and its revision-pinned checkout at `work/root` are created lazily when parent b2f first resolves a path under `work/` or `run_orchestrator` executes; ordinary source paths continue to resolve against the parent Session workspace. Successful `work/root` writes pass an awaited publication barrier that advances the canonical Surface revision before same-message tools execute. Private `control/`, `runtime/`, and `bin/` remain outside the b2f and sandbox boundary. `run_orchestrator` claims the pending attempt, executes unchanged Bash or Python source from the same public workspace, and exposes a generated `ws` wrapper plus attempt-scoped credentials. An omitted or blank `rootSurface` selects the session root. Canonical storage is outside every model-writable root.
 
 Plugin activation waits until the canonical store, session template, and authenticated Host socket are ready. Invalid persistent roots, socket placement, profiles, and numeric limits reject activation instead of leaving a partially mounted tool surface.
 

@@ -26,7 +26,7 @@ import { runAgent } from './agent-run.ts'
 import { prepareAttempt } from './attempt.ts'
 import { runAttemptGc } from './attempt-gc.ts'
 import { attemptPath, authorizeRequest, childBinding, requireOrchestrator, requireSurface } from './authority.ts'
-import { installB2FRootResolver } from './b2f.ts'
+import { installB2FRootResolver, type B2FPublicationReceipt, type B2FPublicationRequest, type B2FRootScope } from './b2f.ts'
 import { installHarnessCapabilities } from './capabilities.ts'
 import { assertOutsideImplicitTemporaryRoots, assertSocketPath, CONFIG_SCHEMA, resolveConfig, validateProfiles } from './config.ts'
 import type { Config } from './config.ts'
@@ -115,7 +115,11 @@ export class WorkSurfaceService extends Service {
     assertOutsideImplicitTemporaryRoots(this.config.socketPath, 'WorkSurface Host socket')
     assertSocketPath(this.config.socketPath, this.config.attemptsRoot)
 
-    const restoreB2F = installB2FRootResolver(ctx, (agent, paths) => this.resolveB2FRoot(agent, paths))
+    const restoreB2F = installB2FRootResolver(
+      ctx,
+      (agent, paths) => this.resolveB2FRoot(agent, paths),
+      request => this.publishB2F(request),
+    )
     ctx.effect(() => restoreB2F, 'worksurface.b2fRoot()')
     ctx.on('agent/disposed', ({ agent }) => {
       const agentId = String(agent.id)
@@ -151,7 +155,6 @@ export class WorkSurfaceService extends Service {
       store: this.store,
       projections: this.projections,
       openSessionSurface: (agent) => this.openSessionSurface(agent),
-      openSessionWorkspace: (agent, current) => this.openSessionWorkspace(agent, current),
       defaultProfile: () => this.defaultProfile(),
       runOrchestrator: (parent, language, script, rootSurfaceInput, signal) =>
         this.runOrchestrator(parent, language, script, rootSurfaceInput, signal),
@@ -591,11 +594,52 @@ export class WorkSurfaceService extends Service {
     }
   }
 
-  private resolveB2FRoot(agent: Agent, paths?: readonly string[]): string | undefined {
+  private async publishB2F(request: B2FPublicationRequest): Promise<B2FPublicationReceipt | undefined> {
+    if (request.scope !== 'worksurface' || !request.paths.some(isRootSurfacePath)) return undefined
+    const agentId = String(request.agent.id)
+    const workspace = this.pendingWorkspaces.get(agentId)
+    if (workspace === undefined || resolve(request.root) !== resolve(workspace.workspaceRoot)) return undefined
+    if (workspace.publishedRepoRevision === request.report.repoRevision) {
+      return { scope: 'worksurface', revision: workspace.rootBaseRevision, noOp: true }
+    }
+
+    const result = await this.store.commit({
+      attemptId: `b2f-${sha256(agentId).slice(0, 24)}`,
+      key: `publish-${sha256(`${workspace.rootSurface}\0${request.report.repoRevision}`).slice(0, 32)}`,
+      workingPath: workspace.rootWorkingPath,
+      baseRevision: workspace.rootBaseRevision,
+      retry: true,
+    })
+    if (this.pendingWorkspaces.get(agentId) === workspace) {
+      this.pendingWorkspaces.set(agentId, {
+        ...workspace,
+        rootBaseRevision: result.revision,
+        publishedRepoRevision: request.report.repoRevision,
+      })
+    }
+    return { scope: 'worksurface', revision: result.revision, noOp: result.noOp }
+  }
+
+  private resolveB2FRoot(
+    agent: Agent,
+    paths?: readonly string[],
+  ): B2FRootScope | undefined | Promise<B2FRootScope> {
     const child = childBinding(this.attempts, String(agent.id))
-    if (child !== undefined) return child.credential.workingPath
+    if (child !== undefined) {
+      return {
+        root: child.credential.workingPath,
+        scope: `worksurface-child:${child.credential.surface}`,
+        authorization: 'mounted-workspace',
+      }
+    }
     if (paths === undefined || paths.length === 0 || !paths.every(isWorkSurfacePath)) return undefined
-    return this.parentWorkspace(String(agent.id))?.workspaceRoot
+    const mounted = (workspace: PendingWorkspace): B2FRootScope => ({
+      root: workspace.workspaceRoot,
+      scope: 'worksurface',
+      authorization: 'mounted-workspace',
+    })
+    const existing = this.parentWorkspace(String(agent.id))
+    return existing === undefined ? this.openSessionWorkspace(agent).then(mounted) : mounted(existing)
   }
 
   private parentWorkspace(agentId: string): PendingWorkspace | undefined {
@@ -670,6 +714,11 @@ function sessionSurfaceId(agent: Agent): SurfaceIdType {
 function isWorkSurfacePath(path: string): boolean {
   const normalized = path.replaceAll('\\', '/')
   return normalized === 'work' || normalized.startsWith('work/')
+}
+
+function isRootSurfacePath(path: string): boolean {
+  const normalized = path.replaceAll('\\', '/')
+  return normalized === 'work/root' || normalized.startsWith('work/root/')
 }
 
 function assertWorkspaceSurface(

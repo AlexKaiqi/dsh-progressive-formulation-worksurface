@@ -22,10 +22,6 @@ export interface CapabilitiesHost {
   readonly store: WorkSurfaceStore
   readonly projections: ProjectionCompiler
   readonly openSessionSurface: (agent: Agent) => Promise<{ surface: SurfaceIdType; revision: Revision }>
-  readonly openSessionWorkspace: (
-    agent: Agent,
-    current: { surface: SurfaceIdType; revision: Revision },
-  ) => Promise<PendingWorkspace>
   readonly defaultProfile: () => WorkSurfaceProfile
   readonly runOrchestrator: (
     parent: Agent,
@@ -51,7 +47,6 @@ export function installHarnessCapabilities(host: CapabilitiesHost): void {
     if (context.agent === undefined || isDelegatedAgent(context.agent)) return transformed
     context.signal?.throwIfAborted()
     const current = await host.openSessionSurface(context.agent)
-    await host.openSessionWorkspace(context.agent, current)
     const profile = host.defaultProfile()
     const projection = await projections.compile({
       surface: current.surface,
