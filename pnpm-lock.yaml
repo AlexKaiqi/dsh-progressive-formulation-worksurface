@@ -131,6 +131,10 @@ importers:
       '@pf-worksurface/dsh':
         specifier: workspace:^
         version: link:../dsh
+    devDependencies:
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
 
 packages:
 

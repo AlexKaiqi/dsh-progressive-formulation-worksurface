@@ -24,6 +24,9 @@
     "@pf-worksurface/core": "workspace:^",
     "@pf-worksurface/dsh": "workspace:^"
   },
+  "devDependencies": {
+    "yaml": "^2.9.0"
+  },
   "dsh": {
     "inventory": {
       "summary": {
