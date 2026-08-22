@@ -7,7 +7,7 @@
 export { WorkSurfaceError, asWorkSurfaceError } from './error.ts'
 export type { WorkSurfaceErrorCode } from './error.ts'
 export { sha256, stableStringify, hashSurfaceContent } from './hash.ts'
-export { SurfaceId, BlockId, deriveSurfaceId } from './ids.ts'
+export { SurfaceId, BlockId, deriveSurfaceId, sessionSurfaceId } from './ids.ts'
 export {
   parseFrontMatter,
   parseSurfaceDocument,

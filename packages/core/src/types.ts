@@ -82,31 +82,10 @@ export interface WorkSessionEventDataMap {
     readonly childSurfaceId: SurfaceId
     readonly initialRevision: Revision
   }
-  readonly 'child/session-started': {
-    readonly childSurfaceId: SurfaceId
-    readonly childSessionId: string
-    readonly input?: SurfaceSessionInput
-  }
-  readonly 'child/session-completed': {
-    readonly childSurfaceId: SurfaceId
-    readonly childSessionId: string
-    readonly outputRevision: Revision
-  }
   readonly 'surface/revision-published': {
     readonly revision: Revision
     readonly previousRevision: Revision
     readonly commitId: string
-  }
-  readonly 'agent/session-bound': {
-    readonly sessionId: string
-    readonly role: SurfaceSessionRole
-    readonly rootSurface: SurfaceId
-    readonly parentSessionId?: string
-    readonly input?: SurfaceSessionInput
-  }
-  readonly 'agent/session-completed': {
-    readonly sessionId: string
-    readonly outputRevision: Revision
   }
   readonly 'orchestrator/defined': {
     readonly definitionRevision: Revision
@@ -138,6 +117,19 @@ export interface WorkSessionEventDataMap {
     readonly message: string
   }
 }
+
+/**
+ * Legacy Work Session event types accepted only to fail fast on pre-delegation-record
+ * streams. Agent/Session attachment is no longer a domain event: it is a write-once
+ * delegation record per Surface (`binding.json`), and the child boundary is owned by
+ * the DSH Session tree. rc.6 streams containing these types are rejected as
+ * canonical-corrupt with an actionable message.
+ */
+export type LegacyBoundaryEventType =
+  | 'agent/session-bound'
+  | 'agent/session-completed'
+  | 'child/session-started'
+  | 'child/session-completed'
 
 /** Name of one accepted Work Session domain fact. */
 export type WorkSessionEventType = keyof WorkSessionEventDataMap
@@ -182,7 +174,7 @@ export interface SurfaceSessionInput {
   readonly profile: string
 }
 
-/** Durable one-to-one identity binding between one independent Surface and one Agent Session. */
+/** Durable write-once delegation record between one independent Surface and one Agent Session. */
 export interface SurfaceSessionBinding {
   readonly surface: SurfaceId
   readonly sessionId: string

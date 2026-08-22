@@ -661,12 +661,15 @@ describe('WorkSurfaceService integration', () => {
     expect((await service.store.readSnapshot(current.surface)).surfaceDocument).toContain('First b2f edit.')
     const firstEvents = (await service.store.readWorkSession(current.surface)).events
     expect(firstEvents.map(event => event.type)).toEqual(expect.arrayContaining([
-      'agent/session-bound',
       'orchestrator/defined',
       'orchestrator/run-started',
       'surface/revision-published',
       'orchestrator/run-completed',
     ]))
+    expect(await service.store.readSessionBinding({ surface: current.surface })).toMatchObject({
+      sessionId: 'b2f-parent',
+      role: 'root',
+    })
     await expect(service.store.readOrchestratorDefinition(`sha256:${first.codeHash}`)).resolves.toMatchObject({
       language: 'bash',
       source: 'ws commit "$WS_WORKING_PATH" --base "$WS_BASE_REVISION" --key prepared-root',
@@ -743,15 +746,11 @@ describe('WorkSurfaceService integration', () => {
       'orchestrator/defined',
       'orchestrator/run-started',
       'child/created',
-      'child/session-started',
-      'child/session-completed',
       'orchestrator/run-completed',
     ]))
     expect((await service.store.readWorkSession('ws-real-e2e-child')).events.map(event => event.type)).toEqual([
       'surface/created',
-      'agent/session-bound',
       'surface/revision-published',
-      'agent/session-completed',
     ])
     expect((await readdir(join(root, 'canonical', 'surfaces'))).sort()).toEqual(['ws-real-e2e-child', 'ws-root'])
   })

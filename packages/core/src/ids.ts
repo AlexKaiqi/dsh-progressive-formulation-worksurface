@@ -34,3 +34,14 @@ export function deriveSurfaceId(attemptId: string, key: string): SurfaceId {
   const slug = key.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'surface'
   return SurfaceId(`ws-${slug}-${sha256(`${attemptId}\0${key}`).slice(0, 10)}`)
 }
+
+/**
+ * Derive the root Surface owned by one DSH Session. A Session and its root
+ * Surface are one work unit: the Surface id is a deterministic function of the
+ * Session id, so no binding record is required to resolve the root.
+ * @param sessionId - The durable DSH Session id.
+ * @returns The validated root Surface id.
+ */
+export function sessionSurfaceId(sessionId: string): SurfaceId {
+  return deriveSurfaceId('session-root', sessionId)
+}

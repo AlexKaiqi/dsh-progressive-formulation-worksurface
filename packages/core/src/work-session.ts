@@ -6,6 +6,7 @@ import { sha256, stableStringify } from './hash.ts'
 import { SurfaceId } from './ids.ts'
 import { withRecoverableLock } from './lock.ts'
 import type {
+  LegacyBoundaryEventType,
   Revision,
   SurfaceId as SurfaceIdType,
   WorkSessionEvent,
@@ -34,17 +35,29 @@ const EVENT_FILE = /^(\d{12})\.json$/
 const EVENT_TYPES = new Set<WorkSessionEventType>([
   'surface/created',
   'child/created',
-  'child/session-started',
-  'child/session-completed',
   'surface/revision-published',
-  'agent/session-bound',
-  'agent/session-completed',
   'orchestrator/defined',
   'orchestrator/run-started',
   'orchestrator/run-completed',
   'orchestrator/run-interrupted',
   'orchestrator/run-failed',
 ])
+
+/**
+ * Boundary facts that moved out of the Work Session stream into write-once
+ * delegation records and the DSH Session tree. Streams that still contain them
+ * predate that move and fail fast with an actionable message.
+ */
+const LEGACY_BOUNDARY_TYPES = new Set<LegacyBoundaryEventType>([
+  'agent/session-bound',
+  'agent/session-completed',
+  'child/session-started',
+  'child/session-completed',
+])
+
+function isLegacyBoundaryType(type: string): type is LegacyBoundaryEventType {
+  return LEGACY_BOUNDARY_TYPES.has(type as LegacyBoundaryEventType)
+}
 
 /** Append-only domain history physically contained by each flat Surface directory. */
 export class WorkSessionLog {
@@ -233,10 +246,20 @@ function validateHeader(header: WorkSessionHeader, surface: SurfaceIdType): void
 function validateEvent(event: WorkSessionEvent, surface: SurfaceIdType, seq: number): void {
   if (event.version !== 1 || event.surface !== surface || event.seq !== seq
     || typeof event.eventId !== 'string' || event.eventId === ''
-    || typeof event.createdAt !== 'string' || !EVENT_TYPES.has(event.type)
+    || typeof event.createdAt !== 'string'
     || event.data === null || typeof event.data !== 'object'
     || typeof event.idempotencyKey !== 'string' || event.idempotencyKey === '') {
     throw new WorkSurfaceError('canonical-corrupt', `invalid Work Session event ${seq} for Surface '${surface}'`)
+  }
+  if (isLegacyBoundaryType(event.type)) {
+    throw new WorkSurfaceError('canonical-corrupt',
+      `Work Session event ${seq} for Surface '${surface}' is a legacy '${event.type}' boundary fact; `
+      + 'Agent/Session attachment is now a write-once delegation record and the child boundary is owned by the DSH Session tree. '
+      + 'Recreate the Surface or migrate its rc.6 state.',
+      { surface, seq, type: event.type })
+  }
+  if (!EVENT_TYPES.has(event.type)) {
+    throw new WorkSurfaceError('canonical-corrupt', `Work Session event ${seq} for Surface '${surface}' has an unknown type '${event.type}'`)
   }
   const expectedId = sha256(stableStringify({
     surface,
@@ -298,36 +321,6 @@ function validateTransition(
       ? (previous.data as WorkSessionEventDataMap['surface/created']).revision
       : (previous?.data as WorkSessionEventDataMap['surface/revision-published'] | undefined)?.revision
     if (current !== publication.previousRevision) corrupt('publishes a revision from a non-current base')
-  }
-  if (type === 'agent/session-bound' && events.some(event => event.type === 'agent/session-bound')) {
-    corrupt('contains more than one Agent Session binding')
-  }
-  if (type === 'agent/session-completed') {
-    const completion = data as WorkSessionEventDataMap['agent/session-completed']
-    const bound = events.find(event => event.type === 'agent/session-bound')
-    if (bound === undefined
-      || (bound.data as WorkSessionEventDataMap['agent/session-bound']).sessionId !== completion.sessionId
-      || events.some(event => event.type === 'agent/session-completed')) {
-      corrupt('contains an invalid Agent Session completion')
-    }
-  }
-  if (type === 'child/session-started' || type === 'child/session-completed') {
-    const boundary = data as WorkSessionEventDataMap['child/session-started'] | WorkSessionEventDataMap['child/session-completed']
-    const created = events.some(event => event.type === 'child/created'
-      && (event.data as WorkSessionEventDataMap['child/created']).childSurfaceId === boundary.childSurfaceId)
-    const starts = events.filter(event => event.type === 'child/session-started'
-      && (event.data as WorkSessionEventDataMap['child/session-started']).childSurfaceId === boundary.childSurfaceId)
-    if (!created) corrupt(`references unknown child '${boundary.childSurfaceId}'`)
-    if (type === 'child/session-started' && starts.length > 0) corrupt(`starts child '${boundary.childSurfaceId}' more than once`)
-    if (type === 'child/session-completed') {
-      const start = starts[0]
-      if (start === undefined
-        || (start.data as WorkSessionEventDataMap['child/session-started']).childSessionId !== boundary.childSessionId
-        || events.some(event => event.type === 'child/session-completed'
-          && (event.data as WorkSessionEventDataMap['child/session-completed']).childSurfaceId === boundary.childSurfaceId)) {
-        corrupt(`contains an invalid completion for child '${boundary.childSurfaceId}'`)
-      }
-    }
   }
   if (type === 'orchestrator/run-started') {
     const run = data as WorkSessionEventDataMap['orchestrator/run-started']

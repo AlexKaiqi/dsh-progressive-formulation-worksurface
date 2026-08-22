@@ -57,20 +57,25 @@ Graph.
 
 Each kind of fact has one authority:
 
-- `session/events` explains how one Surface was created, revised, assigned,
-  orchestrated, and connected to direct children.
+- `session/events` explains how one Surface was created, revised, and
+  orchestrated.
 - `revisions` contains the exact immutable Surface and Block bytes named by
   Session events.
 - `orchestrator/definitions` contains the exact immutable program and manifest
   named by orchestration events.
-- Agent Session logs explain Agent-local turns, tools, and messages. Work Session
-  events refer to their Session ids without copying their internal events.
+- `binding.json` is the write-once delegation record naming the one Agent
+  Session that executes a Surface, the exact Projection pins it consumed, and
+  the exact committed output revision it produced.
+- Agent Session logs explain Agent-local turns, tools, and messages. Delegation
+  records and events refer to their Session ids without copying their internal
+  events.
 
-Both Surface `HEAD.json` and Session `HEAD.json`, along with binding lookup,
-Graph snapshots, run status, and UI indexes, are materialized views. They may be
-deleted and rebuilt from canonical events and immutable content. The Surface
-head is folded from `surface/created` and `surface/revision-published`; the
-Session head is folded from the last contiguous event.
+Both Surface `HEAD.json` and Session `HEAD.json`, along with Graph snapshots,
+run status, and UI indexes, are materialized views. They may be deleted and
+rebuilt from canonical events and immutable content. The Surface head is folded
+from `surface/created` and `surface/revision-published`; the Session head is
+folded from the last contiguous event. Delegation records are not rebuildable
+views: the exact input pins of one delegated execution are write-once facts.
 
 The effect journal is an execution mechanism for idempotency and crash
 reconciliation. Its mutable `started`/`completed` records are not domain history.
@@ -103,13 +108,19 @@ The initial vocabulary is intentionally small:
   parent.
 - `child/created` makes a direct child reachable from the parent Graph.
 - `surface/revision-published` records an accepted content revision and its base.
-- `agent/session-bound` attaches the one Agent Session that executes the Surface
-  and records its exact input Projection.
-- `agent/session-completed` records the exact accepted output revision.
 - `orchestrator/defined` pins an immutable definition.
 - `orchestrator/run-started` and `orchestrator/run-completed` or
   `orchestrator/run-interrupted` or `orchestrator/run-failed` explain one
   execution attempt.
+
+Agent/Session attachment is not a domain event. Which Session executes a
+Surface, with which exact input pins, and to which committed output is a
+write-once delegation record per Surface (`binding.json`), and the parent/child
+boundary between Sessions is owned by the DSH Session tree (`parentSession` in
+the durable Session header). rc.6 streams that still contain
+`agent/session-bound`, `agent/session-completed`, `child/session-started`, or
+`child/session-completed` facts fail fast as canonical corruption with an
+actionable message.
 
 Events are past-tense accepted facts. Commands and rejected validation attempts
 do not enter the domain stream. A started external execution does enter the
@@ -118,18 +129,20 @@ that never started.
 
 ## Recursive composition
 
-The parent Session records only the child boundary: creation, launch identity,
-pinned input, and accepted output. The child Session owns its internal work. If
-the child creates more Surfaces, the same rule applies recursively.
+The parent records only the child boundary: creation (in its Work Session) and
+the child's launch identity, pinned input, and accepted output (in the child's
+delegation record). The child Session owns its internal work. If the child
+creates more Surfaces, the same rule applies recursively.
 
-Every canonical fact belongs to the nearest Work Session. The root Session can
-therefore explain the complete process by recursively following child ids, while
-each local stream remains bounded and independently replayable.
+Every canonical fact belongs to the nearest Work Session or delegation record.
+The root Session can therefore explain the complete process by recursively
+following child ids, while each local stream remains bounded and independently
+replayable.
 
 Structural ownership is a tree. Revision-pinned information dependencies may be
 a DAG: a child Projection can consume Blocks from several sibling or ancestor
 Surfaces. Those dependencies are derived from the exact input pins recorded in
-`agent/session-bound`, never from timestamps or directory ancestry.
+the delegation record, never from timestamps or directory ancestry.
 
 ## Publication and recovery
 
@@ -156,8 +169,9 @@ reconciles a non-terminal run instead of blindly executing it again.
 3. `surface/created` is event zero and agrees with immutable Surface metadata.
 4. A child is reachable only after one `child/created` event in its parent.
 5. A child has exactly one structural parent; cycles are invalid.
-6. An Agent Session id and a Surface may each participate in at most one binding.
-7. A binding input names existing immutable revisions.
+6. An Agent Session id and a Surface may each participate in at most one
+   delegation record.
+7. A delegation input names existing immutable revisions.
 8. Completion names an existing revision of the same Surface and occurs once.
 9. Revision publication advances from the recorded base revision.
 10. Parent completion cannot silently abandon live child work; children must be

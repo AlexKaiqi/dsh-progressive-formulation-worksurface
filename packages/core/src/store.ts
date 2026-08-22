@@ -5,7 +5,7 @@ import { basename, join, resolve } from 'node:path'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { WorkSurfaceError } from './error.ts'
 import { hashSurfaceContent, sha256, stableStringify } from './hash.ts'
-import { BlockId, deriveSurfaceId, SurfaceId } from './ids.ts'
+import { BlockId, deriveSurfaceId, sessionSurfaceId, SurfaceId } from './ids.ts'
 import { EffectJournal } from './journal.ts'
 import { withRecoverableLock } from './lock.ts'
 import { WorkSessionLog } from './work-session.ts'
@@ -31,7 +31,6 @@ import type {
   SurfaceSnapshot,
   SurfaceSessionBinding,
   SurfaceSessionInput,
-  SurfaceSessionRole,
   WorkSurfaceDependencyEdge,
   WorkSurfaceGraphNode,
   WorkSurfaceGraphSnapshot,
@@ -437,6 +436,11 @@ export class WorkSurfaceStore {
    * Durably bind one independent Surface to exactly one Agent Session.
    * Repeating the same complete binding is idempotent; either identity being reused is rejected.
    */
+  /**
+   * Durably record one write-once delegation between an independent Surface and
+   * exactly one Agent Session. Repeating the same complete binding is idempotent;
+   * either identity being reused is rejected.
+   */
   async bindSession(options: BindSurfaceSessionOptions): Promise<SurfaceSessionBinding> {
     await this.init()
     const surface = SurfaceId(options.surface)
@@ -455,30 +459,27 @@ export class WorkSurfaceStore {
     }
     if (options.input !== undefined) await this.validateSessionInput(surface, options.input)
 
+    const candidate: Omit<SurfaceSessionBinding, 'createdAt' | 'updatedAt' | 'outputRevision'> = {
+      surface,
+      sessionId,
+      role: options.role,
+      rootSurface,
+      ...(parentSessionId === undefined ? {} : { parentSessionId }),
+      ...(options.input === undefined ? {} : { input: options.input }),
+    }
     const lock = join(this.runtimeRoot, 'locks', 'session-bindings.lock')
     await mkdir(join(this.runtimeRoot, 'locks'), { recursive: true, mode: 0o700 })
     return withRecoverableLock(lock, async () => {
-      const existingForSurface = await this.readSessionBinding({ surface })
-      const existingForSession = await this.readSessionBinding({ sessionId })
-      const candidate: Omit<SurfaceSessionBinding, 'createdAt' | 'updatedAt' | 'outputRevision'> = {
-        surface,
-        sessionId,
-        role: options.role,
-        rootSurface,
-        ...(parentSessionId === undefined ? {} : { parentSessionId }),
-        ...(options.input === undefined ? {} : { input: options.input }),
-      }
+      const existingForSurface = await this.readBindingRecord(surface)
       if (existingForSurface !== undefined) {
-        if (sameBindingIdentity(existingForSurface, candidate)) {
-          await this.ensureParentSessionStarted(existingForSurface)
-          return existingForSurface
-        }
+        if (sameBindingIdentity(existingForSurface, candidate)) return existingForSurface
         throw new WorkSurfaceError('session-binding-conflict', `Surface '${surface}' is already bound to Session '${existingForSurface.sessionId}'`, {
           surface,
           existingSessionId: existingForSurface.sessionId,
           requestedSessionId: sessionId,
         })
       }
+      const existingForSession = await this.findBindingBySession(sessionId)
       if (existingForSession !== undefined) {
         throw new WorkSurfaceError('session-binding-conflict', `Session '${sessionId}' is already bound to Surface '${existingForSession.surface}'`, {
           sessionId,
@@ -486,20 +487,14 @@ export class WorkSurfaceStore {
           requestedSurface: surface,
         })
       }
-      await this.sessions.append({
-        surface,
-        type: 'agent/session-bound',
-        data: candidate,
-        idempotencyKey: `agent-session-bound:${sessionId}`,
-      })
-      const binding = await this.readSessionBinding({ surface })
-      if (binding === undefined) throw new WorkSurfaceError('canonical-corrupt', `Session binding did not fold for Surface '${surface}'`)
-      await this.ensureParentSessionStarted(binding)
+      const now = new Date().toISOString()
+      const binding: SurfaceSessionBinding = { ...candidate, createdAt: now, updatedAt: now }
+      await writeJsonAtomic(this.bindingPath(surface), binding)
       return binding
     })
   }
 
-  /** Record the final committed revision without changing the immutable Session/Surface pair. */
+  /** Record the final committed revision on an existing delegation record. */
   async completeSessionBinding(surfaceInput: string, sessionIdInput: string, outputRevision: Revision): Promise<SurfaceSessionBinding> {
     const surface = SurfaceId(surfaceInput)
     const sessionId = requireSessionId(sessionIdInput, 'sessionId')
@@ -508,47 +503,42 @@ export class WorkSurfaceStore {
     const lock = join(this.runtimeRoot, 'locks', 'session-bindings.lock')
     await mkdir(join(this.runtimeRoot, 'locks'), { recursive: true, mode: 0o700 })
     return withRecoverableLock(lock, async () => {
-      const existing = await this.readSessionBinding({ surface })
+      const existing = await this.readBindingRecord(surface)
       if (existing === undefined || existing.sessionId !== sessionId) {
         throw new WorkSurfaceError('session-binding-conflict', `Surface '${surface}' is not bound to Session '${sessionId}'`, { surface, sessionId })
       }
-      if (existing.outputRevision === outputRevision) {
-        await this.ensureParentSessionCompleted(existing)
-        return existing
-      }
+      if (existing.outputRevision === outputRevision) return existing
       if (existing.outputRevision !== undefined) {
         throw new WorkSurfaceError('session-binding-conflict', `Session '${sessionId}' already completed at another revision`, {
           existingRevision: existing.outputRevision,
           requestedRevision: outputRevision,
         })
       }
-      await this.sessions.append({
-        surface,
-        type: 'agent/session-completed',
-        data: { sessionId, outputRevision },
-        idempotencyKey: `agent-session-completed:${sessionId}`,
-      })
-      const completed = await this.readSessionBinding({ surface })
-      if (completed === undefined) throw new WorkSurfaceError('canonical-corrupt', `completed binding did not fold for Surface '${surface}'`)
-      await this.ensureParentSessionCompleted(completed)
+      const completed: SurfaceSessionBinding = { ...existing, outputRevision, updatedAt: new Date().toISOString() }
+      await writeJsonAtomic(this.bindingPath(surface), completed)
       return completed
     })
   }
 
-  /** Read the binding for either identity. */
+  /**
+   * Read the delegation record for either identity. A root Session resolves its
+   * Surface deterministically from the Session id; other Sessions are found by
+   * scanning records.
+   */
   async readSessionBinding(identity: { readonly surface: string } | { readonly sessionId: string }): Promise<SurfaceSessionBinding | undefined> {
     if ('surface' in identity) {
       const surface = SurfaceId(identity.surface)
-      const session = await this.sessions.read(surface)
-      return foldSessionBinding(session)
+      await this.readHead(surface)
+      return this.readBindingRecord(surface)
     }
     const sessionId = requireSessionId(identity.sessionId, 'sessionId')
-    const matches = (await this.listSessionBindings()).filter(binding => binding.sessionId === sessionId)
-    if (matches.length > 1) throw new WorkSurfaceError('canonical-corrupt', `Session '${sessionId}' is bound to multiple Surfaces`)
-    return matches[0]
+    const rootSurface = sessionSurfaceId(sessionId)
+    const rootRecord = await this.readBindingRecord(rootSurface)
+    if (rootRecord !== undefined && rootRecord.sessionId === sessionId) return rootRecord
+    return this.findBindingBySession(sessionId)
   }
 
-  /** Return all durable bindings in stable creation order. */
+  /** Return all delegation records in stable creation order. */
   async listSessionBindings(): Promise<readonly SurfaceSessionBinding[]> {
     await this.init()
     const bindings: SurfaceSessionBinding[] = []
@@ -559,15 +549,57 @@ export class WorkSurfaceStore {
       } catch {
         continue
       }
-      try {
-        const binding = foldSessionBinding(await this.sessions.read(surface))
-        if (binding !== undefined) bindings.push(binding)
-      } catch (error) {
-        if (error instanceof WorkSurfaceError && error.code === 'not-found') continue
-        throw error
-      }
+      const binding = await this.readBindingRecord(surface)
+      if (binding !== undefined) bindings.push(binding)
     }
     return bindings.sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.surface.localeCompare(right.surface))
+  }
+
+  /** Read and validate the write-once delegation record owned by one Surface. */
+  private async readBindingRecord(surface: SurfaceIdType): Promise<SurfaceSessionBinding | undefined> {
+    const record = await readJsonOptional<Record<string, unknown>>(this.bindingPath(surface))
+    if (record === undefined) return undefined
+    if (record.surface !== surface
+      || (record.role !== 'root' && record.role !== 'delegated')
+      || typeof record.createdAt !== 'string' || record.createdAt === ''
+      || typeof record.updatedAt !== 'string' || record.updatedAt === '') {
+      throw new WorkSurfaceError('canonical-corrupt', `Surface '${surface}' has an invalid delegation record`)
+    }
+    const sessionId = requireSessionId(String(record.sessionId), 'sessionId')
+    const rootSurface = SurfaceId(String(record.rootSurface))
+    const parentSessionId = record.parentSessionId === undefined
+      ? undefined
+      : requireSessionId(String(record.parentSessionId), 'parentSessionId')
+    const input = record.input as SurfaceSessionInput | undefined
+    if (record.input !== undefined && (typeof input !== 'object' || input === null
+      || typeof input.profile !== 'string' || !Array.isArray(input.blockRevisions)
+      || !Array.isArray(input.omittedBlockRevisions) || typeof input.surfaceRevision !== 'string')) {
+      throw new WorkSurfaceError('canonical-corrupt', `Surface '${surface}' has an invalid delegation input`)
+    }
+    const outputRevision = record.outputRevision as Revision | undefined
+    if (record.outputRevision !== undefined) assertRevision(String(record.outputRevision))
+    return {
+      surface,
+      sessionId,
+      role: record.role,
+      rootSurface,
+      ...(parentSessionId === undefined ? {} : { parentSessionId }),
+      ...(input === undefined ? {} : { input }),
+      ...(outputRevision === undefined ? {} : { outputRevision }),
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    }
+  }
+
+  /** Scan every delegation record for one Session identity; duplicates are corruption. */
+  private async findBindingBySession(sessionId: string): Promise<SurfaceSessionBinding | undefined> {
+    const matches = (await this.listSessionBindings()).filter(binding => binding.sessionId === sessionId)
+    if (matches.length > 1) throw new WorkSurfaceError('canonical-corrupt', `Session '${sessionId}' is bound to multiple Surfaces`)
+    return matches[0]
+  }
+
+  private bindingPath(surface: SurfaceIdType): string {
+    return join(this.paths(surface).surfaceRoot, 'binding.json')
   }
 
   /** Build the current Surface DAG for one top-level Session Surface. */
@@ -598,9 +630,7 @@ export class WorkSurfaceStore {
         queue.push(child)
       }
     }
-    const bindings = [...sessions.values()]
-      .map(foldSessionBinding)
-      .filter((binding): binding is SurfaceSessionBinding => binding !== undefined)
+    const bindings = await this.listSessionBindings()
     const bindingBySurface = new Map(bindings.map(binding => [binding.surface, binding]))
     const nodes: WorkSurfaceGraphNode[] = []
     for (const surface of [...included].sort()) {
@@ -690,40 +720,6 @@ export class WorkSurfaceStore {
       },
       attemptId: options.attemptId,
       idempotencyKey: `surface-revision-published:${commitId}`,
-    })
-  }
-
-  private async ensureParentSessionStarted(binding: SurfaceSessionBinding): Promise<void> {
-    if (binding.role !== 'delegated') return
-    const child = await this.sessions.read(binding.surface)
-    const parent = child.header.parentSurfaceId
-    if (parent === null) throw new WorkSurfaceError('canonical-corrupt', `delegated Surface '${binding.surface}' has no parent`)
-    await this.sessions.append({
-      surface: parent,
-      type: 'child/session-started',
-      data: {
-        childSurfaceId: binding.surface,
-        childSessionId: binding.sessionId,
-        ...(binding.input === undefined ? {} : { input: binding.input }),
-      },
-      idempotencyKey: `child-session-started:${binding.surface}:${binding.sessionId}`,
-    })
-  }
-
-  private async ensureParentSessionCompleted(binding: SurfaceSessionBinding): Promise<void> {
-    if (binding.role !== 'delegated' || binding.outputRevision === undefined) return
-    const child = await this.sessions.read(binding.surface)
-    const parent = child.header.parentSurfaceId
-    if (parent === null) throw new WorkSurfaceError('canonical-corrupt', `delegated Surface '${binding.surface}' has no parent`)
-    await this.sessions.append({
-      surface: parent,
-      type: 'child/session-completed',
-      data: {
-        childSurfaceId: binding.surface,
-        childSessionId: binding.sessionId,
-        outputRevision: binding.outputRevision,
-      },
-      idempotencyKey: `child-session-completed:${binding.surface}:${binding.sessionId}`,
     })
   }
 
@@ -888,45 +884,6 @@ function sameBindingIdentity(
     parentSessionId: existing.parentSessionId,
     input: existing.input,
   }) === stableStringify(candidate)
-}
-
-function foldSessionBinding(session: WorkSessionSnapshot): SurfaceSessionBinding | undefined {
-  let binding: SurfaceSessionBinding | undefined
-  for (const event of session.events) {
-    if (event.type === 'agent/session-bound') {
-      if (binding !== undefined) {
-        throw new WorkSurfaceError('canonical-corrupt', `Surface '${session.header.surfaceId}' has multiple Agent Session bindings`)
-      }
-      const data = event.data as {
-        readonly sessionId: string
-        readonly role: SurfaceSessionRole
-        readonly rootSurface: SurfaceIdType
-        readonly parentSessionId?: string
-        readonly input?: SurfaceSessionInput
-      }
-      binding = {
-        surface: session.header.surfaceId,
-        sessionId: requireSessionId(data.sessionId, 'sessionId'),
-        role: data.role,
-        rootSurface: SurfaceId(data.rootSurface),
-        ...(data.parentSessionId === undefined ? {} : { parentSessionId: requireSessionId(data.parentSessionId, 'parentSessionId') }),
-        ...(data.input === undefined ? {} : { input: data.input }),
-        createdAt: event.createdAt,
-        updatedAt: event.createdAt,
-      }
-    }
-    if (event.type === 'agent/session-completed') {
-      if (binding === undefined) {
-        throw new WorkSurfaceError('canonical-corrupt', `Surface '${session.header.surfaceId}' completed before Agent Session binding`)
-      }
-      const data = event.data as { readonly sessionId: string; readonly outputRevision: Revision }
-      if (binding.sessionId !== data.sessionId || binding.outputRevision !== undefined) {
-        throw new WorkSurfaceError('canonical-corrupt', `Surface '${session.header.surfaceId}' has an invalid Agent Session completion`)
-      }
-      binding = { ...binding, outputRevision: data.outputRevision, updatedAt: event.createdAt }
-    }
-  }
-  return binding
 }
 
 function instantiateTemplate(template: MutableSnapshot, surface: SurfaceIdType, parent: SurfaceIdType | null): MutableSnapshot {

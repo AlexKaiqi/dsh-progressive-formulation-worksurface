@@ -79,16 +79,16 @@ describe('Surface-local Work Session', () => {
     })
   })
 
-  test('folds Agent bindings from events and records the direct child boundary in the parent', async () => {
-    const { store, template } = await fixture()
-    const root = await store.newSurface({ attemptId: 'a', key: 'root', templatePath: template, surface: 'ws-root' })
+  test('keeps Agent/Session attachment out of the event stream and in a delegation record', async () => {
+    const { root, store, template } = await fixture()
+    const rootSurface = await store.newSurface({ attemptId: 'a', key: 'root', templatePath: template, surface: 'ws-root' })
     const child = await store.newSurface({ attemptId: 'a', key: 'child', templatePath: template, surface: 'ws-child', parent: 'ws-root' })
-    await store.bindSession({ surface: root.surface, sessionId: 'agent-root', role: 'root', rootSurface: root.surface })
+    await store.bindSession({ surface: rootSurface.surface, sessionId: 'agent-root', role: 'root', rootSurface: rootSurface.surface })
     await store.bindSession({
       surface: child.surface,
       sessionId: 'agent-child',
       role: 'delegated',
-      rootSurface: root.surface,
+      rootSurface: rootSurface.surface,
       parentSessionId: 'agent-root',
     })
     await store.completeSessionBinding(child.surface, 'agent-child', child.revision)
@@ -97,13 +97,42 @@ describe('Surface-local Work Session', () => {
       surface: 'ws-child',
       outputRevision: child.revision,
     })
-    expect((await store.readWorkSession(root.surface)).events.map(event => event.type)).toEqual([
+    expect((await store.readWorkSession(rootSurface.surface)).events.map(event => event.type)).toEqual([
       'surface/created',
       'child/created',
-      'agent/session-bound',
-      'child/session-started',
-      'child/session-completed',
     ])
+    expect((await store.readWorkSession(child.surface)).events.map(event => event.type)).toEqual([
+      'surface/created',
+    ])
+    const bindingPath = join(root, 'store', 'canonical', 'surfaces', 'ws-child', 'binding.json')
+    expect(JSON.parse(await readFile(bindingPath, 'utf8'))).toMatchObject({
+      surface: 'ws-child',
+      sessionId: 'agent-child',
+      role: 'delegated',
+      outputRevision: child.revision,
+    })
+  })
+
+  test('rejects legacy boundary facts in a Work Session stream with an actionable message', async () => {
+    const { root, store, template } = await fixture()
+    await store.newSurface({ attemptId: 'a', key: 'root', templatePath: template, surface: 'ws-root' })
+    const events = join(root, 'store', 'canonical', 'surfaces', 'ws-root', 'session', 'events')
+    await writeFile(
+      join(events, '000000000001.json'),
+      JSON.stringify({
+        version: 1,
+        surface: 'ws-root',
+        seq: 1,
+        eventId: 'legacy',
+        type: 'agent/session-bound',
+        data: { sessionId: 'agent-root', role: 'root', rootSurface: 'ws-root' },
+        createdAt: new Date().toISOString(),
+        idempotencyKey: 'legacy-bound',
+      }),
+    )
+    await expect(store.readWorkSession('ws-root')).rejects.toMatchObject({
+      code: 'canonical-corrupt',
+    })
   })
 
   test('rejects reuse of a Work Session event identity for another fact', async () => {

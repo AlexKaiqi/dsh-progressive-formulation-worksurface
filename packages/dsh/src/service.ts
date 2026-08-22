@@ -10,11 +10,11 @@ import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-subprocess'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import {
-  deriveSurfaceId,
   EffectJournal,
   asWorkSurfaceError,
   parseSurfaceDocument,
   ProjectionCompiler,
+  sessionSurfaceId as sessionSurfaceIdCore,
   sha256,
   SurfaceId,
   WorkSurfaceError,
@@ -720,7 +720,7 @@ export class WorkSurfaceService extends Service {
 }
 
 function sessionSurfaceId(agent: Agent): SurfaceIdType {
-  return deriveSurfaceId('session-root', String(agent.id))
+  return sessionSurfaceIdCore(String(agent.id))
 }
 
 function isWorkSurfacePath(path: string): boolean {

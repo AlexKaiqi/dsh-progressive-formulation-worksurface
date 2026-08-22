@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-`@pf-worksurface/dsh` 将 WorkSurface 挂载为 DeepSeek Harness `Service`。`@deepseek-ai/dsh-block-to-file` 负责把模型 file block 物化到最小权限 workspace；WorkSurface 把 canonical 文件置于已认证 Host 后方，提供一个普通脚本 orchestration tool，并向 child Agent 委派 revision-pinned Projection。
+`@pf-worksurface/dsh` 将 WorkSurface 挂载为 DeepSeek Harness `Service`。`dsh-block-to-file` 负责把模型 file block 物化到最小权限 workspace；WorkSurface 把 canonical 文件置于已认证 Host 后方，提供一个普通脚本 orchestration tool，并向 child Agent 委派 revision-pinned Projection。
 
 ## 安装
 
-`0.1.0-rc.6` 包族以 DeepSeek Harness `0.1.0-rc.6` 为目标。`/dsh` bundle 会先组合 `@deepseek-ai/dsh-block-to-file`，并依赖匹配的 `/core` 与 `/cli` 包，因此 consumer 只需安装一个产品。默认配置把状态放在 Harness home 下，并使用 base profile 的进程内 `spawn` Subagent provider。
+`0.1.0-rc.6` 包族以 DeepSeek Harness `0.1.0-rc.6` 为目标。`/dsh` bundle 会先组合 `dsh-block-to-file`，并依赖匹配的 `/core` 与 `/cli` 包，因此 consumer 只需安装一个产品。默认配置把状态放在 Harness home 下，并使用 base profile 的进程内 `spawn` Subagent provider。
 
 把插件安装到标准 Web profile。Harness plugin command 会识别其 bundle metadata，并把它追加到该 profile 的现有 bundle 之后：
 
@@ -31,7 +31,7 @@ Host 对每个 NDJSON 请求进行授权。Orchestrator 只能访问其 attempt 
 
 `ws agent run` 编译 revision-pinned Projection，物化新的 checkout，启动 in-process Subagent provider，并要求 child 返回 `{ surface, surfaceRevision, summary, outputs }`。只有在被分配 Surface 已产生新 commit，且每个 output 都指向该精确当前 revision 中存在的 Block 时，完成结果才会被接受。Final prose 绝不会作为结果 fallback。
 
-每个物理平级的 Surface 从创建起就拥有一条 append-only Work Session。父 Work Session 记录直接 child 的创建与执行边界，child Work Session 记录自己的 revision 与 Agent attachment；递归 fold 这些局部历史得到 WorkGraph。顶层 Agent Session 附着 root Surface，delegated Agent Session 附着 Child Surface，任一身份都只能附着一次。Child 实际读取的 Projection revision 保存在 canonical Work Session 事件中，用于构建可审计的信息依赖图。Orchestrator program 按内容寻址保存在 `canonical/orchestrator/definitions/<sha256>`；run 生命周期事实留在调用方 Surface Session，attempt workspace 仍只是 runtime state。Web profile 可另外安装 `@pf-worksurface/web` 来显示该图与各节点的关联对话。
+每个物理平级的 Surface 从创建起就拥有一条 append-only Work Session。父 Work Session 记录直接 child 的创建，每个 child 的 write-once 委派记录则指明执行它的 Agent Session、精确输入 pin 与已提交输出；递归 fold 这些局部历史得到 WorkGraph。顶层 Agent Session 就是 root Surface，delegated Agent Session 就是它的 child Surface；任一身份最多参与一次委派。Child 实际读取的 Projection revision 保存在它的委派记录中，用于构建可审计的信息依赖图。Orchestrator program 按内容寻址保存在 `canonical/orchestrator/definitions/<sha256>`；run 生命周期事实留在调用方 Surface Session，attempt workspace 仍只是 runtime state。Web profile 可另外安装 `@pf-worksurface/web` 来显示该图与各节点的关联对话。
 
 每个外部 effect 都按 attempt 与 key 记入 journal。Attempt identity 同时包含不可变 control-script hash 与公开 workspace 的确定性 hash，因此同一脚本配不同 b2f 输入时不会错误 replay。不可变 commit 已落盘后的 crash 会通过幂等完成对应 Work Session 发布来恢复；由 signal 终止的 Orchestrator 最多按 `maxCrashReplays` 重放；service 会等待进行中的 child operation 达到静止状态，之后才释放 attempt authority。
 

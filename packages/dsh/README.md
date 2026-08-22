@@ -2,11 +2,11 @@
 
 English | [中文](README.zh.md)
 
-`@pf-worksurface/dsh` mounts WorkSurface as a DeepSeek Harness `Service`. `@deepseek-ai/dsh-block-to-file` materializes model file blocks into a least-authority workspace, while WorkSurface keeps canonical files behind an authenticated Host, provides one ordinary-script orchestration tool, and delegates revision-pinned Projections to child Agents.
+`@pf-worksurface/dsh` mounts WorkSurface as a DeepSeek Harness `Service`. `dsh-block-to-file` materializes model file blocks into a least-authority workspace, while WorkSurface keeps canonical files behind an authenticated Host, provides one ordinary-script orchestration tool, and delegates revision-pinned Projections to child Agents.
 
 ## Installation
 
-The `0.1.0-rc.6` package family targets DeepSeek Harness `0.1.0-rc.6`. The `/dsh` bundle composes `@deepseek-ai/dsh-block-to-file` before WorkSurface and depends on the matching `/core` and `/cli` packages, so a consumer installs one product. Its default rows store state under the Harness home and use the base profile's in-process `spawn` Subagent provider.
+The `0.1.0-rc.6` package family targets DeepSeek Harness `0.1.0-rc.6`. The `/dsh` bundle composes `dsh-block-to-file` before WorkSurface and depends on the matching `/core` and `/cli` packages, so a consumer installs one product. Its default rows store state under the Harness home and use the base profile's in-process `spawn` Subagent provider.
 
 Install the plugin into the standard Web profile. The Harness plugin command recognizes its bundle metadata and appends it after the profile's existing bundles:
 
@@ -31,7 +31,7 @@ The Host authorizes each NDJSON request. An Orchestrator may access only Surface
 
 `ws agent run` compiles a revision-pinned Projection, materializes a fresh checkout, starts an in-process Subagent provider, and requires the child to return `{ surface, surfaceRevision, summary, outputs }`. Completion is accepted only after the assigned Surface has a new commit and every output names an existing Block at that exact current revision. Final prose is never treated as a result fallback.
 
-Every flat Surface owns an append-only Work Session from creation. The parent Work Session records direct child creation and child execution boundaries, and the child Work Session records its own revisions and Agent attachment; recursively folding these local histories produces the WorkGraph. The top-level Agent Session attaches to the root Surface and a delegated Agent Session attaches to its child Surface. Either identity can be attached only once. The exact Projection revisions consumed by the child remain in canonical Work Session events so the information-dependency graph is auditable. Orchestrator programs are stored once under `canonical/orchestrator/definitions/<sha256>`; run lifecycle facts stay in the calling Surface Session while attempt workspaces remain runtime state. A Web profile can install `@pf-worksurface/web` to render that graph and each node's attached conversation.
+Every flat Surface owns an append-only Work Session from creation. The parent Work Session records direct child creation, and each child's write-once delegation record names its executing Agent Session, exact input pins, and committed output; recursively folding these local histories produces the WorkGraph. The top-level Agent Session is the root Surface, and a delegated Agent Session is its child Surface; either identity can participate in at most one delegation. The exact Projection revisions consumed by the child remain in its delegation record so the information-dependency graph is auditable. Orchestrator programs are stored once under `canonical/orchestrator/definitions/<sha256>`; run lifecycle facts stay in the calling Surface Session while attempt workspaces remain runtime state. A Web profile can install `@pf-worksurface/web` to render that graph and each node's attached conversation.
 
 Every external effect is journaled by attempt and key. Attempt identity includes both the immutable control-script hash and a deterministic hash of the public workspace, so the same script with different b2f inputs cannot replay the wrong effects. A crash after immutable commit persistence is reconciled by completing its idempotent Work Session publication, signal-terminated Orchestrators may be replayed up to `maxCrashReplays`, and the service waits for in-flight child operations to become quiescent before releasing attempt authority.
 
