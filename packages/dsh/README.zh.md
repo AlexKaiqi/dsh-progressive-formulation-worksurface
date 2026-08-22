@@ -51,7 +51,7 @@ Package default export 是 `WorkSurfaceService`；挂载后的 service 可通过
 
 #### 模型看到什么
 
-Parent 会得到 b2f file-block 指令、静态 PF WorkSurface guidance、一个 `run_orchestrator` tool，以及（一旦 Session 拥有 WorkSurface 状态）当前 session root Projection。Projection 通过与 b2f 兼容的 file fence 携带完整 `surface.md` 和同 Surface Blocks；固定到 revision 的跨 Surface Blocks 以只读形式呈现。调用 tool 前，它可以通过 b2f 写入 `work/root/surface.md`、Blocks、模板和其他公开输入；脚本随后在完全相同的 workspace 中运行，并通过 `WS_WORKING_SURFACE`、`WS_WORKING_PATH` 与 `WS_BASE_REVISION` 定位预建 checkout。Tool result 包含 root Surface、attempt identity、script hash、workspace hash、受限进程结果、replay count 和最终 root revision。
+Parent 会得到 b2f file-block 指令、静态 PF WorkSurface guidance、一个 `run_orchestrator` tool，以及（一旦 Session 拥有 WorkSurface 状态）当前 session root Projection。Projection 通过与 b2f 兼容的 file fence 携带完整 `surface.md` 和同 Surface Blocks；固定到 revision 的跨 Surface Blocks 以只读形式呈现。调用 tool 前，它可以通过 b2f 写入 `work/root/surface.md`、Blocks、模板和其他公开输入；脚本随后在完全相同的 workspace 中运行，并通过 `WS_WORKING_SURFACE`、`WS_WORKING_PATH` 与 `WS_BASE_REVISION` 定位预建 checkout。持久任务逻辑可以放在 `work/control/` 下的已提交控制文件中，并通过 `control` 参数执行，这样同一控制可以重跑以针对当前 workspace 状态重放任务；控制文件与其他定义一样按内容只存一份。Tool result 包含 root Surface、attempt identity、script hash、workspace hash、受限进程结果、replay count 和最终 root revision。
 
 #### Token 影响
 

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
-import { mkdir, readFile, rm } from 'node:fs/promises'
-import { delimiter, join, resolve } from 'node:path'
+import { mkdir, readFile, realpath, rm, stat } from 'node:fs/promises'
+import { delimiter, join, resolve, sep } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-shell-env'
@@ -157,8 +157,8 @@ export class WorkSurfaceService extends Service {
       openSessionSurface: (agent) => this.openSessionSurface(agent),
       peekSessionSurface: (agent) => this.peekSessionSurface(agent),
       defaultProfile: () => this.defaultProfile(),
-      runOrchestrator: (parent, language, script, rootSurfaceInput, signal) =>
-        this.runOrchestrator(parent, language, script, rootSurfaceInput, signal),
+      runOrchestrator: (parent, language, script, rootSurfaceInput, signal, control) =>
+        this.runOrchestrator(parent, language, script, rootSurfaceInput, signal, control),
       childBinding: (agentId) => childBinding(this.attempts, agentId),
       parentWorkspace: (agentId) => this.parentWorkspace(agentId),
     })
@@ -370,9 +370,11 @@ export class WorkSurfaceService extends Service {
    * Execute one sandboxed ordinary Bash or Python Orchestrator.
    * @param parent - The Agent that invoked the model-facing orchestration tool.
    * @param language - The ordinary script interpreter family.
-   * @param script - The unchanged control-script source persisted for audit.
+   * @param script - The unchanged inline control-script source persisted for audit.
    * @param rootSurfaceInput - The attempt's pre-existing root Surface.
    * @param signal - Cancels the subprocess and its accepted child work.
+   * @param control - Optional committed control-script path inside the attempt workspace,
+   *   for example work/control/plan.sh; exactly one of script or control is required.
    * @returns The persisted process outcome and final root revision.
    */
   async runOrchestrator(
@@ -381,12 +383,21 @@ export class WorkSurfaceService extends Service {
     script: string,
     rootSurfaceInput: string,
     signal: AbortSignal,
+    control?: string,
   ): Promise<OrchestratorResult> {
-    if (script.trim() === '') throw new WorkSurfaceError('invalid-working-copy', 'Orchestrator script must not be blank')
+    const inline = script.trim()
+    const controlPath = control?.trim() ?? ''
+    if (inline === '' && controlPath === '') {
+      throw new WorkSurfaceError('invalid-working-copy', 'Orchestrator requires either an inline script or a control path')
+    }
+    if (inline !== '' && controlPath !== '') {
+      throw new WorkSurfaceError('invalid-working-copy', 'provide either an inline script or a control path, not both')
+    }
     const rootSurface = SurfaceId(rootSurfaceInput)
     const rootHead = await this.store.readHead(rootSurface)
-    const definition = await this.store.defineOrchestrator(language, script)
     const workspace = await this.openSessionWorkspace(parent, { surface: rootSurface, revision: rootHead.revision })
+    const source = controlPath === '' ? inline : await this.controlSource(workspace.workspaceRoot, controlPath, language)
+    const definition = await this.store.defineOrchestrator(language, source)
     await this.store.bindSession({
       surface: rootSurface,
       sessionId: String(parent.id),
@@ -416,7 +427,7 @@ export class WorkSurfaceService extends Service {
     if (this.pendingWorkspaces.get(String(parent.id)) === workspace) {
       this.pendingWorkspaces.delete(String(parent.id))
     }
-    await prepareAttempt(authority, language, script, codeHash, this.config.cliEntrypoint)
+    await prepareAttempt(authority, language, source, codeHash, this.config.cliEntrypoint)
     await this.store.sessions.append({
       surface: rootSurface,
       type: 'orchestrator/defined',
@@ -606,6 +617,51 @@ export class WorkSurfaceService extends Service {
     }
   }
 
+  /**
+   * Resolve the control source from either a stored content-addressed definition
+   * revision (the replay form) or a committed workspace path (the authoring form).
+   */
+  private async controlSource(workspaceRoot: string, control: string, language: 'bash' | 'python'): Promise<string> {
+    if (DEFINITION_REVISION_RE.test(control)) {
+      const definition = await this.store.readOrchestratorDefinition(control as Revision)
+      if (definition.language !== language) {
+        throw new WorkSurfaceError('invalid-working-copy', `control definition '${control}' is a ${definition.language} program`, {
+          control,
+          definitionLanguage: definition.language,
+          requestedLanguage: language,
+        })
+      }
+      return definition.source
+    }
+    return this.readControlSource(workspaceRoot, control)
+  }
+
+  /** Read one committed control script from the public attempt workspace with containment checks. */
+  private async readControlSource(workspaceRoot: string, controlPath: string): Promise<string> {
+    const realRoot = await realpath(workspaceRoot)
+    const resolved = resolve(realRoot, controlPath)
+    if (resolved !== realRoot && !resolved.startsWith(`${realRoot}${sep}`)) {
+      throw new WorkSurfaceError('unauthorized', `control script '${controlPath}' escapes the attempt workspace`, { controlPath, resolved })
+    }
+    let real: string
+    try {
+      real = await realpath(resolved)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') {
+        throw new WorkSurfaceError('not-found', `control script '${controlPath}' does not exist in the attempt workspace`, { controlPath })
+      }
+      throw error
+    }
+    if (real !== realRoot && !real.startsWith(`${realRoot}${sep}`)) {
+      throw new WorkSurfaceError('unauthorized', `control script '${controlPath}' escapes the attempt workspace through a symbolic link`, { controlPath, real })
+    }
+    const info = await stat(real)
+    if (!info.isFile()) {
+      throw new WorkSurfaceError('invalid-working-copy', `control script '${controlPath}' is not a regular file`, { controlPath })
+    }
+    return readFile(real, 'utf8')
+  }
+
   private async publishB2F(request: B2FPublicationRequest): Promise<B2FPublicationReceipt | undefined> {
     if (request.scope !== 'worksurface' || !request.paths.some(isRootSurfacePath)) return undefined
     const agentId = String(request.agent.id)
@@ -722,6 +778,8 @@ export class WorkSurfaceService extends Service {
 function sessionSurfaceId(agent: Agent): SurfaceIdType {
   return sessionSurfaceIdCore(String(agent.id))
 }
+
+const DEFINITION_REVISION_RE = /^sha256:[0-9a-f]{64}$/
 
 function isWorkSurfacePath(path: string): boolean {
   const normalized = path.replaceAll('\\', '/')

@@ -62,7 +62,10 @@ Each kind of fact has one authority:
 - `revisions` contains the exact immutable Surface and Block bytes named by
   Session events.
 - `orchestrator/definitions` contains the exact immutable program and manifest
-  named by orchestration events.
+  named by orchestration events. A control program may also be read from the
+  public attempt workspace (a committed `work/control/` file); it is stored once
+  by content in the same directory, so re-running the same control re-executes
+  the same immutable definition against current workspace state.
 - `binding.json` is the write-once delegation record naming the one Agent
   Session that executes a Surface, the exact Projection pins it consumed, and
   the exact committed output revision it produced.

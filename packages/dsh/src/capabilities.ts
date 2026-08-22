@@ -30,6 +30,7 @@ export interface CapabilitiesHost {
     script: string,
     rootSurfaceInput: string,
     signal: AbortSignal,
+    control?: string,
   ) => Promise<OrchestratorResult>
   readonly childBinding: (agentId: string) => { attempt: AttemptAuthority; credential: ChildCredential } | undefined
   readonly parentWorkspace: (agentId: string) => PendingWorkspace | undefined
@@ -76,7 +77,10 @@ export function installHarnessCapabilities(host: CapabilitiesHost): void {
       const rootSurface = args.rootSurface === undefined || args.rootSurface.trim() === ''
         ? (await host.openSessionSurface(exec.agent)).surface
         : args.rootSurface
-      return host.runOrchestrator(exec.agent, args.language, args.script, rootSurface, exec.signal)
+      const script = args.script ?? ''
+      return args.control === undefined
+        ? host.runOrchestrator(exec.agent, args.language, script, rootSurface, exec.signal)
+        : host.runOrchestrator(exec.agent, args.language, script, rootSurface, exec.signal, args.control)
     },
   }))
   ctx.tools.guard((exec) => {

@@ -134,6 +134,10 @@ describe('model-aware WorkSurface contract', () => {
     expect(ORCHESTRATOR_TOOL_SURFACE.parameters.script.description).toContain('WS_WORKING_SURFACE')
     expect(ORCHESTRATOR_TOOL_SURFACE.parameters.script.description).toContain('WS_BASE_REVISION')
     expect(ORCHESTRATOR_TOOL_SURFACE.parameters.script.description).toContain('ws help init supplies authoring guidance')
+    expect(ORCHESTRATOR_TOOL_SURFACE.parameters.script.required).toBeUndefined()
+    expect(ORCHESTRATOR_TOOL_SURFACE.parameters.control.description).toContain('work/control/plan.sh')
+    expect(ORCHESTRATOR_TOOL_SURFACE.parameters.control.description).toContain('sha256:<codeHash>')
+    expect(ORCHESTRATOR_TOOL_SURFACE.parameters.control.description).toContain('re-running the same control re-executes')
     expect(ORCHESTRATOR_TOOL_SURFACE.parameters.rootSurface.description).toContain('session root')
 
     const schema = ORCHESTRATOR_OUTPUT.schema

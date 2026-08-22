@@ -755,6 +755,76 @@ describe('WorkSurfaceService integration', () => {
     expect((await readdir(join(root, 'canonical', 'surfaces'))).sort()).toEqual(['ws-real-e2e-child', 'ws-root'])
   })
 
+  it('runs a committed control file, stores it by content, and re-runs it as one attempt', async () => {
+    const { service } = await fixture()
+    const parent = { id: 'control-parent', session: { header: { id: 'control-parent' } } } as unknown as Agent
+    const current = await service.openSessionSurface(parent)
+    const workspace = await service.openSessionWorkspace(parent)
+    await mkdir(join(workspace.workspaceRoot, 'work', 'control'), { recursive: true })
+    await writeFile(join(workspace.workspaceRoot, 'work', 'control', 'plan.sh'), 'echo control-run\n')
+
+    let observedSource = ''
+    ScriptedSubprocess.runner = async (spec) => {
+      const scriptPath = spec.argv.at(-1)
+      expect(scriptPath).toBeDefined()
+      observedSource = await readFile(scriptPath as string, 'utf8')
+      return { exitCode: 0, signal: null, stdout: 'control-ended', stderr: '' }
+    }
+
+    const first = await service.runOrchestrator(
+      parent, 'bash', '', current.surface, new AbortController().signal, 'work/control/plan.sh',
+    )
+    expect(observedSource).toBe('echo control-run\n')
+    expect(first).toMatchObject({ exitCode: 0, stdout: 'control-ended' })
+    expect(await service.store.readOrchestratorDefinition(`sha256:${first.codeHash}`)).toMatchObject({
+      language: 'bash',
+      source: 'echo control-run\n',
+    })
+    const events = (await service.store.readWorkSession(current.surface)).events
+    expect(events.map(event => event.type)).toEqual(expect.arrayContaining([
+      'orchestrator/defined',
+      'orchestrator/run-started',
+      'orchestrator/run-completed',
+    ]))
+
+    // Re-running the same control by its stored content-addressed definition
+    // revision replays the task against a fresh workspace as a new attempt.
+    const second = await service.runOrchestrator(
+      parent, 'bash', '', current.surface, new AbortController().signal, `sha256:${first.codeHash}`,
+    )
+    expect(second.codeHash).toBe(first.codeHash)
+    expect(second.attemptId).not.toBe(first.attemptId)
+    expect(observedSource).toBe('echo control-run\n')
+    const rerunEvents = (await service.store.readWorkSession(current.surface)).events
+    expect(rerunEvents.filter(event => event.type === 'orchestrator/defined')).toHaveLength(1)
+    expect(rerunEvents.filter(event => event.type === 'orchestrator/run-started')).toHaveLength(2)
+    expect(rerunEvents.filter(event => event.type === 'orchestrator/run-completed')).toHaveLength(2)
+  })
+
+  it('rejects invalid control references and both/neither script arguments', async () => {
+    const { service } = await fixture()
+    const parent = { id: 'control-errors', session: { header: { id: 'control-errors' } } } as unknown as Agent
+    const current = await service.openSessionSurface(parent)
+    await service.openSessionWorkspace(parent)
+
+    await expectCode(service.runOrchestrator(parent, 'bash', '', current.surface, new AbortController().signal), 'invalid-working-copy')
+    await expectCode(service.runOrchestrator(
+      parent, 'bash', 'echo inline', current.surface, new AbortController().signal, 'work/control/plan.sh',
+    ), 'invalid-working-copy')
+    await expectCode(service.runOrchestrator(
+      parent, 'bash', '', current.surface, new AbortController().signal, '../escape.sh',
+    ), 'unauthorized')
+    await expectCode(service.runOrchestrator(
+      parent, 'bash', '', current.surface, new AbortController().signal, '/etc/hosts',
+    ), 'unauthorized')
+    await expectCode(service.runOrchestrator(
+      parent, 'bash', '', current.surface, new AbortController().signal, 'work/control/missing.sh',
+    ), 'not-found')
+    await expectCode(service.runOrchestrator(
+      parent, 'bash', '', current.surface, new AbortController().signal, `sha256:${'a'.repeat(64)}`,
+    ), 'not-found')
+  })
+
   it('uses the session root when a model sends an empty optional rootSurface', async () => {
     const { ctx, fiber, service } = await fixture()
     const parent = { id: 'empty-root-parent', session: { header: { id: 'empty-root-parent' } } } as unknown as Agent
