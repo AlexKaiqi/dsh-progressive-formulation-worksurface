@@ -155,6 +155,7 @@ export class WorkSurfaceService extends Service {
       store: this.store,
       projections: this.projections,
       openSessionSurface: (agent) => this.openSessionSurface(agent),
+      peekSessionSurface: (agent) => this.peekSessionSurface(agent),
       defaultProfile: () => this.defaultProfile(),
       runOrchestrator: (parent, language, script, rootSurfaceInput, signal) =>
         this.runOrchestrator(parent, language, script, rootSurfaceInput, signal),
@@ -183,6 +184,17 @@ export class WorkSurfaceService extends Service {
     }
     const surface = await initialization
     return { surface, revision: (await this.store.readHead(surface)).revision }
+  }
+
+  /**
+   * Resolve an existing Session root Surface without creating it.
+   * @param agent - Agent whose stable session identity would own the root Surface.
+   * @returns The root and its current revision, or null when the Session has no WorkSurface state yet.
+   */
+  async peekSessionSurface(agent: Agent): Promise<{ surface: SurfaceIdType; revision: Revision } | null> {
+    const surface = sessionSurfaceId(agent)
+    if (!(await this.store.hasSurface(surface))) return null
+    return this.openSessionSurface(agent)
   }
 
   /** Resolve a top-level or delegated Session to its owning WorkGraph. */

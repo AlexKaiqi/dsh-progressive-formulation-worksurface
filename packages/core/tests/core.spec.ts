@@ -67,6 +67,14 @@ describe('WorkSurfaceStore', () => {
     expect((await store.history('ws-root')).filter(record => record.effect.key === 'attach-evidence')).toHaveLength(1)
   })
 
+  test('reports Surface existence without replaying Work Session events', async () => {
+    const { template, store } = await fixture()
+    expect(await store.hasSurface('ws-root')).toBe(false)
+    await store.newSurface({ attemptId: 'a1', key: 'create-root', templatePath: template, surface: 'ws-root' })
+    expect(await store.hasSurface('ws-root')).toBe(true)
+    await expectCode(store.hasSurface('missing/slash'), 'invalid-id')
+  })
+
   test('rejects dangling refs without changing canonical revision', async () => {
     const { root, template, store } = await fixture()
     const created = await store.newSurface({ attemptId: 'a1', key: 'create-root', templatePath: template, surface: 'ws-root' })
@@ -258,6 +266,52 @@ describe('ProjectionCompiler', () => {
     expect(partial.files.map(file => file.relativePath)).toEqual(['surface.md'])
     expect(partial.omittedFiles.map(file => file.relativePath)).toEqual(['blocks/result.md'])
     expect(partial.omittedFiles[0]?.reason).toBe('token-budget')
+  })
+
+  test('serves memoized Projections for an unchanged revision with a fresh observation time', async () => {
+    const { root, template, store } = await fixture({ evidence: 'cached evidence' })
+    const created = await store.newSurface({ attemptId: 'a1', key: 'create', templatePath: template, surface: 'ws-root' })
+    const working = join(root, 'working')
+    await store.checkout({ surface: 'ws-root', targetPath: working })
+    await writeFile(join(working, 'surface.md'), `${await readFile(join(working, 'surface.md'), 'utf8')}\n[[block:ws-root/evidence]]\n`)
+    await store.commit({ attemptId: 'a1', key: 'attach', workingPath: working, baseRevision: created.revision })
+    const compiler = new ProjectionCompiler(store)
+    const first = await compiler.compile({ surface: 'ws-root', profile: 'research', tokenBudget: 10_000 })
+    const second = await compiler.compile({ surface: 'ws-root', profile: 'research', tokenBudget: 10_000 })
+    expect(second.files).toEqual(first.files)
+    expect(second.omittedFiles).toEqual(first.omittedFiles)
+    expect(second.blockRevisions).toEqual(first.blockRevisions)
+    expect(second.createdAt).not.toBe(first.createdAt)
+
+    // A memoized Projection is the exact immutable revision it names: tampering
+    // the canonical file does not change the verified content already pinned.
+    const revisionRoot = join(store.canonicalRoot, 'surfaces', 'ws-root', 'revisions', created.revision.slice('sha256:'.length))
+    const revisionSurface = join(revisionRoot, 'surface.md')
+    await writeFile(revisionSurface, `${await readFile(revisionSurface, 'utf8')}\ntamper\n`)
+    const third = await compiler.compile({ surface: 'ws-root', profile: 'research', tokenBudget: 10_000 })
+    expect(third.files).toEqual(first.files)
+    expect(third.files[0]?.content).not.toContain('tamper')
+  })
+
+  test('evicts bounded memo entries without losing correctness', async () => {
+    const { root, template, store } = await fixture({ evidence: 'eviction evidence' })
+    const created = await store.newSurface({ attemptId: 'a1', key: 'create', templatePath: template, surface: 'ws-root' })
+    const compiler = new ProjectionCompiler(store, { maxSnapshots: 1, maxProjections: 1 })
+    const working = join(root, 'working')
+    await store.checkout({ surface: 'ws-root', targetPath: working })
+    await writeFile(join(working, 'surface.md'), `${await readFile(join(working, 'surface.md'), 'utf8')}\n[[block:ws-root/evidence]]\n`)
+    const committed = await store.commit({ attemptId: 'a1', key: 'attach', workingPath: working, baseRevision: created.revision })
+    const second = await compiler.compile({ surface: 'ws-root', profile: 'research', tokenBudget: 10_000 })
+    expect(second.surfaceRevision).toBe(committed.revision)
+    expect(second.files.some(file => file.content.includes('[[block:ws-root/evidence]]'))).toBe(true)
+
+    // The earlier revision was evicted; recompiling it re-reads canonical content.
+    const rebuilt = await compiler.compile({
+      surface: 'ws-root', profile: 'research', tokenBudget: 10_000, revision: created.revision,
+    })
+    expect(rebuilt.surfaceRevision).toBe(created.revision)
+    expect(rebuilt.files[0]?.content).not.toContain('[[block:ws-root/evidence]]')
+    expect(rebuilt.files).not.toEqual(second.files)
   })
 })
 

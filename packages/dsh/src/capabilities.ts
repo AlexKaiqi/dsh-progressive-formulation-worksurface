@@ -22,6 +22,7 @@ export interface CapabilitiesHost {
   readonly store: WorkSurfaceStore
   readonly projections: ProjectionCompiler
   readonly openSessionSurface: (agent: Agent) => Promise<{ surface: SurfaceIdType; revision: Revision }>
+  readonly peekSessionSurface: (agent: Agent) => Promise<{ surface: SurfaceIdType; revision: Revision } | null>
   readonly defaultProfile: () => WorkSurfaceProfile
   readonly runOrchestrator: (
     parent: Agent,
@@ -46,7 +47,12 @@ export function installHarnessCapabilities(host: CapabilitiesHost): void {
     const transformed = await next()
     if (context.agent === undefined || isDelegatedAgent(context.agent)) return transformed
     context.signal?.throwIfAborted()
-    const current = await host.openSessionSurface(context.agent)
+    // Render the current Projection only for Sessions that already own WorkSurface
+    // state. A root Surface is created lazily by the first work/ b2f write or
+    // run_orchestrator call, so Sessions that never use WorkSurface create no
+    // durable state and pay no per-step Projection work.
+    const current = await host.peekSessionSurface(context.agent)
+    if (current === null) return transformed
     const profile = host.defaultProfile()
     const projection = await projections.compile({
       surface: current.surface,

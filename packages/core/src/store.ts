@@ -370,6 +370,22 @@ export class WorkSurfaceStore {
     return records
   }
 
+  /**
+   * Report whether one Surface has a canonical Work Session without replaying its events.
+   * @param surfaceInput - Surface id to check.
+   * @returns True when the Surface owns a Work Session; corruption is surfaced as an error.
+   */
+  async hasSurface(surfaceInput: string): Promise<boolean> {
+    const surface = SurfaceId(surfaceInput)
+    try {
+      await this.sessions.readHeader(surface)
+      return true
+    } catch (error) {
+      if (error instanceof WorkSurfaceError && error.code === 'not-found') return false
+      throw error
+    }
+  }
+
   /** Read the canonical Work Session physically owned by one Surface. */
   async readWorkSession(surfaceInput: string): Promise<WorkSessionSnapshot> {
     await this.readHead(surfaceInput)

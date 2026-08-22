@@ -23,7 +23,7 @@ dsh plugin --profile web exec ws --version
 
 ## Runtime 契约
 
-每个 parent model step 开始前，Service 只解析 session 的持久 root Surface 以生成 Projection，不再预创建 pending attempt workspace。只有当 parent b2f 首次解析 `work/` 下的路径或执行 `run_orchestrator` 时，才会按需创建公开 `workspace/` 及其位于 `work/root` 的 revision-pinned checkout；普通源码路径继续相对于 parent Session workspace 解析。成功的 `work/root` 写入会经过 awaited publication barrier，在同消息工具执行前推进 canonical Surface revision。私有 `control/`、`runtime/` 和 `bin/` 始终位于 b2f 与 sandbox 边界之外。`run_orchestrator` 会认领这个 pending attempt，在同一公开 workspace 中执行原样 Bash 或 Python 源码，并提供 `ws` wrapper 与 attempt-scoped credentials。省略或留空 `rootSurface` 时使用 session root。Canonical storage 永不成为模型可写 root。
+每个 parent model step 开始前，Service 只为已经拥有 WorkSurface 状态的 Session 渲染 session root Projection；root Surface 及其 Agent Session binding 由首次 `work/` b2f 写入或首次 `run_orchestrator` 调用惰性创建，因此从不使用 WorkSurface 的 Session 不会产生任何持久状态。编译后的 Projection 按已解析 revision 缓存，未变化的状态在重复 step 中不会产生 canonical 读取。只有当 parent b2f 首次解析 `work/` 下的路径或执行 `run_orchestrator` 时，才会按需创建公开 `workspace/` 及其位于 `work/root` 的 revision-pinned checkout；普通源码路径继续相对于 parent Session workspace 解析。成功的 `work/root` 写入会经过 awaited publication barrier，在同消息工具执行前推进 canonical Surface revision。私有 `control/`、`runtime/` 和 `bin/` 始终位于 b2f 与 sandbox 边界之外。`run_orchestrator` 会认领这个 pending attempt，在同一公开 workspace 中执行原样 Bash 或 Python 源码，并提供 `ws` wrapper 与 attempt-scoped credentials。省略或留空 `rootSurface` 时使用 session root。Canonical storage 永不成为模型可写 root。
 
 Plugin activation 会等待 canonical store、session template 和已认证 Host socket 全部就绪。无效的持久 root、socket placement、profile 与数值限制会拒绝 activation，不会留下只挂载了一部分的 tool surface。
 
@@ -51,11 +51,11 @@ Package default export 是 `WorkSurfaceService`；挂载后的 service 可通过
 
 #### 模型看到什么
 
-Parent 会得到 b2f file-block 指令、静态 PF WorkSurface guidance、一个 `run_orchestrator` tool，以及当前 session root Projection。Projection 通过与 b2f 兼容的 file fence 携带完整 `surface.md` 和同 Surface Blocks；固定到 revision 的跨 Surface Blocks 以只读形式呈现。调用 tool 前，它可以通过 b2f 写入 `work/root/surface.md`、Blocks、模板和其他公开输入；脚本随后在完全相同的 workspace 中运行，并通过 `WS_WORKING_SURFACE`、`WS_WORKING_PATH` 与 `WS_BASE_REVISION` 定位预建 checkout。Tool result 包含 root Surface、attempt identity、script hash、workspace hash、受限进程结果、replay count 和最终 root revision。
+Parent 会得到 b2f file-block 指令、静态 PF WorkSurface guidance、一个 `run_orchestrator` tool，以及（一旦 Session 拥有 WorkSurface 状态）当前 session root Projection。Projection 通过与 b2f 兼容的 file fence 携带完整 `surface.md` 和同 Surface Blocks；固定到 revision 的跨 Surface Blocks 以只读形式呈现。调用 tool 前，它可以通过 b2f 写入 `work/root/surface.md`、Blocks、模板和其他公开输入；脚本随后在完全相同的 workspace 中运行，并通过 `WS_WORKING_SURFACE`、`WS_WORKING_PATH` 与 `WS_BASE_REVISION` 定位预建 checkout。Tool result 包含 root Surface、attempt identity、script hash、workspace hash、受限进程结果、replay count 和最终 root revision。
 
 #### Token 影响
 
-插件挂载期间固定指令与 tool definition 始终存在。当前 Projection 会消耗数据相关的 token，最多达到 default profile 的近似 budget；每次调用追加一个渲染后的 JSON 结果，每条 output stream 的大小受 `maxOutputBytes` 限制。
+插件挂载期间固定指令与 tool definition 始终存在。只有已经拥有 WorkSurface 状态的 Session 才会渲染 Projection；它消耗数据相关的 token，最多达到 default profile 的近似 budget，且 Projection 按已解析 revision 缓存，未变化的状态不会产生 canonical 读取。每次调用追加一个渲染后的 JSON 结果，每条 output stream 的大小受 `maxOutputBytes` 限制。
 
 #### KV Cache 影响
 

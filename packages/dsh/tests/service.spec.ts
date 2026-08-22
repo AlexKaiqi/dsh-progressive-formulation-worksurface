@@ -464,13 +464,19 @@ describe('WorkSurfaceService integration', () => {
     expect(prompt).toContain('Before delegating, initialize the root with the goal')
     expect(prompt).toContain('ws help init')
     expect(prompt).toContain('run_orchestrator')
-    expect(runtimeContext).toContain('PF WorkSurface Projection')
-    expect(runtimeContext).toContain('file=work/root/surface.md')
-    expect(runtimeContext).not.toContain('worksurface:block')
-    expect(runtimeContext).toContain('# Acceptance Criteria')
-    expect(runtimeContext).toContain('# Current Decisions')
-    expect(runtimeContext).toContain('# Deliverables and Evidence')
+    // A fresh Session renders guidance but no Projection and creates no durable
+    // WorkSurface state until it actually uses WorkSurface.
+    expect(runtimeContext).not.toContain('PF WorkSurface Projection')
     const currentRoot = (await service.openSessionSurface(parent)).surface
+    const initialized = await ctx.systemPrompt.assemble({ agent: parent })
+    const initializedContext = renderContextSnapshot(initialized)
+    expect(initializedContext).toContain('PF WorkSurface Projection')
+    expect(initializedContext).toContain('file=work/root/surface.md')
+    expect(initializedContext).not.toContain('worksurface:block')
+    expect(initializedContext).toContain('# Acceptance Criteria')
+    expect(initializedContext).toContain('# Current Decisions')
+    expect(initializedContext).toContain('# Deliverables and Evidence')
+    expect(renderPrompt(initialized)).toBe(prompt)
     expect(ctx.shellEnv.collect({ agent: parent } as ToolExecution).DSH_B2F_ROOT).toBeUndefined()
     const selected = await b2fService(ctx).resolveScope(parent, undefined, ['work/root/surface.md'])
     const pending = await service.openSessionWorkspace(parent)
@@ -978,6 +984,7 @@ describe('WorkSurfaceService integration', () => {
     await expect(ctx.systemPrompt.assemble({ agent: parent, signal: before.signal })).rejects.toMatchObject({ name: 'AbortError' })
 
     const after = new AbortController()
+    await service.openSessionSurface(parent)
     const compile = service.projections.compile.bind(service.projections)
     vi.spyOn(service.projections, 'compile').mockImplementationOnce(async (request) => {
       const projection = await compile(request)
@@ -1003,6 +1010,7 @@ describe('WorkSurfaceService integration', () => {
     const configuredProfiles = service.config.profiles
     ;(service.config as { profiles: readonly WorkSurfaceProfile[] }).profiles = []
     const emptyProfileAgent = { id: 'empty-profile', session: { header: { id: 'empty-profile' } } } as unknown as Agent
+    await service.openSessionSurface(emptyProfileAgent)
     await expect(ctx.systemPrompt.assemble({ agent: emptyProfileAgent })).rejects.toMatchObject({ code: 'unsupported-profile' })
     ;(service.config as { profiles: readonly WorkSurfaceProfile[] }).profiles = configuredProfiles
 

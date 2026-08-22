@@ -1,4 +1,5 @@
 import { WorkSurfaceError } from './error.ts'
+import { stableStringify } from './hash.ts'
 import { BlockId, SurfaceId } from './ids.ts'
 import { parseBlockReferences } from './markdown.ts'
 import type { WorkSurfaceStore } from './store.ts'
@@ -6,6 +7,7 @@ import type {
   BlockRef,
   OmittedWorkSurfaceProjectionFile,
   Revision,
+  SurfaceSnapshot,
   WorkSurfaceProjectionFile,
   WorkSurfaceProjectionSnapshot,
 } from './types.ts'
@@ -27,14 +29,49 @@ interface ResolvedBlock {
   readonly content: string
 }
 
+/** Deterministic Projection content, cached by its resolved revision pins. */
+interface ProjectedFiles {
+  readonly files: readonly WorkSurfaceProjectionFile[]
+  readonly omittedFiles: readonly OmittedWorkSurfaceProjectionFile[]
+  readonly blockRevisions: readonly BlockRef[]
+  readonly budgetExceeded: boolean
+}
+
+/** Bounded in-memory cache sizing for the Projection compiler. */
+export interface ProjectionCompilerOptions {
+  /** Maximum verified immutable Surface snapshots retained. */
+  readonly maxSnapshots?: number
+  /** Maximum deterministic Projection results retained. */
+  readonly maxProjections?: number
+}
+
 const CHARACTERS_PER_TOKEN = 4
 const MANIFEST_BASE_CHARACTERS = 256
 const MANIFEST_BLOCK_CHARACTERS = 128
 const FILE_WRAPPER_CHARACTERS = 160
 
-/** Deterministic direct-reference Projection compiler over canonical file revisions. */
+/**
+ * Deterministic direct-reference Projection compiler over canonical file revisions.
+ *
+ * Verified immutable snapshots and compiled Projections are memoized per resolved
+ * revision pin. Reuse is safe because revision content is content-addressed: a
+ * cached snapshot is the exact immutable revision it names, and a cached
+ * Projection is a pure function of its pins, profile, and budget. The observation
+ * timestamp is re-stamped on every call so freshness semantics are unchanged.
+ */
 export class ProjectionCompiler {
-  constructor(private readonly store: WorkSurfaceStore) {}
+  private readonly snapshotMemo = new Map<string, SurfaceSnapshot>()
+  private readonly projectionMemo = new Map<string, ProjectedFiles>()
+  private readonly maxSnapshots: number
+  private readonly maxProjections: number
+
+  constructor(
+    private readonly store: WorkSurfaceStore,
+    options: ProjectionCompilerOptions = {},
+  ) {
+    this.maxSnapshots = options.maxSnapshots ?? 128
+    this.maxProjections = options.maxProjections ?? 128
+  }
 
   /**
    * Compile the current or pinned Surface using current revisions for cross-Surface references.
@@ -44,16 +81,16 @@ export class ProjectionCompiler {
   async compile(options: ProjectionOptions): Promise<WorkSurfaceProjectionSnapshot> {
     validateProjectionOptions(options)
     const surface = SurfaceId(options.surface)
-    const snapshot = await this.store.readSnapshot(surface, options.revision)
+    const snapshot = await this.readSnapshot(surface, options.revision)
     const blocks: ResolvedBlock[] = []
     for (const reference of parseBlockReferences(snapshot.surfaceDocument)) {
       const revision = reference.surface === surface
         ? snapshot.revision
         : (await this.store.readHead(reference.surface)).revision
       const ref: BlockRef = { ...reference, revision }
-      blocks.push({ ref, content: await this.store.readBlock(ref) })
+      blocks.push({ ref, content: await this.readBlockContent(ref) })
     }
-    return projectFiles(snapshot.surfaceDocument, surface, snapshot.revision, blocks, options.profile, options.tokenBudget)
+    return this.project(snapshot, blocks, options.profile, options.tokenBudget)
   }
 
   /**
@@ -64,7 +101,7 @@ export class ProjectionCompiler {
   async compilePinned(options: PinnedProjectionOptions): Promise<WorkSurfaceProjectionSnapshot> {
     validateProjectionOptions(options)
     const surface = SurfaceId(options.surface)
-    const snapshot = await this.store.readSnapshot(surface, options.revision)
+    const snapshot = await this.readSnapshot(surface, options.revision)
     const references = parseBlockReferences(snapshot.surfaceDocument)
     if (references.length !== options.blockRevisions.length) {
       throw new WorkSurfaceError('invalid-reference', 'pinned Block revisions do not match the Surface reference count')
@@ -75,9 +112,67 @@ export class ProjectionCompiler {
       if (pinned.surface !== reference.surface || pinned.block !== reference.block) {
         throw new WorkSurfaceError('invalid-reference', `pinned Block revision at index ${index} does not match Surface order`)
       }
-      blocks.push({ ref: pinned, content: await this.store.readBlock(pinned) })
+      blocks.push({ ref: pinned, content: await this.readBlockContent(pinned) })
     }
-    return projectFiles(snapshot.surfaceDocument, surface, snapshot.revision, blocks, options.profile, options.tokenBudget)
+    return this.project(snapshot, blocks, options.profile, options.tokenBudget)
+  }
+
+  /** Compile or reuse one deterministic Projection, re-stamping its observation time. */
+  private async project(
+    snapshot: SurfaceSnapshot,
+    blocks: readonly ResolvedBlock[],
+    profile: string,
+    tokenBudget: number,
+  ): Promise<WorkSurfaceProjectionSnapshot> {
+    const blockRevisions = blocks.map(block => block.ref)
+    const key = stableStringify({ surface: snapshot.surface, revision: snapshot.revision, profile, tokenBudget, blockRevisions })
+    let projected = this.projectionMemo.get(key)
+    if (projected === undefined) {
+      projected = projectFiles(snapshot.surfaceDocument, snapshot.surface, snapshot.revision, blocks, tokenBudget)
+      remember(this.projectionMemo, this.maxProjections, key, projected)
+    }
+    return {
+      surfaceId: snapshot.surface,
+      surfaceRevision: snapshot.revision,
+      blockRevisions,
+      files: projected.files,
+      omittedFiles: projected.omittedFiles,
+      budgetExceeded: projected.budgetExceeded,
+      profile,
+      createdAt: new Date().toISOString(),
+    }
+  }
+
+  /** Read a verified immutable snapshot, memoized by its content revision. */
+  private async readSnapshot(surface: ReturnType<typeof SurfaceId>, revision?: Revision): Promise<SurfaceSnapshot> {
+    const resolved = revision ?? (await this.store.readHead(surface)).revision
+    const key = `${surface}\0${resolved}`
+    const memoized = this.snapshotMemo.get(key)
+    if (memoized !== undefined) return memoized
+    const snapshot = await this.store.readSnapshot(surface, resolved)
+    remember(this.snapshotMemo, this.maxSnapshots, key, snapshot)
+    return snapshot
+  }
+
+  /** Read one revision-pinned Block from memoized verified snapshot content. */
+  private async readBlockContent(ref: BlockRef): Promise<string> {
+    const snapshot = await this.readSnapshot(ref.surface, ref.revision)
+    const block = snapshot.blocks.get(BlockId(ref.block))
+    if (block === undefined) {
+      throw new WorkSurfaceError('dangling-reference', `Block '${ref.surface}/${ref.block}' is absent at '${ref.revision}'`, { ref })
+    }
+    return block
+  }
+}
+
+/** Insert one entry and evict the least recently used entry beyond the cap. */
+function remember<K, V>(memo: Map<K, V>, max: number, key: K, value: V): void {
+  if (memo.has(key)) memo.delete(key)
+  memo.set(key, value)
+  while (memo.size > max) {
+    const oldest = memo.keys().next().value
+    if (oldest === undefined) break
+    memo.delete(oldest)
   }
 }
 
@@ -93,9 +188,8 @@ function projectFiles(
   surface: ReturnType<typeof SurfaceId>,
   surfaceRevision: Revision,
   blocks: readonly ResolvedBlock[],
-  profile: string,
   tokenBudget: number,
-): WorkSurfaceProjectionSnapshot {
+): ProjectedFiles {
   const maxCharacters = tokenBudget * CHARACTERS_PER_TOKEN
   const surfaceFile: WorkSurfaceProjectionFile = {
     kind: 'surface',
@@ -147,14 +241,10 @@ function projectFiles(
   }
 
   return {
-    surfaceId: surface,
-    surfaceRevision,
-    blockRevisions: blocks.map(block => block.ref),
     files,
     omittedFiles,
+    blockRevisions: blocks.map(block => block.ref),
     budgetExceeded,
-    profile,
-    createdAt: new Date().toISOString(),
   }
 }
 
