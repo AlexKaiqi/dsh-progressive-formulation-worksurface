@@ -16,6 +16,15 @@ async function fixture(): Promise<{ root: string; store: WorkSurfaceStore; templ
   const template = join(root, 'template')
   await mkdir(join(template, 'blocks'), { recursive: true })
   await writeFile(join(template, 'surface.md'), '# Work\n')
+  await writeFile(join(template, 'blocks', 'result.md'), `---
+block_id: result
+surface_id: template
+kind: result
+status: accepted
+derived_from: []
+---
+Result.
+`)
   return { root, store: new WorkSurfaceStore({ root: join(root, 'store') }), template }
 }
 
@@ -88,10 +97,23 @@ describe('Surface-local Work Session', () => {
       surface: child.surface,
       sessionId: 'agent-child',
       role: 'delegated',
+      execution: 'continuable',
       rootSurface: rootSurface.surface,
       parentSessionId: 'agent-root',
+      input: {
+        surfaceRevision: child.revision,
+        blockRevisions: [],
+        omittedBlockRevisions: [],
+        profile: 'test',
+        task: 'complete child work',
+      },
     })
-    await store.completeSessionBinding(child.surface, 'agent-child', child.revision)
+    await store.completeSessionBinding(child.surface, 'agent-child', {
+      surface: child.surface,
+      surfaceRevision: child.revision,
+      summary: 'child complete',
+      outputs: [{ surface: child.surface, block: 'result', revision: child.revision }],
+    })
 
     expect(await store.readSessionBinding({ sessionId: 'agent-child' })).toMatchObject({
       surface: 'ws-child',
@@ -105,11 +127,92 @@ describe('Surface-local Work Session', () => {
     ])
     const bindingPath = join(root, 'store', 'canonical', 'surfaces', 'ws-child', 'binding.json')
     expect(JSON.parse(await readFile(bindingPath, 'utf8'))).toMatchObject({
+      version: 2,
       surface: 'ws-child',
       sessionId: 'agent-child',
       role: 'delegated',
       outputRevision: child.revision,
     })
+  })
+
+  test('versions new bindings and rejects unsafe completion of a legacy delegated record', async () => {
+    const { root, store, template } = await fixture()
+    await store.newSurface({ attemptId: 'a', key: 'root', templatePath: template, surface: 'ws-root' })
+    const child = await store.newSurface({ attemptId: 'a', key: 'child', templatePath: template, surface: 'ws-child', parent: 'ws-root' })
+    const bindingPath = join(root, 'store', 'canonical', 'surfaces', 'ws-child', 'binding.json')
+    const now = new Date().toISOString()
+    await writeFile(bindingPath, JSON.stringify({
+      surface: 'ws-child',
+      sessionId: 'legacy-child',
+      role: 'delegated',
+      rootSurface: 'ws-root',
+      parentSessionId: 'root-session',
+      outputRevision: child.revision,
+      createdAt: now,
+      updatedAt: now,
+    }))
+
+    await expect(store.readSessionBinding({ surface: 'ws-child' })).resolves.toMatchObject({ version: 1 })
+    await expect(store.completeSessionBinding('ws-child', 'legacy-child', {
+      surface: 'ws-child',
+      surfaceRevision: child.revision,
+      summary: 'unsafe synthesis',
+      outputs: [{ surface: 'ws-child', block: 'result', revision: child.revision }],
+    })).rejects.toMatchObject({ code: 'session-binding-conflict' })
+  })
+
+  test('rejects an incomplete v2 delegated binding before writing canonical state', async () => {
+    const { root, store, template } = await fixture()
+    await store.newSurface({ attemptId: 'a', key: 'root', templatePath: template, surface: 'ws-root' })
+    await store.newSurface({ attemptId: 'a', key: 'child', templatePath: template, surface: 'ws-child', parent: 'ws-root' })
+
+    await expect(store.bindSession({
+      surface: 'ws-child',
+      sessionId: 'invalid-child',
+      role: 'delegated',
+      execution: 'continuable',
+      rootSurface: 'ws-root',
+      parentSessionId: 'root-session',
+    } as never)).rejects.toMatchObject({ code: 'invalid-working-copy' })
+    await expect(readFile(join(root, 'store', 'canonical', 'surfaces', 'ws-child', 'binding.json'), 'utf8'))
+      .rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  test('archives only expired unbound leaf Surfaces and preserves their canonical history', async () => {
+    const { root, store, template } = await fixture()
+    await store.newSurface({ attemptId: 'a', key: 'root', templatePath: template, surface: 'ws-root' })
+    await store.newSurface({ attemptId: 'a', key: 'orphan', templatePath: template, surface: 'ws-orphan', parent: 'ws-root' })
+    await store.newSurface({ attemptId: 'a', key: 'bound', templatePath: template, surface: 'ws-bound', parent: 'ws-root' })
+    await store.newSurface({ attemptId: 'a', key: 'parent', templatePath: template, surface: 'ws-parent', parent: 'ws-root' })
+    await store.newSurface({ attemptId: 'a', key: 'leaf', templatePath: template, surface: 'ws-leaf', parent: 'ws-parent' })
+    await store.newSurface({ attemptId: 'a', key: 'protected', templatePath: template, surface: 'ws-protected', parent: 'ws-root' })
+    await store.bindSession({
+      surface: 'ws-bound', sessionId: 'bound-child', role: 'delegated', execution: 'continuable',
+      rootSurface: 'ws-root', parentSessionId: 'root-session',
+      input: {
+        surfaceRevision: (await store.readHead('ws-bound')).revision,
+        blockRevisions: [], omittedBlockRevisions: [], profile: 'test', task: 'bound work',
+      },
+    })
+
+    const result = await store.archiveUnboundSurfaces({
+      olderThan: new Date(Date.now() + 60_000).toISOString(),
+      protectedSurfaces: new Set(['ws-protected']),
+    })
+    expect([...result.archived].sort()).toEqual(['ws-leaf', 'ws-orphan'])
+    await expect(store.hasSurface('ws-orphan')).resolves.toBe(false)
+    await expect(store.hasSurface('ws-root')).resolves.toBe(true)
+    await expect(store.hasSurface('ws-bound')).resolves.toBe(true)
+    await expect(store.hasSurface('ws-parent')).resolves.toBe(true)
+    await expect(store.hasSurface('ws-protected')).resolves.toBe(true)
+    const archives = await readdir(join(root, 'store', 'canonical', 'orphans'))
+    expect(archives).toHaveLength(2)
+    for (const archive of archives) {
+      const archivedRoot = join(root, 'store', 'canonical', 'orphans', archive)
+      await expect(readFile(join(archivedRoot, 'HEAD.json'), 'utf8')).resolves.toContain('sha256:')
+      await expect(readFile(join(archivedRoot, 'ORPHAN.json'), 'utf8')).resolves.toContain('expired-unbound-provisional-surface')
+      expect(await readdir(archivedRoot)).not.toContain('HEAD.lock')
+    }
   })
 
   test('rejects legacy boundary facts in a Work Session stream with an actionable message', async () => {

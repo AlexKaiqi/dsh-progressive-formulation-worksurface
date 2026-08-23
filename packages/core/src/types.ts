@@ -170,30 +170,56 @@ export interface SurfaceSessionInput {
   readonly blockRevisions: readonly BlockRef[]
   readonly omittedBlockRevisions: readonly BlockRef[]
   readonly profile: string
+  /** Exact delegated instruction; used to reject a different task reusing this durable Session. */
+  readonly task?: string
+}
+
+/** Canonical, revision-pinned completion produced by one delegated Session. */
+export interface SurfaceSessionCompletion {
+  readonly surface: SurfaceId
+  readonly surfaceRevision: Revision
+  readonly summary: string
+  readonly outputs: readonly BlockRef[]
 }
 
 /** Durable write-once delegation record between one independent Surface and one Agent Session. */
 export interface SurfaceSessionBinding {
+  /** Storage contract version. Missing on disk is read as legacy version 1. */
+  readonly version: 1 | 2
   readonly surface: SurfaceId
   readonly sessionId: string
   readonly role: SurfaceSessionRole
   readonly rootSurface: SurfaceId
   readonly parentSessionId?: string
+  /** Delegated Agent lifecycle shape. New durable delegations use continuable Sessions. */
+  readonly execution?: 'continuable' | 'one-shot'
   readonly input?: SurfaceSessionInput
+  /** Complete child result; canonical recovery never depends on an attempt-local result file. */
+  readonly completion?: SurfaceSessionCompletion
+  /** Compatibility/index field equal to completion.surfaceRevision when completion exists. */
   readonly outputRevision?: Revision
   readonly createdAt: string
   readonly updatedAt: string
 }
 
-/** Request for creating an immutable Surface/Session identity binding. */
-export interface BindSurfaceSessionOptions {
+interface BindSurfaceSessionBase {
   readonly surface: string
   readonly sessionId: string
-  readonly role: SurfaceSessionRole
   readonly rootSurface: string
-  readonly parentSessionId?: string
-  readonly input?: SurfaceSessionInput
 }
+
+/** Request for creating an immutable, version-2 Surface/Session identity binding. */
+export type BindSurfaceSessionOptions = BindSurfaceSessionBase & ({
+  readonly role: 'root'
+  readonly parentSessionId?: never
+  readonly execution?: never
+  readonly input?: never
+} | {
+  readonly role: 'delegated'
+  readonly parentSessionId: string
+  readonly execution: 'continuable'
+  readonly input: SurfaceSessionInput & { readonly task: string }
+})
 
 /** Parsed Block content rendered inside one graph node. */
 export interface WorkSurfaceGraphBlock {
@@ -234,6 +260,13 @@ export interface WorkSurfaceGraphSnapshot {
   readonly createdAt: string
   readonly nodes: readonly WorkSurfaceGraphNode[]
   readonly edges: readonly WorkSurfaceDependencyEdge[]
+}
+
+/** Result of one non-destructive provisional-Surface retention pass. */
+export interface ArchiveUnboundSurfacesResult {
+  readonly cutoff: string
+  readonly archived: readonly SurfaceId[]
+  readonly retained: readonly SurfaceId[]
 }
 
 /** File kind carried by a model-facing WorkSurface Projection. */

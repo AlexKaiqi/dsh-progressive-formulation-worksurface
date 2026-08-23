@@ -8,7 +8,7 @@ export function parseAgentCompletion(value: unknown): AgentCompletion {
     throw new WorkSurfaceError('invalid-reference', 'child Agent did not return the structured completion object')
   }
   const record = value as Record<string, unknown>
-  const surface = stringValue(record.surface, 'surface')
+  const surface = SurfaceId(stringValue(record.surface, 'surface'))
   const surfaceRevision = revisionValue(record.surfaceRevision, 'surfaceRevision')
   const summary = stringValue(record.summary, 'summary')
   if (Array.isArray(record.outputs) === false || record.outputs.length === 0) {

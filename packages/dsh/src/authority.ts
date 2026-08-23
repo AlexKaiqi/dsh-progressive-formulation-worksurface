@@ -13,8 +13,9 @@ export interface AuthorizedRequest {
 export function authorizeRequest(
   attempts: ReadonlyMap<string, AttemptAuthority>,
   request: WorkSurfaceRpcRequest,
+  delegatedAttempts: ReadonlyMap<string, AttemptAuthority> = new Map(),
 ): AuthorizedRequest {
-  const attempt = attempts.get(request.attemptId)
+  const attempt = attempts.get(request.attemptId) ?? delegatedAttempts.get(request.attemptId)
   if (attempt === undefined) throw new WorkSurfaceError('unauthorized', `attempt '${request.attemptId}' is not active`)
   if (timingSafeTextEqual(attempt.token, request.token)) return { attempt }
   for (const child of attempt.childCredentials.values()) {

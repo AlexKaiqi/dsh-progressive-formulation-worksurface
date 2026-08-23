@@ -9,17 +9,21 @@ WorkSurface 与 Work Session 是同一个工作单元的状态面和历史面。
 系统没有独立的 canonical WorkGraph 文档或全局 Graph event log。WorkGraph 是
 只读投影：从 root Surface 出发，递归跟随与 DSH Session 树对齐的委派记录得到。
 
-Surface 只在对应的 Agent Session 存在时存在。委派创建工作单元、记录不可变的一对一
-Session/Surface 身份并固定精确输入 Projection；不再存在独立 draft 阶段。
+委派采用 file-first：可以先物化 Surface，再启动 child。尚未绑定的 Surface 是
+provisional recovery anchor，暂不属于 WorkGraph。Continuable Agent Session 接受首条
+消息后，`binding.json` 才记录不可变的一对一身份与精确输入 Projection；重试复用这些
+文件或既有 binding，不创建第二个 Session。
 
 ## Canonical 目录
 
 ```text
 <root>/
   canonical/
+    orphans/                         # 完整保留的过期 provisional Surface 归档
     surfaces/
       <surface-id>/
         HEAD.json
+        binding.json                 # Agent Session attach 后存在
         commits/
         revisions/
           <sha256>/
@@ -41,13 +45,16 @@ Session/Surface 身份并固定精确输入 Projection；不再存在独立 draf
       runs/
       agent-effects/
       attempt-results/
+    delegated-agents/                # 每个 Activation 的一次性 checkout
     effect-journal/
     locks/
 ```
 
 `surfaces/<surface-id>` 始终位于同一深度。Child 通过其 write-once 委派记录和其中
-指明的 parent Session 身份被发现。没有委派记录的 Surface 目录是不可达 orphan，
-不属于任何 WorkGraph。
+指明的 parent Session 身份被发现。没有委派记录的 Surface 是 unbound recovery candidate，
+不属于任何 WorkGraph。配置的 retention pass 只归档已经过期、未被引用、未受活跃 attempt
+保护的 unbound 叶子，并把完整 Surface 原子移动到 `canonical/orphans`；canonical revision
+永不删除。
 
 ## 唯一事实源
 
@@ -58,8 +65,13 @@ Session/Surface 身份并固定精确输入 Projection；不再存在独立 draf
 - `orchestrator/definitions` 保存 orchestration event 所引用的精确 program 和 manifest。
   控制程序也可以从公开 attempt workspace 中已提交的 `work/control/` 文件读取；其内容
   在同一目录按内容只存一份，因此可以针对当前 workspace 状态重放同一不可变定义。
-- `binding.json` 是 write-once 委派记录，指明执行 Surface 的 Agent Session、消费的精确
-  Projection pin 和已提交输出 revision。
+- `binding.json` 是 write-once 委派记录，指明执行 Surface 的 continuable Agent Session、
+  消费的精确 Projection pin，以及完整的 revision-pinned completion 对象。Completion
+  属于 canonical；attempt-local result file 只是审计缓存。
+- 新记录使用 binding v2 契约。Delegated v2 必须包含 `execution: continuable`、精确且
+  非空的 task 与完整 input pin。缺少 version 的记录视为 legacy v1：带完整且校验通过
+  completion 的记录仍可读取；不完整或只有 outputRevision 的旧委派会原样保留并拒绝
+  冷恢复。任何路径都不会静默降级为 one-shot。
 - Agent Session log 解释 Agent 内部的 turn、tool 和 message。委派记录与 event 只引用
   Agent Session id，不复制其内部事件。
 
@@ -100,11 +112,12 @@ interface WorkSessionEvent<T, D> {
 - `orchestrator/run-started` 与 `orchestrator/run-completed`、
   `orchestrator/run-interrupted` 或 `orchestrator/run-failed` 解释一次执行。
 
-Surface 只在对应 Session 存在时存在：委派创建工作单元。Child 存在和
+Child Surface 可以在 Agent Session 之前立即创建，使重启能按文件身份恢复。
 Agent/Session attachment 不属于领域事件。每个 Surface 的 write-once `binding.json`
 指明执行 Session、精确输入 pin 与已提交输出；Session 之间的 parent/child 边界由
-DSH Session header 的 `parentSession` 所有。没有委派记录的 Surface 是不可达 orphan，
-不属于图且可安全回收。仍含 `child/created`、`agent/session-bound`、
+DSH Session header 的 `parentSession` 所有。没有委派记录的 Surface 是 provisional
+recovery candidate，不属于图；只要重试仍可能采用它就不能自动删除。仍含
+`child/created`、`agent/session-bound`、
 `agent/session-completed`、`child/session-started` 或 `child/session-completed` 的 rc.6
 事件流会以可操作的 canonical corruption 失败。
 
@@ -138,16 +151,23 @@ Session event 存在；只找到内容 commit 不能算完成。
 外部 effect 先由父级记录 `orchestrator/run-started`，再启动进程，最后只记录一个
 terminal outcome。恢复逻辑 reconcile 非 terminal run，不能盲目重复执行。
 
+Delegated Agent 恢复始终寻址同一 Surface/Session binding。每个 continuable Activation
+从当前 Surface revision 重建 checkout，并获得新的 process-local token。未完成 binding
+唤醒同一 child Session；已完成 binding 即使 attempt 目录全部丢失，也直接返回 canonical
+completion。重建后的 attempt 只有在 binding 指向完全相同的 root Surface 与 parent Session
+时才能重新准入该 child；continuation 不可用时明确失败。
+
 ## 不变量
 
 1. 每个 Surface 目录只有一份 Work Session header，且 `surfaceId` 一致。
 2. Session event `seq` 从零开始连续，event id 唯一且可校验。
 3. `surface/created` 必须是事件零，并与不可变 Surface metadata 一致。
-4. Child 只有通过其 owning Session 的委派记录才能进入 WorkGraph；没有委派记录的
-   Surface 是 orphan。
+4. Child 只有通过其 owning Session 的委派记录才能进入 WorkGraph；unbound Surface
+   只是可恢复的 provisional node。
 5. Child 只有一个结构 parent，不允许环。
 6. Agent Session id 与 Surface 各自最多参与一条委派记录。
 7. 委派输入必须引用存在的不可变 revision。
-8. Completion 必须引用同一 Surface 的现有 revision，且只能发生一次。
+8. Completion 必须引用同一 Surface 的当前 revision 与现有 Block，写入 `binding.json`，
+   且只能发生一次。
 9. Revision publication 必须从已记录的当前 base revision 推进。
 10. 父级进入 terminal 前，child 必须 terminal 或显式转移所有权，不能留下无主后台工作。

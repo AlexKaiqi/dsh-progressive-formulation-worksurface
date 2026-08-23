@@ -10,7 +10,7 @@ A Surface is a directory containing `surface.md` and `blocks/<block-id>.md`. Run
 
 Creating a Surface instantiates runtime-owned identities into a template. Committing validates the entire working copy, rejects dangling references and metadata/path mismatches, forbids physical Block deletion, and compares the caller's base revision with the current Session-folded head. Every accepted snapshot is stored under its SHA-256 revision before a Work Session event publishes it; `HEAD.json` is only a repairable projection.
 
-Every `canonical/surfaces/<surface-id>` directory also contains `session/header.json`, a materialized Session `HEAD.json`, contiguous immutable events, and—once delegated—one write-once `binding.json`. Child Surfaces remain siblings on disk. `graphSnapshot()` recursively follows delegation records aligned with the DSH Session tree; a Surface without a delegation record is an unreachable orphan, not a graph member. See [`../../docs/work-session-storage.md`](../../docs/work-session-storage.md).
+Every `canonical/surfaces/<surface-id>` directory also contains `session/header.json`, a materialized Session `HEAD.json`, contiguous immutable events, and—once attached—one write-once `binding.json`. Child Surfaces remain siblings on disk. `graphSnapshot()` recursively follows bindings aligned with the DSH Session tree; a file-first Surface without a binding is a provisional recovery anchor, not yet a graph member. New binding records use v2; missing-version records are legacy v1 and are never guessed into a continuable execution. `archiveUnboundSurfaces()` moves expired unbound leaves intact to `canonical/orphans` without deleting their revisions. See [`../../docs/work-session-storage.md`](../../docs/work-session-storage.md).
 
 ## Public API
 

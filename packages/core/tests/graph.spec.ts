@@ -53,10 +53,14 @@ describe('Surface/Session binding', () => {
     const { root, store } = await graphFixture()
     const source = await template(root, 'template', '# Surface\n')
     await store.newSurface({ attemptId: 'a', key: 'root', templatePath: source, surface: 'ws-root' })
-    await store.newSurface({ attemptId: 'a', key: 'child', templatePath: source, surface: 'ws-child', parent: 'ws-root' })
+    const child = await store.newSurface({ attemptId: 'a', key: 'child', templatePath: source, surface: 'ws-child', parent: 'ws-root' })
     await store.bindSession({ surface: 'ws-root', sessionId: 'session-root', role: 'root', rootSurface: 'ws-root' })
     await expect(store.bindSession({
       surface: 'ws-child', sessionId: 'session-root', role: 'delegated', rootSurface: 'ws-root', parentSessionId: 'session-root',
+      execution: 'continuable',
+      input: {
+        surfaceRevision: child.revision, blockRevisions: [], omittedBlockRevisions: [], profile: 'test', task: 'child work',
+      },
     })).rejects.toMatchObject({ code: 'session-binding-conflict' } satisfies Partial<WorkSurfaceError>)
   })
 })
@@ -70,13 +74,18 @@ describe('WorkGraph projection', () => {
       root,
       'target-template',
       '# Target\n\n[[block:ws-root/root_fact]]\n[[block:ws-source/source_fact]]\n',
+      { target_result: 'target result' },
     )
     await store.newSurface({ attemptId: 'a', key: 'root', templatePath: rootTemplate, surface: 'ws-root' })
-    await store.newSurface({ attemptId: 'a', key: 'source', templatePath: sourceTemplate, surface: 'ws-source', parent: 'ws-root' })
+    const source = await store.newSurface({ attemptId: 'a', key: 'source', templatePath: sourceTemplate, surface: 'ws-source', parent: 'ws-root' })
     await store.newSurface({ attemptId: 'a', key: 'target', templatePath: targetTemplate, surface: 'ws-target', parent: 'ws-root' })
     await store.bindSession({ surface: 'ws-root', sessionId: 'session-root', role: 'root', rootSurface: 'ws-root' })
     await store.bindSession({
       surface: 'ws-source', sessionId: 'session-source', role: 'delegated', rootSurface: 'ws-root', parentSessionId: 'session-root',
+      execution: 'continuable',
+      input: {
+        surfaceRevision: source.revision, blockRevisions: [], omittedBlockRevisions: [], profile: 'research', task: 'source work',
+      },
     })
     const projection = await new ProjectionCompiler(store).compile({ surface: 'ws-target', profile: 'research', tokenBudget: 10_000 })
     await store.bindSession({
@@ -85,14 +94,21 @@ describe('WorkGraph projection', () => {
       role: 'delegated',
       rootSurface: 'ws-root',
       parentSessionId: 'session-root',
+      execution: 'continuable',
       input: {
         surfaceRevision: projection.surfaceRevision,
         blockRevisions: projection.blockRevisions,
         omittedBlockRevisions: [],
         profile: projection.profile,
+        task: 'target work',
       },
     })
-    await store.completeSessionBinding('ws-target', 'session-target', projection.surfaceRevision)
+    await store.completeSessionBinding('ws-target', 'session-target', {
+      surface: 'ws-target',
+      surfaceRevision: projection.surfaceRevision,
+      summary: 'target complete',
+      outputs: [{ surface: 'ws-target', block: 'target_result', revision: projection.surfaceRevision }],
+    })
 
     const graph = await store.graphSnapshot('ws-root')
     expect(graph.rootSessionId).toBe('session-root')

@@ -10,7 +10,7 @@
 
 创建 Surface 时会把 Runtime 所有的身份实例化到模板中。Commit 会校验整个 working copy，拒绝悬空引用和 metadata/path 不一致，禁止物理删除 Block，并比较调用者的 base revision 与从 Session fold 得到的当前 head。每个被接受的快照先按其 SHA-256 revision 存储，再由 Work Session event 正式发布；`HEAD.json` 只是可修复投影。
 
-每个 `canonical/surfaces/<surface-id>` 目录还包含 `session/header.json`、物化的 Session `HEAD.json`、连续的不可变事件，以及委派后唯一的 write-once `binding.json`。Child Surface 在磁盘上仍与父级平级；`graphSnapshot()` 递归跟随与 DSH Session 树对齐的委派记录。没有委派记录的 Surface 是不可达 orphan，不属于 WorkGraph。详见 [`../../docs/work-session-storage.zh.md`](../../docs/work-session-storage.zh.md)。
+每个 `canonical/surfaces/<surface-id>` 目录还包含 `session/header.json`、物化的 Session `HEAD.json`、连续的不可变事件，以及 attach 后唯一的 write-once `binding.json`。Child Surface 在磁盘上仍与父级平级；`graphSnapshot()` 递归跟随与 DSH Session 树对齐的 binding。File-first 创建但尚未绑定的 Surface 是 provisional recovery anchor，暂不属于 WorkGraph。新 binding 使用 v2；缺少版本的记录视为 legacy v1，绝不会被猜测成 continuable execution。`archiveUnboundSurfaces()` 会把过期未绑定叶子完整移入 `canonical/orphans`，不删除任何 revision。详见 [`../../docs/work-session-storage.zh.md`](../../docs/work-session-storage.zh.md)。
 
 ## 公共 API
 

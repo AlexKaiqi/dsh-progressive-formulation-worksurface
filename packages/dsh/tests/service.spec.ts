@@ -10,6 +10,7 @@ import { ShellEnvRegistry } from '@deepseek-ai/dsh-shell-env'
 import SystemPrompt, { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type {
+  ContinuableStartSpec,
   ResolvedSubagentStartRequest,
   SubagentProvider,
   SubagentResult,
@@ -218,7 +219,7 @@ class EditingProvider implements SubagentProvider {
     }
   }
 
-  private async complete(child: Agent, persona: string, task: string): Promise<SubagentResult> {
+  async complete(child: Agent, persona: string, task: string): Promise<SubagentResult> {
     await new Promise<void>(resolve => setTimeout(resolve, 0))
     if (task.includes('quiescence')) {
       this.quiescenceReadyResolve()
@@ -294,11 +295,18 @@ class EditingProvider implements SubagentProvider {
     const blockPath = join(workingPath, 'blocks', 'result.md')
     const original = await readFile(blockPath, 'utf8')
     await writeFile(blockPath, `${original}\nCommitted task: ${task}\n`)
-    const commit = await client.call('commit', {
-      workingPath,
-      baseRevision: base,
-      key: `child-commit-${task.replaceAll(/[^A-Za-z0-9]+/g, '-').slice(0, 64)}`,
-    }) as { revision: string }
+    const commit = task === 'foreign-commit'
+      ? await this.ctx.workSurfaces.store.commit({
+        attemptId: 'foreign-orchestrator-attempt',
+        key: 'foreign-commit',
+        workingPath,
+        baseRevision: base as never,
+      })
+      : await client.call('commit', {
+        workingPath,
+        baseRevision: base,
+        key: `child-commit-${task.replaceAll(/[^A-Za-z0-9]+/g, '-').slice(0, 64)}`,
+      }) as { revision: string }
     return {
       output: [{ type: 'text' as const, text: 'FABRICATED FINAL TEXT' }],
       structured: {
@@ -314,6 +322,137 @@ class EditingProvider implements SubagentProvider {
       stopReason: 'completed' as const,
     }
   }
+}
+
+class FixtureContinuationDriver {
+  private service: WorkSurfaceService | undefined
+  private nextId = 0
+
+  constructor(private readonly ctx: Context, private readonly provider: EditingProvider) {}
+
+  install(): void {
+    const runtime = this.ctx.subagents as unknown as {
+      startContinuable(spec: ContinuableStartSpec): Promise<{ childId: string; messageId: string }>
+      followup(parent: Agent, childId: string, content: unknown[], options: { signal: AbortSignal }): Promise<string>
+    }
+    runtime.startContinuable = spec => this.start(spec)
+    runtime.followup = (parent, childId, _content, options) => this.followup(parent, childId, options.signal)
+  }
+
+  attach(service: WorkSurfaceService): void {
+    this.service = service
+  }
+
+  private async start(spec: ContinuableStartSpec): Promise<{ childId: string; messageId: string }> {
+    const task = spec.request.prompt[0]?.type === 'text' ? spec.request.prompt[0].text : ''
+    this.provider.starts += 1
+    this.provider.personas.push(spec.request.persona ?? '')
+    this.provider.requests.push(spec.request as unknown as ResolvedSubagentStartRequest)
+    if (task === 'start-failed') throw new Error('provider start failed')
+    if (task === 'remote-provider') throw new WorkSurfaceError('unsupported-profile', 'fixture rejects a non-local continuation provider')
+    const childId = `child-${++this.nextId}`
+    const child = fixtureChild(childId, String(spec.request.parent.id))
+    const activation = this.installActivation(child)
+    this.emitStart(childId)
+    queueMicrotask(() => { void this.runActivation(child, task, spec.request.persona ?? '', activation) })
+    return { childId, messageId: `message-${childId}` }
+  }
+
+  private async followup(parent: Agent, childId: string, signal: AbortSignal): Promise<string> {
+    signal.throwIfAborted()
+    const service = this.requiredService()
+    const binding = await service.store.readSessionBinding({ sessionId: childId })
+    if (binding?.input?.task === undefined) throw new Error(`missing durable fixture task for ${childId}`)
+    const child = fixtureChild(childId, String(parent.id))
+    const activation = this.installActivation(child)
+    this.emitStart(childId)
+    queueMicrotask(() => { void this.runActivation(child, binding.input?.task ?? '', '', activation) })
+    return `followup-${childId}`
+  }
+
+  private async runActivation(
+    child: Agent,
+    task: string,
+    persona: string,
+    activation: { ready: Promise<string>; dispose(): void },
+  ): Promise<void> {
+    try {
+      const projectionText = await activation.ready
+      const result = await this.provider.complete(child, persona || projectionText, task)
+      this.ctx.emit('subagent/end', {
+        runId: `run-${child.id}` as never,
+        provider: this.provider.name,
+        id: child.id,
+        local: true,
+        stopReason: result.stopReason,
+        ...(result.structured === undefined ? {} : {
+          lastAssistantMessage: [{ type: 'text', text: JSON.stringify(result.structured) }],
+        }),
+      })
+    } catch (error) {
+      this.ctx.emit('subagent/end', {
+        runId: `run-${child.id}` as never,
+        provider: this.provider.name,
+        id: child.id,
+        local: true,
+        stopReason: 'error',
+        lastAssistantMessage: [{ type: 'text', text: JSON.stringify({ error: error instanceof Error ? error.message : String(error) }) }],
+      })
+    } finally {
+      activation.dispose()
+      this.provider.disposals += 1
+    }
+  }
+
+  private installActivation(child: Agent): { ready: Promise<string>; dispose(): void } {
+    type Assembly = { contexts: Array<{ name: string; text: string }> }
+    type PromptHandler = (
+      assembly: Assembly,
+      context: { agent: Agent },
+      next: () => Promise<Assembly>,
+    ) => Promise<Assembly>
+    let promptHandler: PromptHandler | undefined
+    const childCtx = {
+      agent: child,
+      on(event: string, handler: PromptHandler) {
+        if (event === 'system-prompt/assemble') promptHandler = handler
+        return () => { promptHandler = undefined }
+      },
+    } as unknown as Context
+    const runtime = (this.requiredService() as unknown as { delegations: {
+      installActivationSetup(ctx: Context): () => void
+    } }).delegations
+    const dispose = runtime.installActivationSetup(childCtx)
+    const ready = (async () => {
+      const handler = promptHandler
+      if (handler === undefined) throw new Error(`activation setup did not register a prompt handler for ${child.id}`)
+      const assembly: Assembly = { contexts: [] }
+      const transformed = await handler(assembly, { agent: child }, async () => assembly)
+      return transformed.contexts.find(context => context.name === 'worksurface:delegation-activation')?.text ?? ''
+    })()
+    return { ready, dispose }
+  }
+
+  private emitStart(childId: string): void {
+    this.ctx.emit('subagent/start', {
+      runId: `run-${childId}` as never,
+      provider: this.provider.name,
+      id: childId as never,
+      local: true,
+    })
+  }
+
+  private requiredService(): WorkSurfaceService {
+    if (this.service === undefined) throw new Error('fixture continuation driver is not attached')
+    return this.service
+  }
+}
+
+function fixtureChild(id: string, parentSession: string): Agent {
+  return {
+    id,
+    session: { header: { version: 0, id, createdAt: 0, origin: 'subagent', delegationDepth: 1, parentSession } },
+  } as unknown as Agent
 }
 
 function invalidStructuredCompletion(
@@ -394,7 +533,11 @@ function pluginProfiles(profiles: readonly WorkSurfaceProfile[]): Array<{
     : { ...profile, toolAllow: [...toolAllow] })
 }
 
-async function harnessContext(root: string): Promise<{ ctx: Context; provider: EditingProvider }> {
+async function harnessContext(root: string): Promise<{
+  ctx: Context
+  provider: EditingProvider
+  continuations: FixtureContinuationDriver
+}> {
   const ctx = new Context()
   await ctx.plugin(FixtureB2FService, { root: join(root, 'b2f-fallback') })
   await ctx.plugin(SystemPrompt)
@@ -405,7 +548,9 @@ async function harnessContext(root: string): Promise<{ ctx: Context; provider: E
   await ctx.plugin(ScriptedSubprocess)
   const provider = new EditingProvider(ctx)
   ctx.subagents.registerProvider(provider)
-  return { ctx, provider }
+  const continuations = new FixtureContinuationDriver(ctx, provider)
+  continuations.install()
+  return { ctx, provider, continuations }
 }
 
 async function fixture(options: FixtureOptions = {}): Promise<{
@@ -422,7 +567,7 @@ async function fixture(options: FixtureOptions = {}): Promise<{
   const store = new WorkSurfaceStore({ root })
   await store.newSurface({ attemptId: 'bootstrap', key: 'root', templatePath: template, surface: 'ws-root' })
 
-  const { ctx, provider } = await harnessContext(root)
+  const { ctx, provider, continuations } = await harnessContext(root)
   const fiber = await ctx.plugin(WorkSurfaceService, {
     root,
     attemptsRoot: join(root, 'attempts'),
@@ -441,6 +586,7 @@ async function fixture(options: FixtureOptions = {}): Promise<{
     }]),
     ...options.config,
   })
+  continuations.attach(ctx.workSurfaces)
   return { ctx, fiber, service: ctx.workSurfaces, provider, root }
 }
 
@@ -751,6 +897,114 @@ describe('WorkSurfaceService integration', () => {
       'surface/revision-published',
     ])
     expect((await readdir(join(root, 'canonical', 'surfaces'))).sort()).toEqual(['ws-real-e2e-child', 'ws-root'])
+  })
+
+  it('cold-resumes the same incomplete child Session after the WorkSurface service is reconstructed', async () => {
+    const first = await fixture()
+    const template = join(first.root, 'cold-child-template')
+    await writeTemplate(template, 'Cold child', 'ws-cold-child')
+    const child = await first.service.store.newSurface({
+      attemptId: 'cold-bootstrap', key: 'child', templatePath: template,
+      surface: 'ws-cold-child', parent: 'ws-root',
+    })
+    const projection = await first.service.projections.compile({
+      surface: child.surface, profile: 'test', tokenBudget: 10_000,
+    })
+    await first.service.store.bindSession({
+      surface: child.surface,
+      sessionId: 'cold-child-session',
+      role: 'delegated',
+      execution: 'continuable',
+      rootSurface: 'ws-root',
+      parentSessionId: 'cold-parent-session',
+      input: {
+        surfaceRevision: projection.surfaceRevision,
+        blockRevisions: projection.blockRevisions,
+        omittedBlockRevisions: projection.omittedFiles.map(file => ({
+          surface: file.surfaceId, block: file.blockId, revision: file.revision,
+        })),
+        profile: projection.profile,
+        task: 'finish after cold restart',
+      },
+    })
+    await first.fiber.dispose()
+
+    const { ctx, provider, continuations } = await harnessContext(first.root)
+    const secondFiber = await ctx.plugin(WorkSurfaceService, {
+      root: first.root,
+      attemptsRoot: join(first.root, 'attempts-restarted'),
+      socketPath: join(first.root, 'runtime', 'host-restarted.sock'),
+      cliEntrypoint: join(process.cwd(), 'packages', 'cli', 'lib', 'bin.js'),
+      profiles: pluginProfiles([{
+        name: 'test', provider: provider.name, tokenBudget: 10_000, maxDepth: 3, maxParallel: 1,
+      }]),
+    })
+    const restarted = ctx.workSurfaces
+    continuations.attach(restarted)
+    ScriptedSubprocess.runner = async (spec) => {
+      const completion = await orchestratorClient(spec).call('agent.run', {
+        surface: 'ws-cold-child', task: 'finish after cold restart', profile: 'test', key: 'cold-resume',
+      }) as { summary: string }
+      return { exitCode: 0, signal: null, stdout: completion.summary, stderr: '' }
+    }
+    const parent = {
+      id: 'cold-parent-session', session: { header: { id: 'cold-parent-session' } },
+    } as unknown as Agent
+
+    await expect(restarted.runOrchestrator(
+      parent, 'bash', '# cold resume', 'ws-root', new AbortController().signal,
+    )).resolves.toMatchObject({ stdout: 'completed finish after cold restart' })
+    expect(provider.starts).toBe(0)
+    await expect(restarted.store.readSessionBinding({ surface: 'ws-cold-child' })).resolves.toMatchObject({
+      version: 2,
+      sessionId: 'cold-child-session',
+      completion: { summary: 'completed finish after cold restart' },
+    })
+    await secondFiber.dispose()
+  })
+
+  it('releases activation setup when binding fails before its delayed canonical lookup completes', async () => {
+    const { service, provider } = await fixture()
+    const lookupGate = Promise.withResolvers<void>()
+    const originalRead = service.store.readSessionBinding.bind(service.store)
+    service.store.readSessionBinding = async identity => {
+      if ('sessionId' in identity && identity.sessionId === 'child-1') {
+        await lookupGate.promise
+        return undefined
+      }
+      return originalRead(identity)
+    }
+    const originalBind = service.store.bindSession.bind(service.store)
+    service.store.bindSession = async options => {
+      if (options.role === 'delegated') {
+        throw new WorkSurfaceError('session-binding-conflict', 'injected binding failure before activation lookup')
+      }
+      return originalBind(options)
+    }
+    const runtime = (service as unknown as { delegations: {
+      bindingFailed(sessionId: string, error: unknown): void
+    } }).delegations
+    const originalBindingFailed = runtime.bindingFailed.bind(runtime)
+    runtime.bindingFailed = (sessionId, error) => {
+      originalBindingFailed(sessionId, error)
+      lookupGate.resolve()
+    }
+    ScriptedSubprocess.runner = async (spec) => {
+      const template = join(spec.cwd, 'binding-race-template')
+      await writeTemplate(template, 'Binding race child', 'ws-binding-race')
+      await expectCode(orchestratorClient(spec).call('agent.run', {
+        surface: 'ws-binding-race', task: 'binding-race', profile: 'test', key: 'binding-race',
+        templatePath: template, parent: 'ws-root',
+      }), 'session-binding-conflict')
+      return { exitCode: 0, signal: null, stdout: '', stderr: '' }
+    }
+    const parent = { id: 'binding-race-parent', session: { header: { id: 'binding-race-parent' } } } as unknown as Agent
+
+    await expect(service.runOrchestrator(
+      parent, 'bash', '# binding race', 'ws-root', new AbortController().signal,
+    )).resolves.toMatchObject({ exitCode: 0 })
+    await new Promise<void>(resolve => setTimeout(resolve, 0))
+    expect(provider.disposals).toBe(1)
   })
 
   it('runs a committed control file, stores it by content, and re-runs it as one attempt', async () => {
@@ -1241,11 +1495,11 @@ describe('WorkSurfaceService integration', () => {
       }
       for (const [task, code] of [
         ['stopped', 'effect-failed'],
-        ['remote-provider', 'unsupported-profile'],
         ['different-surface', 'unauthorized'],
         ['different-output-surface', 'unauthorized'],
         ['wrong-surface-revision', 'invalid-reference'],
         ['wrong-output-revision', 'invalid-reference'],
+        ['foreign-commit', 'unauthorized'],
         ['start-failed', 'effect-failed'],
       ] as const) {
         const surface = await createAgentSurface(client, spec, task)
@@ -1270,7 +1524,7 @@ describe('WorkSurfaceService integration', () => {
       }), 'effect-failed')
       await expectCode(client.call('agent.run', {
         surface: retrySurface, task: 'stopped', profile: 'test', key: 'retry-stopped', retry: true,
-      }), 'session-binding-conflict')
+      }), 'effect-failed')
       return { exitCode: 0, signal: null, stdout: 'child-errors-covered', stderr: '' }
     }
 
@@ -1490,6 +1744,38 @@ describe('WorkSurfaceService integration', () => {
     await fiber.dispose()
   })
 
+  it('archives expired unbound child Surfaces at startup without deleting their revisions', async () => {
+    const root = await trackedRoot('worksurface-provisional-retention-')
+    const template = join(root, 'root-template')
+    await writeTemplate(template, 'File state B', 'ws-root')
+    const store = new WorkSurfaceStore({ root })
+    await store.newSurface({ attemptId: 'bootstrap', key: 'root', templatePath: template, surface: 'ws-root' })
+    await store.newSurface({
+      attemptId: 'bootstrap', key: 'provisional', templatePath: template,
+      surface: 'ws-provisional', parent: 'ws-root',
+    })
+    await new Promise<void>(resolve => setTimeout(resolve, 5))
+
+    const { ctx, provider } = await harnessContext(root)
+    const fiber = await ctx.plugin(WorkSurfaceService, {
+      root,
+      attemptsRoot: join(root, 'attempts'),
+      socketPath: join(root, 'run', 'host.sock'),
+      cliEntrypoint: join(process.cwd(), 'packages', 'cli', 'lib', 'bin.js'),
+      unboundSurfaceRetentionMs: 1,
+      profiles: pluginProfiles([{
+        name: 'test', provider: provider.name, tokenBudget: 10_000, maxDepth: 3, maxParallel: 1,
+      }]),
+    })
+
+    await expect(ctx.workSurfaces.store.hasSurface('ws-provisional')).resolves.toBe(false)
+    const archives = await readdir(join(root, 'canonical', 'orphans'))
+    expect(archives.some(name => name.startsWith('ws-provisional-'))).toBe(true)
+    const archived = archives.find(name => name.startsWith('ws-provisional-')) as string
+    await expect(readFile(join(root, 'canonical', 'orphans', archived, 'HEAD.json'), 'utf8')).resolves.toContain('sha256:')
+    await fiber.dispose()
+  })
+
   it('validates configuration, profiles, persistent roots, and socket placement', async () => {
     const profile = {
       name: 'test', provider: 'fixture-provider', tokenBudget: 1000, maxDepth: 1, maxParallel: 1,
@@ -1504,6 +1790,8 @@ describe('WorkSurfaceService integration', () => {
       { root: process.cwd(), maxCrashReplays: 1.5, profiles: [profile] },
       { root: process.cwd(), attemptRetention: 0, profiles: [profile] },
       { root: process.cwd(), attemptRetention: 1.5, profiles: [profile] },
+      { root: process.cwd(), unboundSurfaceRetentionMs: 0, profiles: [profile] },
+      { root: process.cwd(), unboundSurfaceRetentionMs: 1.5, profiles: [profile] },
       { root: process.cwd(), profiles: [] },
       { root: process.cwd(), profiles: [{ ...profile, name: '' }] },
       { root: process.cwd(), profiles: [{ ...profile, provider: '' }] },
@@ -1698,7 +1986,10 @@ async function writeStartedAgentRecord(
 ): Promise<void> {
   const directory = join(service.store.runtimeRoot, 'orchestrator', 'agent-effects', attemptId)
   await mkdir(directory, { recursive: true })
-  const requestHash = sha256(stableStringify({ type: 'agent.run', request: { surface, task, profile } }))
+  const requestHash = sha256(stableStringify({
+    type: 'agent.run',
+    request: { surface, task, profile, parent: 'ws-root', template: false },
+  }))
   await writeFile(join(directory, `${sha256(key)}.json`), JSON.stringify({
     attemptId,
     key,

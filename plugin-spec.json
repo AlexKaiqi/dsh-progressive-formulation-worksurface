@@ -109,6 +109,10 @@
         "layer": "L2"
       },
       {
+        "file": "packages/dsh/tests/agent-run-recovery.spec.ts",
+        "layer": "L2"
+      },
+      {
         "file": "packages/dsh/tests/workspace.spec.ts",
         "layer": "L2"
       }

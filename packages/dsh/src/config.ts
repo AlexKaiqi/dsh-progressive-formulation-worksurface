@@ -16,6 +16,7 @@ export interface Config {
   readonly maxOutputBytes?: number
   readonly maxCrashReplays?: number
   readonly attemptRetention?: number
+  readonly unboundSurfaceRetentionMs?: number
   readonly profiles: readonly WorkSurfaceProfile[]
 }
 
@@ -40,6 +41,7 @@ export const CONFIG_SCHEMA = z.object({
   maxOutputBytes: z.number().step(1).min(1024).default(1024 * 1024),
   maxCrashReplays: z.number().step(1).min(0).default(1),
   attemptRetention: z.number().step(1).min(1).default(10),
+  unboundSurfaceRetentionMs: z.number().step(1).min(1).default(7 * 24 * 60 * 60 * 1000),
   profiles: z.array(PROFILE_SCHEMA),
 }) as unknown as z<Config>
 
@@ -65,6 +67,10 @@ export function resolveConfig(config: Config): WorkSurfaceConfig {
     maxOutputBytes: positiveInteger(config.maxOutputBytes ?? 1024 * 1024, 'maxOutputBytes'),
     maxCrashReplays: nonNegativeInteger(config.maxCrashReplays ?? 1, 'maxCrashReplays'),
     attemptRetention: positiveInteger(config.attemptRetention ?? 10, 'attemptRetention'),
+    unboundSurfaceRetentionMs: positiveInteger(
+      config.unboundSurfaceRetentionMs ?? 7 * 24 * 60 * 60 * 1000,
+      'unboundSurfaceRetentionMs',
+    ),
     profiles: config.profiles,
   }
 }

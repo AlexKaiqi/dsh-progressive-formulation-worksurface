@@ -24,7 +24,7 @@ Effect commands require stable keys. `--json` emits one JSON value on stdout, fa
 
 When `WS_HOST_SOCKET`, `WS_ATTEMPT_ID`, and `WS_ATTEMPT_TOKEN` are present, the CLI uses `WorkSurfaceHostClient`; `DSH_WS_*` aliases support child-Agent shell environments. If an attempt-directory variable is present without a Host socket, the CLI fails closed instead of falling back to canonical files.
 
-Direct mode requires `WS_STORE_ROOT` and supports operations on existing canonical state for administration and tests. Surface creation is delegation-bound, and `agent run` is Host-only because only the plugin can create the work unit and child Agent, then validate its structured completion.
+Direct mode requires `WS_STORE_ROOT` and supports operations on existing canonical state for administration and tests. `agent run` is Host-only because only the plugin may perform file-first provisioning, attach or resume the continuable child Session, and validate its canonical JSON completion.
 
 ## Exit status
 

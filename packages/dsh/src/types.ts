@@ -24,12 +24,14 @@ export interface WorkSurfaceConfig {
   readonly maxOutputBytes: number
   readonly maxCrashReplays: number
   readonly attemptRetention: number
+  /** Age after which quiescent unbound leaf Surfaces leave the active namespace but remain archived canonically. */
+  readonly unboundSurfaceRetentionMs: number
   readonly profiles: readonly WorkSurfaceProfile[]
 }
 
 /** Structured completion contract required from every child Agent. */
 export interface AgentCompletion {
-  readonly surface: string
+  readonly surface: SurfaceIdType
   readonly surfaceRevision: Revision
   readonly summary: string
   readonly outputs: readonly BlockRef[]

@@ -39,7 +39,6 @@ export function childPersona(
     + `Your only editable WorkSurface checkout and b2f root is ${workingPath}. Its required commit base revision is ${baseRevision}. `
     + 'Write only surface.md and blocks/<block-id>.md with file blocks; do not create other top-level entries. '
     + 'Use the ws CLI to commit it with that exact --base revision and a stable --key. '
-    + 'Return only the required structured completion: surface, surfaceRevision, summary, and non-empty outputs. '
+    + 'Return only one JSON object with surface, surfaceRevision, summary, and non-empty outputs; do not wrap it in a code fence. '
     + 'Every output must name a committed Block in your assigned Surface at its exact revision.'
 }
-

@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.2.0",
   "name": "worksurface-host-rpc",
   "summary": "Authenticated newline-delimited JSON protocol between the sandboxed `ws` CLI and the WorkSurface Host, over a Unix domain socket.",
   "rationale": "This is deliberately not a DSH tool seam. The caller is an ordinary Bash or Python Orchestrator script running under sandbox confinement, not the model, so it cannot invoke tools. The Host keeps sole custody of canonical state and the CLI never opens it directly.",
@@ -12,8 +12,8 @@
   },
   "authentication": {
     "fields": ["attemptId", "token"],
-    "description": "Every request carries the attempt identity and its per-attempt token. Both must be non-empty strings and must match a live attempt; the token is issued by the Host when the attempt is prepared and is never derived from caller input.",
-    "authority": "An attempt may only address Surfaces reachable from its authorized root. Paths are resolved per component and any symlink or `..` escape from the attempt workspace is refused as `unauthorized`."
+    "description": "Every request carries an authority-scope identity and token. An Orchestrator uses its live attempt scope; a continuable child uses a fresh activation scope reconstructed from its canonical Surface/Session binding. Tokens are Host-issued, process-local, and never derived from caller input or persisted in canonical state.",
+    "authority": "An Orchestrator may only address Surfaces admitted by its attempt. A child activation may address only its bound Surface and exact reconstructed checkout. Paths are resolved per component and any symlink or `..` escape is refused as `unauthorized`."
   },
   "request": {
     "id": "string, echoed on the response",
@@ -37,13 +37,14 @@
     "commit": "Publish a working copy against a base revision. Requires an idempotency key.",
     "show": "Read a Surface at a revision.",
     "projection": "Render the model-facing projection of a Surface for a named profile, optionally under a token budget.",
-    "agent.run": "Delegate a task to a child Agent and return its structured completion, validated against the child-Agent return contract. A delegated work unit is created by its delegation: an optional templatePath materializes the Surface when it does not exist yet."
+    "agent.run": "Materialize the child Surface first when needed, then create or resume its one-to-one continuable Agent Session under binding contract v2. Return the canonical JSON completion after validating its committed revision and output refs. A retry reuses the existing binding; attempt-local result files are only audit caches. Continuation unavailability fails loud and never falls back to a one-shot child."
   },
   "idempotency": {
     "scope": ["commit", "agent.run"],
-    "description": "Effect methods require a stable caller-supplied key so a replayed Orchestrator does not duplicate an effect. Replay after a crash is bounded by maxCrashReplays."
+    "description": "Effect methods require a stable caller-supplied key. agent.run additionally reconciles through the canonical Surface/Session binding, so loss of an attempt directory cannot create a replacement child Session. Replay of a signal-terminated Orchestrator process remains bounded by maxCrashReplays."
   },
   "contracts": {
-    "childAgentReturn": "packages/dsh/spec/agent-return.schema.json"
+    "childAgentReturn": "packages/dsh/spec/agent-return.schema.json",
+    "bindingCompatibility": "New root and delegated bindings are version 2. Missing version is legacy v1: completed records with a full validated completion remain readable, while incomplete or outputRevision-only delegated records are preserved and refused for cold resume."
   }
 }

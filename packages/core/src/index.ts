@@ -23,6 +23,7 @@ export { ProjectionCompiler, createBlockRef } from './projection.ts'
 export type {
   BlockEnvelope,
   BindSurfaceSessionOptions,
+  ArchiveUnboundSurfacesResult,
   BlockId as BlockIdType,
   BlockRef,
   CheckoutResult,
@@ -43,6 +44,7 @@ export type {
   SurfaceId as SurfaceIdType,
   SurfaceSnapshot,
   SurfaceSessionBinding,
+  SurfaceSessionCompletion,
   SurfaceSessionInput,
   SurfaceSessionRole,
   WorkSurfaceDependencyEdge,

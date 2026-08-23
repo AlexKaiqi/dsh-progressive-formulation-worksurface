@@ -170,7 +170,7 @@ function parseRequest(line: string): WorkSurfaceRpcRequest {
     || request.params === null || typeof request.params !== 'object' || Array.isArray(request.params)) {
     throw new WorkSurfaceError('invalid-working-copy', 'Host request has an invalid envelope')
   }
-  if (!['agent.run', 'checkout', 'commit', 'new', 'projection', 'show'].includes(request.method)) {
+  if (!['agent.run', 'checkout', 'commit', 'projection', 'show'].includes(request.method)) {
     throw new WorkSurfaceError('invalid-working-copy', `Unknown Host method '${request.method}'`)
   }
   return {

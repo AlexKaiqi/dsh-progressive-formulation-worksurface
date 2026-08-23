@@ -29,9 +29,9 @@ Plugin activation 会等待 canonical store、session template 和已认证 Host
 
 Host 对每个 NDJSON 请求进行授权。Orchestrator 只能访问其 attempt 创建或纳入的 Surface。Child credential 更窄：它只能查看被分配的 Surface，并且只能 commit 精确分配给它的 checkout。Service 还会阻止其他 model tool 接收 canonical root path。
 
-`ws agent run` 由委派创建工作单元：可选的 `--from <template>` 在 Surface 尚不存在时物化它，随后 Host 编译 revision-pinned Projection、启动 in-process Subagent provider，并要求 child 返回 `{ surface, surfaceRevision, summary, outputs }`。只有在被分配 Surface 已产生新 commit，且每个 output 都指向该精确当前 revision 中存在的 Block 时，完成结果才会被接受。Final prose 绝不会作为结果 fallback。
+`ws agent run` 采用 file-first：可选的 `--from <template>` 会在 child 启动前先物化 Surface，因此启动阶段崩溃仍会留下持久恢复地址。随后 Host 编译 revision-pinned Projection，并创建唯一的 continuable Agent Session；每次重试和冷恢复都复用 write-once Surface/Session binding。每个 Activation 会在 prompt assembly 前从 binding 重建一次性 checkout 和新的最小权限 token。Child 必须只返回一个 JSON 对象 `{ surface, surfaceRevision, summary, outputs }`；只有新 commit 与所有精确 revision output 均验证通过才接受完成。
 
-每个物理平级的 Surface 从创建起就拥有一条 append-only Work Session，并且只在它的 Session 存在时存在。每个 child 的 write-once 委派记录则指明执行它的 Agent Session、精确输入 pin 与已提交输出；从 root 递归跟随委派记录得到 WorkGraph。顶层 Agent Session 就是 root Surface，delegated Agent Session 就是它的 child Surface；任一身份最多参与一次委派。Child 实际读取的 Projection revision 保存在它的委派记录中，用于构建可审计的信息依赖图。Orchestrator program 按内容寻址保存在 `canonical/orchestrator/definitions/<sha256>`；run 生命周期事实留在调用方 Surface Session，attempt workspace 仍只是 runtime state。Web profile 可另外安装 `@pf-worksurface/web` 来显示该图与各节点的关联对话。
+每个物理平级的 Surface 从文件创建起就拥有 append-only Work Session。刚物化但尚未绑定的 child Surface 是 provisional recovery anchor，暂不属于 WorkGraph；child 启动成功后才写入唯一的 Agent Session binding。新 binding 使用 v2 契约：delegated 记录必须声明 continuable execution、精确 task/input pin，并最终保存完整的已提交 completion。缺少版本的 v1 记录仍可读取，但不完整或只有 outputRevision 的旧委派会原样保留并拒绝冷恢复，不猜测、不替换。从 root 递归跟随已绑定记录得到 WorkGraph。顶层 Agent Session 对应 root Surface，delegated Agent Session 对应 child Surface，任一身份最多绑定一次。Attempt-local `result.json` 只是审计缓存，重启恢复以 canonical `binding.json` 中的 completion 为准；continuation 不可用时明确失败，不降级为 one-shot。超过 `unboundSurfaceRetentionMs` 的未绑定叶子 Surface 会完整移入 `canonical/orphans`，退出活跃命名空间但不删除 canonical revision。
 
 每个外部 effect 都按 attempt 与 key 记入 journal。Attempt identity 同时包含不可变 control-script hash 与公开 workspace 的确定性 hash，因此同一脚本配不同 b2f 输入时不会错误 replay。不可变 commit 已落盘后的 crash 会通过幂等完成对应 Work Session 发布来恢复；由 signal 终止的 Orchestrator 最多按 `maxCrashReplays` 重放；service 会等待进行中的 child operation 达到静止状态，之后才释放 attempt authority。
 
@@ -39,7 +39,7 @@ Host 对每个 NDJSON 请求进行授权。Orchestrator 只能访问其 attempt 
 
 `root` 是必填项，必须是 operating-system temporary root 之外的持久路径。`profiles` 是非空列表；每个 profile 指定 `name`、Subagent `provider`、Projection `tokenBudget`、`maxDepth`、`maxParallel`，以及可选的 `toolAllow`、`persona`、`agentProvider` 和 `agentModel`。
 
-`attemptsRoot` 默认位于 `root/runtime/orchestrator/runs`。`socketPath` 默认位于 `root/run/host.sock`，与 canonical、journal 和 attempts 统一在同一个数据根目录下；仅当 `root` 过长导致 socket path 超过可移植 Unix 限制时才回退到 `~/.pf-worksurface/run` 下的 hash 命名 socket。`cliEntrypoint` 从已安装 CLI package 解析。`orchestratorGraceMs` 默认为 5000，`maxOutputBytes` 默认为 1 MiB，`maxCrashReplays` 默认为 1，`attemptRetention` 默认为 10。Attempt 目录名会带创建时间。每个 attempt 都包含私有 control/runtime 区和模型可写 `workspace/`；pending workspace 在被认领前不会被 GC。超过保留数量的旧 attempt 会把 `runtime/result.json` 与 `control/` 归档到 `runtime/orchestrator/attempt-results/` 后删除。显式 socket 必须位于 `attemptsRoot` 外，并满足可移植的 Unix path limit。
+`attemptsRoot` 默认位于 `root/runtime/orchestrator/runs`。`socketPath` 默认位于 `root/run/host.sock`，与 canonical、journal 和 attempts 统一在同一个数据根目录下；仅当 `root` 过长导致 socket path 超过可移植 Unix 限制时才回退到 `~/.pf-worksurface/run` 下的 hash 命名 socket。`cliEntrypoint` 从已安装 CLI package 解析。`orchestratorGraceMs` 默认为 5000，`maxOutputBytes` 默认为 1 MiB，`maxCrashReplays` 默认为 1，`attemptRetention` 默认为 10，`unboundSurfaceRetentionMs` 默认为七天。Attempt 目录名会带创建时间。每个 attempt 都包含私有 control/runtime 区和模型可写 `workspace/`；pending workspace 在被认领前不会被 GC。超过保留数量的旧 attempt 会把 `runtime/result.json` 与 `control/` 归档到 `runtime/orchestrator/attempt-results/` 后删除。过期未绑定叶子只在静止生命周期边界完整归档。显式 socket 必须位于 `attemptsRoot` 外，并满足可移植的 Unix path limit。
 
 Package default export 是 `WorkSurfaceService`；挂载后的 service 可通过 `ctx.workSurfaces` 使用。只读观测 lifecycle event 包括 `worksurface/attempt-start`、`worksurface/attempt-end`、`worksurface/agent-start` 和 `worksurface/agent-end`。
 
@@ -65,7 +65,7 @@ Parent 会得到 b2f file-block 指令、静态 PF WorkSurface guidance、一个
 
 #### 模型看到什么
 
-每个 fresh child 会看到可选的 profile persona、被分配的 Surface id、编译后的 `Projection`、精确 base revision、必需的 `ws commit` 流程，以及结构化完成契约。它的精确 checkout 同时也是 b2f root，因此 file block 只能写 `surface.md` 与 `blocks/<block-id>.md`。
+每个 child Session 会看到可选的 profile persona、被分配的 Surface id、初始 `Projection`、精确 base revision、必需的 `ws commit` 流程，以及 JSON completion 契约。每个 fresh 或 cold-resumed Activation 还会得到权威的当前 Projection 和重建 checkout；该 checkout 同时是 b2f root，因此 file block 只能写 `surface.md` 与 `blocks/<block-id>.md`。
 
 #### Token 影响
 
@@ -85,6 +85,6 @@ npm run eval:check
 
 ## 已知限制与延期工作
 
-- **仅支持 in-process child provider** — least-authority shell environment binding 依赖本地 child Agent identity；remote Subagent provider 会被拒绝。
+- **Child execution 必须 continuable** — 重启恢复要求 Agent continuation service 与具备 `prepareContinuable` 的 provider。缺少 continuation 能力的组合会在 binding 前明确失败，绝不创建 one-shot child。
 - **macOS sandbox 证明具有平台特定性** — 已提供的 integration gate 在 macOS 上执行真实 Seatbelt profile；等价的 Landlock 和 Windows ACL integration coverage 仍延期。
 - **没有 distributed Host** — 已认证 transport 是私有 local socket，canonical publication 假设一个共享文件系统。

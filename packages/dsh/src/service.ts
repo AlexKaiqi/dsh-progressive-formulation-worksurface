@@ -28,6 +28,7 @@ import { runAttemptGc } from './attempt-gc.ts'
 import { attemptPath, authorizeRequest, childBinding, requireOrchestrator, requireSurface } from './authority.ts'
 import { installB2FRootResolver, type B2FPublicationReceipt, type B2FPublicationRequest, type B2FRootScope } from './b2f.ts'
 import { installHarnessCapabilities } from './capabilities.ts'
+import { ContinuableDelegationRuntime } from './continuable-delegation.ts'
 import { assertOutsideImplicitTemporaryRoots, assertSocketPath, CONFIG_SCHEMA, resolveConfig, validateProfiles } from './config.ts'
 import type { Config } from './config.ts'
 import { SESSION_ROOT_TEMPLATE } from './model/session-root-template.ts'
@@ -88,6 +89,7 @@ export class WorkSurfaceService extends Service {
   private readonly attempts = new Map<string, AttemptAuthority>()
   private readonly agentJournal: EffectJournal
   private readonly host: WorkSurfaceHost
+  private readonly delegations: ContinuableDelegationRuntime
   private readonly sessionTemplatePath: string
   private readonly initialization: Promise<void>
   private readonly sessionSurfaceInitializations = new WeakMap<Agent, Promise<SurfaceIdType>>()
@@ -109,6 +111,12 @@ export class WorkSurfaceService extends Service {
     this.projections = new ProjectionCompiler(this.store)
     this.agentJournal = new EffectJournal(join(this.store.runtimeRoot, 'orchestrator', 'agent-effects'))
     this.host = new WorkSurfaceHost(this.config.socketPath, this)
+    this.delegations = new ContinuableDelegationRuntime(
+      ctx,
+      this.store,
+      this.projections,
+      name => this.profile(name),
+    )
     this.sessionTemplatePath = join(this.store.runtimeRoot, 'templates', 'session-root')
     validateProfiles(this.config.profiles)
     assertOutsideImplicitTemporaryRoots(this.config.root, 'WorkSurface root')
@@ -134,7 +142,7 @@ export class WorkSurfaceService extends Service {
     const lifecycle = ctx.effect(async () => {
       await this.store.init()
       await mkdir(this.config.attemptsRoot, { recursive: true, mode: 0o700 })
-      await this.gcAttempts()
+      await this.gcRuntime()
       await this.prepareSessionTemplate()
       await this.host.start()
       return () => this.host.close()
@@ -159,7 +167,7 @@ export class WorkSurfaceService extends Service {
       defaultProfile: () => this.defaultProfile(),
       runOrchestrator: (parent, language, script, rootSurfaceInput, signal, control) =>
         this.runOrchestrator(parent, language, script, rootSurfaceInput, signal, control),
-      childBinding: (agentId) => childBinding(this.attempts, agentId),
+      childBinding: (agentId) => childBinding(this.attempts, agentId) ?? this.delegations.childBinding(agentId),
       parentWorkspace: (agentId) => this.parentWorkspace(agentId),
     })
   }
@@ -268,7 +276,7 @@ export class WorkSurfaceService extends Service {
    */
   async dispatch(request: WorkSurfaceRpcRequest, signal: AbortSignal): Promise<unknown> {
     if (signal.aborted) throw new WorkSurfaceError('cancelled', 'Host request was cancelled')
-    const authority = authorizeRequest(this.attempts, request)
+    const authority = authorizeRequest(this.attempts, request, this.delegations.activeAuthorities)
     if (authority.child !== undefined) await authority.child.ready
     const params = request.params
     switch (request.method) {
@@ -326,18 +334,22 @@ export class WorkSurfaceService extends Service {
         requireOrchestrator(authority)
         const surface = SurfaceId(stringParam(params, 'surface'))
         const templatePath = optionalString(params, 'templatePath')
-        // A delegated work unit is created by its delegation: an unadmitted
-        // Surface is admitted only when a template is supplied to create it.
-        if (authority.attempt.surfaces.has(surface) === false && templatePath === undefined) {
-          throw new WorkSurfaceError('unauthorized', `attempt cannot access Surface '${surface}'`)
-        }
+        // runAgent performs canonical admission. A reconstructed attempt may
+        // safely re-admit its already-bound child only after checking the exact
+        // root and parent Session identities; arbitrary existing Surfaces stay denied.
         const operation = runAgent({
           ctx: this.ctx,
           store: this.store,
           projections: this.projections,
           agentJournal: this.agentJournal,
           profile: (name) => this.profile(name),
-          requireHarness: () => this.requireHarness(),
+          startContinuable: (profile, parent, surface, task, persona, childSignal) =>
+            this.delegations.start(profile, parent, surface, task, persona, childSignal),
+          resumeContinuable: (parent, binding, task, childSignal) =>
+            this.delegations.resume(parent, binding, task, childSignal),
+          bindingCommitted: sessionId => this.delegations.bindingCommitted(sessionId),
+          bindingFailed: (sessionId, error) => this.delegations.bindingFailed(sessionId, error),
+          waitForCompletion: (sessionId, childSignal) => this.delegations.waitForCompletion(sessionId, childSignal),
         }, authority.attempt, {
           surface,
           task: stringParam(params, 'task'),
@@ -564,7 +576,7 @@ export class WorkSurfaceService extends Service {
     } finally {
       await Promise.allSettled([...authority.operations])
       this.attempts.delete(attemptId)
-      await this.gcAttempts().catch(() => undefined)
+      await this.gcRuntime().catch(() => undefined)
     }
   }
 
@@ -684,7 +696,7 @@ export class WorkSurfaceService extends Service {
     agent: Agent,
     paths?: readonly string[],
   ): B2FRootScope | undefined | Promise<B2FRootScope> {
-    const child = childBinding(this.attempts, String(agent.id))
+    const child = childBinding(this.attempts, String(agent.id)) ?? this.delegations.childBinding(String(agent.id))
     if (child !== undefined) {
       return {
         root: child.credential.workingPath,
@@ -763,6 +775,18 @@ export class WorkSurfaceService extends Service {
         ...[...this.pendingWorkspaces.values()].map(workspace => resolve(workspace.root)),
       ]),
       runtimeRoot: join(this.store.runtimeRoot, 'orchestrator'),
+    })
+  }
+
+  private async gcRuntime(): Promise<void> {
+    await this.gcAttempts()
+    const protectedSurfaces = new Set<string>([
+      ...[...this.attempts.values()].flatMap(attempt => [...attempt.surfaces]),
+      ...[...this.pendingWorkspaces.values()].map(workspace => workspace.rootSurface),
+    ])
+    await this.store.archiveUnboundSurfaces({
+      olderThan: new Date(Date.now() - this.config.unboundSurfaceRetentionMs).toISOString(),
+      protectedSurfaces,
     })
   }
 }

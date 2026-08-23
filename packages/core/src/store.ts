@@ -18,6 +18,7 @@ import {
 } from './markdown.ts'
 import type {
   BindSurfaceSessionOptions,
+  ArchiveUnboundSurfacesResult,
   BlockId as BlockIdType,
   BlockRef,
   CheckoutResult,
@@ -30,6 +31,7 @@ import type {
   SurfaceId as SurfaceIdType,
   SurfaceSnapshot,
   SurfaceSessionBinding,
+  SurfaceSessionCompletion,
   SurfaceSessionInput,
   WorkSurfaceDependencyEdge,
   WorkSurfaceGraphNode,
@@ -433,10 +435,6 @@ export class WorkSurfaceStore {
   }
 
   /**
-   * Durably bind one independent Surface to exactly one Agent Session.
-   * Repeating the same complete binding is idempotent; either identity being reused is rejected.
-   */
-  /**
    * Durably record one write-once delegation between an independent Surface and
    * exactly one Agent Session. Repeating the same complete binding is idempotent;
    * either identity being reused is rejected.
@@ -457,14 +455,28 @@ export class WorkSurfaceStore {
     if (options.role === 'delegated' && parentSessionId === undefined) {
       throw new WorkSurfaceError('invalid-working-copy', 'delegated Session binding requires parentSessionId')
     }
+    if (options.execution !== undefined && options.execution !== 'continuable') {
+      throw new WorkSurfaceError('invalid-working-copy', 'new child bindings must use continuable execution')
+    }
+    if (options.role === 'root' && options.execution !== undefined) {
+      throw new WorkSurfaceError('invalid-working-copy', 'root Session binding cannot declare child execution mode')
+    }
+    if (options.role === 'delegated' && (options.execution !== 'continuable'
+      || options.input === undefined
+      || typeof options.input.task !== 'string'
+      || options.input.task.trim() === '')) {
+      throw new WorkSurfaceError('invalid-working-copy', 'delegated v2 Session binding requires continuable execution and an exact non-blank task')
+    }
     if (options.input !== undefined) await this.validateSessionInput(surface, options.input)
 
-    const candidate: Omit<SurfaceSessionBinding, 'createdAt' | 'updatedAt' | 'outputRevision'> = {
+    const candidate: Omit<SurfaceSessionBinding, 'createdAt' | 'updatedAt' | 'completion' | 'outputRevision'> = {
+      version: 2,
       surface,
       sessionId,
       role: options.role,
       rootSurface,
       ...(parentSessionId === undefined ? {} : { parentSessionId }),
+      ...(options.execution === undefined ? {} : { execution: options.execution }),
       ...(options.input === undefined ? {} : { input: options.input }),
     }
     const lock = join(this.runtimeRoot, 'locks', 'session-bindings.lock')
@@ -472,7 +484,14 @@ export class WorkSurfaceStore {
     return withRecoverableLock(lock, async () => {
       const existingForSurface = await this.readBindingRecord(surface)
       if (existingForSurface !== undefined) {
-        if (sameBindingIdentity(existingForSurface, candidate)) return existingForSurface
+        if (sameBindingIdentity(existingForSurface, candidate)) {
+          if (existingForSurface.version === 1 && existingForSurface.role === 'root') {
+            const upgraded: SurfaceSessionBinding = { ...existingForSurface, version: 2, updatedAt: new Date().toISOString() }
+            await writeJsonAtomic(this.bindingPath(surface), upgraded)
+            return upgraded
+          }
+          return existingForSurface
+        }
         throw new WorkSurfaceError('session-binding-conflict', `Surface '${surface}' is already bound to Session '${existingForSurface.sessionId}'`, {
           surface,
           existingSessionId: existingForSurface.sessionId,
@@ -494,29 +513,53 @@ export class WorkSurfaceStore {
     })
   }
 
-  /** Record the final committed revision on an existing delegation record. */
-  async completeSessionBinding(surfaceInput: string, sessionIdInput: string, outputRevision: Revision): Promise<SurfaceSessionBinding> {
+  /** Atomically record the validated, revision-pinned result on an existing delegation record. */
+  async completeSessionBinding(
+    surfaceInput: string,
+    sessionIdInput: string,
+    completionInput: SurfaceSessionCompletion,
+  ): Promise<SurfaceSessionBinding> {
     const surface = SurfaceId(surfaceInput)
     const sessionId = requireSessionId(sessionIdInput, 'sessionId')
-    assertRevision(outputRevision)
-    await this.readSnapshot(surface, outputRevision)
-    const lock = join(this.runtimeRoot, 'locks', 'session-bindings.lock')
+    const completion = validateSessionCompletion(surface, completionInput)
+    await this.readSnapshot(surface, completion.surfaceRevision)
+    await this.validateOutputRefs(completion.outputs)
+    const bindingLock = join(this.runtimeRoot, 'locks', 'session-bindings.lock')
     await mkdir(join(this.runtimeRoot, 'locks'), { recursive: true, mode: 0o700 })
-    return withRecoverableLock(lock, async () => {
-      const existing = await this.readBindingRecord(surface)
-      if (existing === undefined || existing.sessionId !== sessionId) {
-        throw new WorkSurfaceError('session-binding-conflict', `Surface '${surface}' is not bound to Session '${sessionId}'`, { surface, sessionId })
-      }
-      if (existing.outputRevision === outputRevision) return existing
-      if (existing.outputRevision !== undefined) {
-        throw new WorkSurfaceError('session-binding-conflict', `Session '${sessionId}' already completed at another revision`, {
-          existingRevision: existing.outputRevision,
-          requestedRevision: outputRevision,
+    return withRecoverableLock(this.paths(surface).lock, async () => {
+      const current = await this.readHeadUnlocked(surface)
+      if (current.revision !== completion.surfaceRevision) {
+        throw new WorkSurfaceError('revision-conflict', 'delegation completion is not pinned to the current Surface revision', {
+          completionRevision: completion.surfaceRevision,
+          currentRevision: current.revision,
         })
       }
-      const completed: SurfaceSessionBinding = { ...existing, outputRevision, updatedAt: new Date().toISOString() }
-      await writeJsonAtomic(this.bindingPath(surface), completed)
-      return completed
+      return withRecoverableLock(bindingLock, async () => {
+        const existing = await this.readBindingRecord(surface)
+        if (existing === undefined || existing.sessionId !== sessionId) {
+          throw new WorkSurfaceError('session-binding-conflict', `Surface '${surface}' is not bound to Session '${sessionId}'`, { surface, sessionId })
+        }
+        if (existing.version !== 2 || existing.role !== 'delegated' || existing.execution !== 'continuable') {
+          throw new WorkSurfaceError('session-binding-conflict',
+            `legacy Session binding '${sessionId}' cannot accept a v2 canonical completion; preserve it and re-delegate explicitly`,
+            { surface, sessionId, bindingVersion: existing.version })
+        }
+        if (existing.completion !== undefined && stableStringify(existing.completion) === stableStringify(completion)) return existing
+        if (existing.outputRevision !== undefined || existing.completion !== undefined) {
+          throw new WorkSurfaceError('session-binding-conflict', `Session '${sessionId}' already completed at another revision`, {
+            existingRevision: existing.outputRevision,
+            requestedRevision: completion.surfaceRevision,
+          })
+        }
+        const completed: SurfaceSessionBinding = {
+          ...existing,
+          completion,
+          outputRevision: completion.surfaceRevision,
+          updatedAt: new Date().toISOString(),
+        }
+        await writeJsonAtomic(this.bindingPath(surface), completed)
+        return completed
+      })
     })
   }
 
@@ -555,6 +598,109 @@ export class WorkSurfaceStore {
     return bindings.sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.surface.localeCompare(right.surface))
   }
 
+  /**
+   * Move expired, unbound leaf Surfaces out of the active namespace without
+   * deleting canonical revisions. Callers must run this only at a quiescent
+   * lifecycle boundary (service startup or after an attempt leaves the registry).
+   */
+  async archiveUnboundSurfaces(options: {
+    readonly olderThan: string
+    readonly protectedSurfaces?: ReadonlySet<string>
+  }): Promise<ArchiveUnboundSurfacesResult> {
+    await this.init()
+    const cutoffMs = Date.parse(options.olderThan)
+    if (!Number.isFinite(cutoffMs)) throw new TypeError('olderThan must be an ISO timestamp')
+    const protectedSurfaces = new Set(
+      [...(options.protectedSurfaces ?? [])].map(surface => SurfaceId(surface)),
+    )
+    const surfacesRoot = join(this.canonicalRoot, 'surfaces')
+    const entries: Array<{
+      surface: SurfaceIdType
+      createdAt: string
+      parent: SurfaceIdType | null
+      bound: boolean
+    }> = []
+    for (const name of await readdir(surfacesRoot)) {
+      let surface: SurfaceIdType
+      try {
+        surface = SurfaceId(name)
+      } catch {
+        continue
+      }
+      const session = await this.sessions.read(surface)
+      entries.push({
+        surface,
+        createdAt: session.header.createdAt,
+        parent: session.header.parentSurfaceId,
+        bound: await this.readBindingRecord(surface) !== undefined,
+      })
+    }
+
+    const structuralParents = new Set(entries.flatMap(entry => entry.parent === null ? [] : [entry.parent]))
+    const referenced = new Set<SurfaceIdType>()
+    for (const entry of entries) {
+      const snapshot = await this.readSnapshot(entry.surface)
+      for (const document of [snapshot.surfaceDocument, ...snapshot.blocks.values()]) {
+        for (const ref of parseBlockReferences(document)) {
+          if (ref.surface !== entry.surface) referenced.add(ref.surface)
+        }
+      }
+    }
+
+    const archived: SurfaceIdType[] = []
+    const retained: SurfaceIdType[] = []
+    const bindingLock = join(this.runtimeRoot, 'locks', 'session-bindings.lock')
+    await mkdir(join(this.runtimeRoot, 'locks'), { recursive: true, mode: 0o700 })
+    await mkdir(join(this.canonicalRoot, 'orphans'), { recursive: true, mode: 0o700 })
+    for (const entry of entries) {
+      const createdAtMs = Date.parse(entry.createdAt)
+      const eligible = Number.isFinite(createdAtMs)
+        && createdAtMs <= cutoffMs
+        && entry.parent !== null
+        && !entry.bound
+        && !protectedSurfaces.has(entry.surface)
+        && !structuralParents.has(entry.surface)
+        && !referenced.has(entry.surface)
+      if (!eligible) {
+        retained.push(entry.surface)
+        continue
+      }
+      const paths = this.paths(entry.surface)
+      const archiveRoot = join(this.canonicalRoot, 'orphans', `${entry.surface}-${sha256(entry.createdAt).slice(0, 16)}`)
+      let moved = false
+      await withRecoverableLock(paths.lock, async () => {
+        await withRecoverableLock(bindingLock, async () => {
+          if (await this.readBindingRecord(entry.surface) !== undefined) return
+          const current = await this.sessions.read(entry.surface)
+          if (current.header.parentSurfaceId === null || Date.parse(current.header.createdAt) > cutoffMs) return
+          await writeJsonAtomic(join(paths.surfaceRoot, 'ORPHAN.json'), {
+            version: 1,
+            surface: entry.surface,
+            parentSurface: current.header.parentSurfaceId,
+            createdAt: current.header.createdAt,
+            archivedAt: new Date().toISOString(),
+            reason: 'expired-unbound-provisional-surface',
+          })
+          try {
+            await rename(paths.surfaceRoot, archiveRoot)
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+              throw new WorkSurfaceError('canonical-corrupt', `orphan archive already exists for Surface '${entry.surface}'`)
+            }
+            throw error
+          }
+          // The acquired lock file moved with the directory. The lock helper's
+          // final cleanup targets the old path, so remove the archived copy now.
+          await rm(join(archiveRoot, 'HEAD.lock'), { force: true })
+          moved = true
+        })
+      })
+      if (moved) archived.push(entry.surface)
+      else retained.push(entry.surface)
+    }
+    return { cutoff: new Date(cutoffMs).toISOString(), archived, retained }
+  }
+
   /** Read and validate the write-once delegation record owned by one Surface. */
   private async readBindingRecord(surface: SurfaceIdType): Promise<SurfaceSessionBinding | undefined> {
     const record = await readJsonOptional<Record<string, unknown>>(this.bindingPath(surface))
@@ -564,6 +710,10 @@ export class WorkSurfaceStore {
       || typeof record.createdAt !== 'string' || record.createdAt === ''
       || typeof record.updatedAt !== 'string' || record.updatedAt === '') {
       throw new WorkSurfaceError('canonical-corrupt', `Surface '${surface}' has an invalid delegation record`)
+    }
+    const version = record.version === undefined ? 1 : Number(record.version)
+    if (version !== 1 && version !== 2) {
+      throw new WorkSurfaceError('canonical-corrupt', `Surface '${surface}' has an unsupported delegation record version`)
     }
     const sessionId = requireSessionId(String(record.sessionId), 'sessionId')
     const rootSurface = SurfaceId(String(record.rootSurface))
@@ -576,15 +726,49 @@ export class WorkSurfaceStore {
       || !Array.isArray(input.omittedBlockRevisions) || typeof input.surfaceRevision !== 'string')) {
       throw new WorkSurfaceError('canonical-corrupt', `Surface '${surface}' has an invalid delegation input`)
     }
+    const execution = record.execution
+    if (execution !== undefined && execution !== 'continuable' && execution !== 'one-shot') {
+      throw new WorkSurfaceError('canonical-corrupt', `Surface '${surface}' has an invalid child execution mode`)
+    }
     const outputRevision = record.outputRevision as Revision | undefined
     if (record.outputRevision !== undefined) assertRevision(String(record.outputRevision))
+    let completion: SurfaceSessionCompletion | undefined
+    try {
+      completion = record.completion === undefined
+        ? undefined
+        : validateSessionCompletion(surface, record.completion as SurfaceSessionCompletion)
+    } catch (error) {
+      throw new WorkSurfaceError('canonical-corrupt', `Surface '${surface}' has an invalid delegation completion`, {
+        cause: error instanceof Error ? error.message : String(error),
+      })
+    }
+    if (completion !== undefined && outputRevision !== completion.surfaceRevision) {
+      throw new WorkSurfaceError('canonical-corrupt', `Surface '${surface}' has a delegation completion/revision mismatch`)
+    }
+    if (version === 2) {
+      if (record.role === 'root' && (execution !== undefined || input !== undefined || completion !== undefined || outputRevision !== undefined)) {
+        throw new WorkSurfaceError('canonical-corrupt', `root Surface '${surface}' has delegated-only v2 binding fields`)
+      }
+      if (record.role === 'delegated' && (execution !== 'continuable'
+        || input === undefined
+        || typeof input.task !== 'string'
+        || input.task.trim() === '')) {
+        throw new WorkSurfaceError('canonical-corrupt', `delegated Surface '${surface}' has an incomplete v2 recovery contract`)
+      }
+      if ((completion === undefined) !== (outputRevision === undefined)) {
+        throw new WorkSurfaceError('canonical-corrupt', `Surface '${surface}' has a partial v2 completion`)
+      }
+    }
     return {
+      version,
       surface,
       sessionId,
       role: record.role,
       rootSurface,
       ...(parentSessionId === undefined ? {} : { parentSessionId }),
+      ...(execution === undefined ? {} : { execution }),
       ...(input === undefined ? {} : { input }),
+      ...(completion === undefined ? {} : { completion }),
       ...(outputRevision === undefined ? {} : { outputRevision }),
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
@@ -728,6 +912,12 @@ export class WorkSurfaceStore {
   }
 
   private async validateSessionInput(surface: SurfaceIdType, input: SurfaceSessionInput): Promise<void> {
+    if (typeof input !== 'object' || input === null
+      || typeof input.profile !== 'string'
+      || !Array.isArray(input.blockRevisions)
+      || !Array.isArray(input.omittedBlockRevisions)) {
+      throw new WorkSurfaceError('invalid-working-copy', 'Session input must contain revision, profile, and revision-pin arrays')
+    }
     if (input.profile.trim() === '') throw new WorkSurfaceError('unsupported-profile', 'Session input profile must not be blank')
     await this.readSnapshot(surface, input.surfaceRevision)
     await this.validateOutputRefs(input.blockRevisions)
@@ -878,7 +1068,7 @@ function blockRefKey(ref: BlockRef): string {
 
 function sameBindingIdentity(
   existing: SurfaceSessionBinding,
-  candidate: Omit<SurfaceSessionBinding, 'createdAt' | 'updatedAt' | 'outputRevision'>,
+  candidate: Omit<SurfaceSessionBinding, 'createdAt' | 'updatedAt' | 'completion' | 'outputRevision'>,
 ): boolean {
   return stableStringify({
     surface: existing.surface,
@@ -886,8 +1076,51 @@ function sameBindingIdentity(
     role: existing.role,
     rootSurface: existing.rootSurface,
     parentSessionId: existing.parentSessionId,
+    execution: existing.execution,
     input: existing.input,
-  }) === stableStringify(candidate)
+  }) === stableStringify({
+    surface: candidate.surface,
+    sessionId: candidate.sessionId,
+    role: candidate.role,
+    rootSurface: candidate.rootSurface,
+    parentSessionId: candidate.parentSessionId,
+    execution: candidate.execution,
+    input: candidate.input,
+  })
+}
+
+function validateSessionCompletion(
+  surface: SurfaceIdType,
+  input: SurfaceSessionCompletion,
+): SurfaceSessionCompletion {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    throw new WorkSurfaceError('invalid-working-copy', 'delegation completion must be an object')
+  }
+  const completionSurface = SurfaceId(String(input.surface))
+  if (completionSurface !== surface) {
+    throw new WorkSurfaceError('invalid-reference', `delegation completion belongs to Surface '${completionSurface}', not '${surface}'`)
+  }
+  const surfaceRevision = String(input.surfaceRevision) as Revision
+  assertRevision(surfaceRevision)
+  if (typeof input.summary !== 'string' || input.summary.trim() === '') {
+    throw new WorkSurfaceError('invalid-working-copy', 'delegation completion summary must be non-blank')
+  }
+  if (!Array.isArray(input.outputs) || input.outputs.length === 0) {
+    throw new WorkSurfaceError('invalid-reference', 'delegation completion requires at least one output')
+  }
+  const outputs = input.outputs.map((output) => {
+    if (typeof output !== 'object' || output === null || Array.isArray(output)) {
+      throw new WorkSurfaceError('invalid-reference', 'delegation completion output must be an object')
+    }
+    const outputSurface = SurfaceId(String(output.surface))
+    if (outputSurface !== surface) {
+      throw new WorkSurfaceError('invalid-reference', `delegation output belongs to Surface '${outputSurface}', not '${surface}'`)
+    }
+    const revision = String(output.revision) as Revision
+    assertRevision(revision)
+    return { surface: outputSurface, block: BlockId(String(output.block)), revision }
+  })
+  return { surface, surfaceRevision, summary: input.summary, outputs }
 }
 
 function instantiateTemplate(template: MutableSnapshot, surface: SurfaceIdType, parent: SurfaceIdType | null): MutableSnapshot {

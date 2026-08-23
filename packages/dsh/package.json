@@ -74,6 +74,7 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-agent": "^0.1.0-rc.6",
+    "dsh-block-to-file": "link:../../../dsh-block-to-file",
     "@deepseek-ai/dsh-invariants": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-sandbox": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-shell-env": "^0.1.0-rc.6",

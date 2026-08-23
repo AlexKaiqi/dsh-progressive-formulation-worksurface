@@ -17,6 +17,8 @@ Global options:
 
 Effect commands require a stable idempotency key. Inside an Orchestrator,
 the CLI reaches the Host through WS_HOST_SOCKET and never opens canonical state.
+Agent retries reuse the Surface's bound continuable Session; local result files
+are outputs for the calling script, not the recovery source of truth.
 `
 
 export const INIT_HELP = `PF WorkSurface initialization

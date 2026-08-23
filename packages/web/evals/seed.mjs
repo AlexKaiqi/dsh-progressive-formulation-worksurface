@@ -33,18 +33,28 @@ await store.bindSession({
   role: 'root',
   rootSurface: 'ws-eval-root',
 })
+const sourceProjection = await new ProjectionCompiler(store).compile({ surface: 'ws-eval-source', profile: 'research', tokenBudget: 10_000 })
 await store.bindSession({
   surface: 'ws-eval-source',
   sessionId: args['source-session'],
   role: 'delegated',
+  execution: 'continuable',
   rootSurface: 'ws-eval-root',
   parentSessionId: args['root-session'],
+  input: {
+    surfaceRevision: sourceProjection.surfaceRevision,
+    blockRevisions: sourceProjection.blockRevisions,
+    omittedBlockRevisions: [],
+    profile: sourceProjection.profile,
+    task: 'produce the evaluation source evidence',
+  },
 })
 const projection = await new ProjectionCompiler(store).compile({ surface: 'ws-eval-target', profile: 'research', tokenBudget: 10_000 })
 await store.bindSession({
   surface: 'ws-eval-target',
   sessionId: args['target-session'],
   role: 'delegated',
+  execution: 'continuable',
   rootSurface: 'ws-eval-root',
   parentSessionId: args['root-session'],
   input: {
@@ -52,9 +62,15 @@ await store.bindSession({
     blockRevisions: projection.blockRevisions,
     omittedBlockRevisions: [],
     profile: projection.profile,
+    task: 'produce the evaluation target result',
   },
 })
-await store.completeSessionBinding('ws-eval-target', args['target-session'], projection.surfaceRevision)
+await store.completeSessionBinding('ws-eval-target', args['target-session'], {
+  surface: 'ws-eval-target',
+  surfaceRevision: projection.surfaceRevision,
+  summary: 'evaluation target complete',
+  outputs: [{ surface: 'ws-eval-target', block: 'result', revision: projection.surfaceRevision }],
+})
 
 const graph = await store.graphSnapshot('ws-eval-root')
 console.log(JSON.stringify({
