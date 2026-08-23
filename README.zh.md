@@ -11,7 +11,7 @@
 - [`@pf-worksurface/dsh`](packages/dsh) 是可安装的 DeepSeek Harness 插件与 profile 组合包。
 - [`@pf-worksurface/web`](packages/web) 在 Web profile 中提供“对话 / 工作面图”切换、Surface DAG 与关联 Session 对话。
 
-`/dsh` bundle 会组合 `@deepseek-ai/dsh-block-to-file` 作为模型可见的文件物化层；`/core` 仍独立于 Harness runtime。
+`/dsh` bundle 会组合 `dsh-block-to-file` 作为模型可见的文件物化层；`/core` 仍独立于 Harness runtime。
 
 数据边界是：每个物理平级的 Surface 都拥有且仅拥有一条 append-only Work Session。Surface 只在对应 Session 存在时存在：委派创建工作单元，从 root 递归跟随委派记录得到 WorkGraph。Agent Session 通过唯一的 write-once 委派记录执行 Surface。Surface 内的 Block 是概念、证据或决策；只有需要独立 Agent、验收、版本或生命周期的 Block 才提升为 Child Surface。信息依赖来自实际 Projection 中 revision-pinned 的 BlockRef，不从时间戳或文件目录嵌套推断。完整的目录与事实源决策见 [`docs/work-session-storage.zh.md`](docs/work-session-storage.zh.md)。
 

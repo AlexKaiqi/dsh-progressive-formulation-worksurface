@@ -48,7 +48,7 @@ export interface B2FServiceContract {
 /** Resolve the injected b2f service without coupling core packages to the runtime plugin. */
 export function requireB2F(ctx: Context): B2FServiceContract {
   const service = (ctx as Context & { b2f?: B2FServiceContract }).b2f
-  if (service === undefined) throw new TypeError('WorkSurface requires @deepseek-ai/dsh-block-to-file')
+  if (service === undefined) throw new TypeError('WorkSurface requires dsh-block-to-file')
   return service
 }
 

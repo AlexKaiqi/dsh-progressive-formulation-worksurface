@@ -40,7 +40,7 @@
       ],
       "dependencies": [
         "@deepseek-ai/dsh-agent",
-        "@deepseek-ai/dsh-block-to-file",
+        "dsh-block-to-file",
         "@deepseek-ai/dsh-sandbox",
         "@deepseek-ai/dsh-shell-env",
         "@deepseek-ai/dsh-subagent",
@@ -62,7 +62,7 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-agent": "^0.1.0-rc.6",
-    "@deepseek-ai/dsh-block-to-file": "^0.1.0-rc.6",
+    "dsh-block-to-file": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-invariants": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-sandbox": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-shell-env": "^0.1.0-rc.6",

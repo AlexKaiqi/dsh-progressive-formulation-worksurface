@@ -7,8 +7,8 @@ describe('WorkSurface bundle composition', () => {
       dsh: { inventory: { dependencies: string[] } }
       peerDependencies: Record<string, string>
     }
-    expect(pkg.dsh.inventory.dependencies).toContain('@deepseek-ai/dsh-block-to-file')
-    expect(pkg.peerDependencies['@deepseek-ai/dsh-block-to-file']).toBeDefined()
+    expect(pkg.dsh.inventory.dependencies).toContain('dsh-block-to-file')
+    expect(pkg.peerDependencies['dsh-block-to-file']).toBeDefined()
 
     const patch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
     expect(patch.indexOf('id: block-to-file')).toBeGreaterThanOrEqual(0)
