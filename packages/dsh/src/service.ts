@@ -272,23 +272,6 @@ export class WorkSurfaceService extends Service {
     if (authority.child !== undefined) await authority.child.ready
     const params = request.params
     switch (request.method) {
-      case 'new': {
-        requireOrchestrator(authority)
-        const templatePath = await attemptPath(authority.attempt, stringParam(params, 'templatePath'))
-        const parent = optionalString(params, 'parent')
-        if (parent !== undefined) requireSurface(authority, parent)
-        const requestedSurface = optionalString(params, 'surface')
-        const result = await this.store.newSurface({
-          attemptId: request.attemptId,
-          key: stringParam(params, 'key'),
-          templatePath,
-          ...(parent === undefined ? {} : { parent }),
-          ...(requestedSurface === undefined ? {} : { surface: requestedSurface }),
-          ...(params.retry === true ? { retry: true } : {}),
-        })
-        authority.attempt.surfaces.add(result.surface)
-        return result
-      }
       case 'checkout': {
         const surface = requireSurface(authority, stringParam(params, 'surface'))
         if (authority.child !== undefined) {
@@ -341,6 +324,13 @@ export class WorkSurfaceService extends Service {
       }
       case 'agent.run': {
         requireOrchestrator(authority)
+        const surface = SurfaceId(stringParam(params, 'surface'))
+        const templatePath = optionalString(params, 'templatePath')
+        // A delegated work unit is created by its delegation: an unadmitted
+        // Surface is admitted only when a template is supplied to create it.
+        if (authority.attempt.surfaces.has(surface) === false && templatePath === undefined) {
+          throw new WorkSurfaceError('unauthorized', `attempt cannot access Surface '${surface}'`)
+        }
         const operation = runAgent({
           ctx: this.ctx,
           store: this.store,
@@ -349,10 +339,12 @@ export class WorkSurfaceService extends Service {
           profile: (name) => this.profile(name),
           requireHarness: () => this.requireHarness(),
         }, authority.attempt, {
-          surface: requireSurface(authority, stringParam(params, 'surface')),
+          surface,
           task: stringParam(params, 'task'),
           profile: stringParam(params, 'profile'),
           key: stringParam(params, 'key'),
+          ...(templatePath === undefined ? {} : { templatePath: await attemptPath(authority.attempt, templatePath) }),
+          ...(optionalString(params, 'parent') === undefined ? {} : { parent: optionalString(params, 'parent') as string }),
           retry: params.retry === true,
           signal,
         })

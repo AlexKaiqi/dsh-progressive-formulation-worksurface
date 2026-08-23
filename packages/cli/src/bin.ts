@@ -98,7 +98,7 @@ function parseCommand(argv: readonly string[]): Command {
   if (argv[0] === 'agent') {
     if (argv[1] !== 'run') throw usage('expected ws agent run')
     const parsed = parseArgs(argv.slice(2))
-    validateFlags(parsed, ['attempt', 'json', 'key', 'profile', 'result', 'retry', 'surface', 'task'])
+    validateFlags(parsed, ['attempt', 'from', 'json', 'key', 'parent', 'profile', 'result', 'retry', 'surface', 'task'])
     requirePositionals(parsed, 0)
     return {
       method: 'agent.run',
@@ -109,26 +109,14 @@ function parseCommand(argv: readonly string[]): Command {
         task: requiredOption(parsed, 'task'),
         profile: requiredOption(parsed, 'profile'),
         key: requiredOption(parsed, 'key'),
+        ...option(parsed, 'from') === undefined ? {} : { templatePath: option(parsed, 'from') },
+        ...option(parsed, 'parent') === undefined ? {} : { parent: option(parsed, 'parent') },
         ...(flag(parsed, 'retry') ? { retry: true } : {}),
       },
     }
   }
   const parsed = parseArgs(argv.slice(1))
   switch (argv[0]) {
-    case 'new':
-      validateFlags(parsed, ['attempt', 'from', 'json', 'key', 'parent', 'retry', 'surface'])
-      requirePositionals(parsed, 0)
-      return {
-        method: 'new',
-        json: flag(parsed, 'json'),
-        params: {
-          templatePath: requiredOption(parsed, 'from'),
-          key: requiredOption(parsed, 'key'),
-          ...option(parsed, 'parent') === undefined ? {} : { parent: option(parsed, 'parent') },
-          ...option(parsed, 'surface') === undefined ? {} : { surface: option(parsed, 'surface') },
-          ...(flag(parsed, 'retry') ? { retry: true } : {}),
-        },
-      }
     case 'checkout':
       validateFlags(parsed, ['attempt', 'json', 'revision'])
       requirePositionals(parsed, 2)

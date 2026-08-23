@@ -261,7 +261,7 @@ class EditingProvider implements SubagentProvider {
         token: 'invalid-token',
       })
       for (const operation of [
-        () => client.call('new', { templatePath: workingPath, key: 'child-new' }),
+        () => client.call('projection', { surface: 'ws-root', profile: 'test', tokenBudget: 100 }),
         () => client.call('checkout', { surface, targetPath: join(workingPath, 'other') }),
         () => client.call('agent.run', { surface, task: 'nested', profile: 'test', key: 'nested' }),
         () => client.call('show', { surface: 'ws-other' }),
@@ -720,8 +720,7 @@ describe('WorkSurfaceService integration', () => {
       '---',
       'Initial E2E evidence.',
       'EOF',
-      'ws new --from "$template" --key child-new --parent "$WS_ROOT_SURFACE" --surface ws-real-e2e-child --json > "$WS_ATTEMPT_DIR/results/new.json"',
-      'ws agent run --surface ws-real-e2e-child --task real-e2e --profile test --key child-agent --result "$WS_ATTEMPT_DIR/results/child.json" --json > "$WS_ATTEMPT_DIR/results/agent.json"',
+      'ws agent run --surface ws-real-e2e-child --task real-e2e --profile test --key child-agent --from "$template" --parent "$WS_ROOT_SURFACE" --result "$WS_ATTEMPT_DIR/results/child.json" --json > "$WS_ATTEMPT_DIR/results/agent.json"',
     ].join('\n')
     const parent = { id: 'real-e2e-parent', session: { header: { id: 'real-e2e-parent' } } } as unknown as Agent
 
@@ -745,7 +744,6 @@ describe('WorkSurfaceService integration', () => {
     expect((await service.store.readWorkSession('ws-root')).events.map(event => event.type)).toEqual(expect.arrayContaining([
       'orchestrator/defined',
       'orchestrator/run-started',
-      'child/created',
       'orchestrator/run-completed',
     ]))
     expect((await service.store.readWorkSession('ws-real-e2e-child')).events.map(event => event.type)).toEqual([
@@ -898,7 +896,7 @@ describe('WorkSurfaceService integration', () => {
       wrong: 'invalid-reference',
       'key-conflict': 'idempotency-key-conflict',
     })
-    expect(provider.starts).toBe(4)
+    expect(provider.starts).toBe(8)
     expect(provider.disposals).toBe(4)
     expect(provider.b2fRoots).toHaveLength(4)
     expect(provider.b2fRoots.every(root => root.includes(`${join('workspace', 'work')}`))).toBe(true)
@@ -946,14 +944,9 @@ describe('WorkSurfaceService integration', () => {
       const client = orchestratorClient(spec)
       const template = join(spec.cwd, 'child-template')
       await writeTemplate(template, 'child B', 'ws-child')
-      await client.call('new', {
-        templatePath: template,
-        key: 'create-child',
-        parent: 'ws-root',
-        surface: 'ws-child',
-      })
       await client.call('agent.run', {
         surface: 'ws-child', task: 'isolation', profile: 'test', key: 'agent-isolation',
+        templatePath: template, parent: 'ws-root',
       })
       return { exitCode: 0, signal: null, stdout: 'isolated', stderr: '' }
     }
@@ -1112,21 +1105,18 @@ describe('WorkSurfaceService integration', () => {
       }) as { revision: string }
       await client.call('show', { surface: 'ws-root', revision: committed.revision })
 
-      const implicitTemplate = join(spec.cwd, 'implicit-template')
-      await mkdir(join(implicitTemplate, 'blocks'), { recursive: true })
-      await writeFile(join(implicitTemplate, 'surface.md'), '# Implicit child\n')
-      const implicit = await client.call('new', { templatePath: implicitTemplate, key: 'implicit-child' }) as { surface: string }
-      await client.call('show', { surface: implicit.surface })
-
-      const explicitTemplate = join(spec.cwd, 'explicit-template')
-      await writeTemplate(explicitTemplate, 'explicit child', 'ws-explicit')
-      await client.call('new', {
-        templatePath: explicitTemplate,
-        key: 'explicit-child',
-        parent: 'ws-root',
-        surface: 'ws-explicit',
-        retry: true,
+      // A delegated work unit is created by its delegation: agent.run admits and
+      // materializes an unadmitted Surface from the provided template.
+      const createdTemplate = join(spec.cwd, 'created-template')
+      await writeTemplate(createdTemplate, 'created child', 'ws-created')
+      await client.call('agent.run', {
+        surface: 'ws-created', task: 'valid', profile: 'test', key: 'create-and-run',
+        templatePath: createdTemplate, parent: 'ws-root',
       })
+      await client.call('show', { surface: 'ws-created' })
+      await expectCode(client.call('agent.run', {
+        surface: 'ws-unadmitted', task: 'valid', profile: 'test', key: 'unadmitted',
+      }), 'unauthorized')
 
       const attemptId = requiredEnv(spec.env?.WS_ATTEMPT_ID)
       const token = requiredEnv(spec.env?.WS_ATTEMPT_TOKEN)
@@ -1292,14 +1282,17 @@ describe('WorkSurfaceService integration', () => {
 
   it('releases the child concurrency slot when preparation fails', async () => {
     const { service, provider } = await fixture()
-    const compile = vi.spyOn(service.projections, 'compile')
-      .mockRejectedValueOnce(new WorkSurfaceError('effect-failed', 'projection preparation failed'))
     ScriptedSubprocess.runner = async (spec) => {
       const client = orchestratorClient(spec)
       const failedSurface = await createAgentSurface(client, spec, 'prepare-failed')
+      // The failure is injected after provisioning so the first agent.run that
+      // must fail is the one whose projection preparation is rejected.
+      const compile = vi.spyOn(service.projections, 'compile')
+        .mockRejectedValueOnce(new WorkSurfaceError('effect-failed', 'projection preparation failed'))
       await expectCode(client.call('agent.run', {
         surface: failedSurface, task: 'valid', profile: 'test', key: 'prepare-failed',
       }), 'effect-failed')
+      compile.mockRestore()
 
       const recoveredSurface = await createAgentSurface(client, spec, 'prepare-recovered')
       await client.call('agent.run', {
@@ -1311,8 +1304,7 @@ describe('WorkSurfaceService integration', () => {
     const parent = { id: 'prepare-failure-parent', session: { header: { id: 'prepare-failure-parent' } } } as unknown as Agent
     await expect(service.runOrchestrator(parent, 'bash', '# prepare failure', 'ws-root', new AbortController().signal))
       .resolves.toMatchObject({ stdout: 'slot-released' })
-    expect(provider.starts).toBe(1)
-    compile.mockRestore()
+    expect(provider.starts).toBe(3)
   })
 
   it('contains lifecycle observer failures', async () => {
@@ -1339,7 +1331,7 @@ describe('WorkSurfaceService integration', () => {
     const parent = { id: 'observer-parent', session: { header: { id: 'observer-parent' } } } as unknown as Agent
     await expect(service.runOrchestrator(parent, 'bash', '# observer failures', 'ws-root', new AbortController().signal))
       .resolves.toMatchObject({ stdout: 'observers-contained' })
-    expect(provider.starts).toBe(1)
+    expect(provider.starts).toBe(2)
   })
 
   it('enforces child concurrency and composes every optional profile field', async () => {
@@ -1361,8 +1353,8 @@ describe('WorkSurfaceService integration', () => {
     const { service, provider } = await fixture({ profiles })
     ScriptedSubprocess.runner = async (spec) => {
       const client = orchestratorClient(spec)
-      const firstSurface = await createAgentSurface(client, spec, 'parallel-first')
-      const secondSurface = await createAgentSurface(client, spec, 'parallel-second')
+      const firstSurface = await createAgentSurface(client, spec, 'parallel-first', 'plain')
+      const secondSurface = await createAgentSurface(client, spec, 'parallel-second', 'plain')
       const first = client.call('agent.run', {
         surface: firstSurface, task: 'quiescence', profile: 'plain', key: 'parallel-first',
       })
@@ -1373,7 +1365,7 @@ describe('WorkSurfaceService integration', () => {
       provider.releaseQuiescence()
       await first
       for (const profile of ['provider-only', 'model-only', 'both']) {
-        const surface = await createAgentSurface(client, spec, `profile-${profile}`)
+        const surface = await createAgentSurface(client, spec, `profile-${profile}`, 'plain')
         await client.call('agent.run', {
           surface, task: `valid-${profile}`, profile, key: `valid-${profile}`,
         })
@@ -1639,12 +1631,18 @@ async function runLocalProcess(spec: SubprocessSpawnSpec): Promise<ScriptOutcome
   })
 }
 
-async function createAgentSurface(client: WorkSurfaceHostClient, spec: SubprocessSpawnSpec, key: string): Promise<string> {
+async function createAgentSurface(client: WorkSurfaceHostClient, spec: SubprocessSpawnSpec, key: string, profile = 'test'): Promise<string> {
   const slug = key.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 72)
   const surface = `ws-agent-${slug}`
   const template = join(spec.cwd, `template-${slug}`)
   await writeTemplate(template, `Agent Surface ${slug}`, surface)
-  await client.call('new', { templatePath: template, key: `surface-${slug}`, parent: 'ws-root', surface })
+  // A delegated work unit is created by its delegation: provision it by running
+  // a child that refuses to start, leaving the Surface materialized but unbound
+  // so the test's own agent.run performs the real delegation.
+  await expect(client.call('agent.run', {
+    surface, task: 'start-failed', profile, key: `surface-${slug}`, templatePath: template, parent: 'ws-root',
+  })).rejects.toMatchObject({ code: 'effect-failed' })
+  await client.call('show', { surface })
   return surface
 }
 

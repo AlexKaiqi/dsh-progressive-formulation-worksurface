@@ -18,18 +18,6 @@ export async function executeDirect(
 ): Promise<unknown> {
   const store = new WorkSurfaceStore({ root })
   switch (method) {
-    case 'new': {
-      const parent = optionalString(params, 'parent')
-      const surface = optionalString(params, 'surface')
-      return store.newSurface({
-        attemptId,
-        key: stringParam(params, 'key'),
-        templatePath: stringParam(params, 'templatePath'),
-        ...(parent === undefined ? {} : { parent }),
-        ...(surface === undefined ? {} : { surface }),
-        ...params.retry === true ? { retry: true } : {},
-      })
-    }
     case 'checkout':
       return store.checkout({
         surface: stringParam(params, 'surface'),

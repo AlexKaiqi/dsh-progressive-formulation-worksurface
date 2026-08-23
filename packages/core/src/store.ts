@@ -602,48 +602,61 @@ export class WorkSurfaceStore {
     return join(this.paths(surface).surfaceRoot, 'binding.json')
   }
 
-  /** Build the current Surface DAG for one top-level Session Surface. */
+  /**
+   * Build the current Surface DAG for one top-level Session Surface.
+   * Structure is derived from delegation records aligned with the DSH Session
+   * tree: a child Surface exists only when its delegating Session exists, so a
+   * Surface without a delegation record is not a graph member.
+   */
   async graphSnapshot(rootSurfaceInput: string): Promise<WorkSurfaceGraphSnapshot> {
     const rootSurface = SurfaceId(rootSurfaceInput)
     await this.readHead(rootSurface)
-    const snapshots = new Map<SurfaceIdType, SurfaceSnapshot>()
+    const rootBinding = await this.readBindingRecord(rootSurface)
+    if (rootBinding === undefined) {
+      throw new WorkSurfaceError('not-found',
+        `Surface '${rootSurface}' has no delegation record; a Surface exists only when its Session exists`, { rootSurface })
+    }
+    const bindings = await this.listSessionBindings()
+    const childrenBySession = new Map<string, SurfaceSessionBinding[]>()
+    for (const binding of bindings) {
+      if (binding.role !== 'delegated' || binding.parentSessionId === undefined) continue
+      const siblings = childrenBySession.get(binding.parentSessionId)
+      if (siblings === undefined) childrenBySession.set(binding.parentSessionId, [binding])
+      else siblings.push(binding)
+    }
     const included = new Set<SurfaceIdType>([rootSurface])
-    const sessions = new Map<SurfaceIdType, WorkSessionSnapshot>()
-    const queue: SurfaceIdType[] = [rootSurface]
+    const ordered: SurfaceSessionBinding[] = []
+    const queue: SurfaceSessionBinding[] = [rootBinding]
     while (queue.length > 0) {
-      const surface = queue.shift()
-      if (surface === undefined) break
-      const session = await this.sessions.read(surface)
-      sessions.set(surface, session)
-      snapshots.set(surface, await this.readSnapshot(surface))
-      for (const event of session.events) {
-        if (event.type !== 'child/created') continue
-        const child = SurfaceId((event.data as { childSurfaceId: string }).childSurfaceId)
-        if (included.has(child)) {
-          throw new WorkSurfaceError('canonical-corrupt', `WorkGraph '${rootSurface}' contains a repeated or cyclic child '${child}'`)
+      const binding = queue.shift()
+      if (binding === undefined) break
+      ordered.push(binding)
+      for (const child of childrenBySession.get(binding.sessionId) ?? []) {
+        if (included.has(child.surface)) {
+          throw new WorkSurfaceError('canonical-corrupt', `WorkGraph '${rootSurface}' contains a repeated or cyclic child '${child.surface}'`)
         }
-        const childSession = await this.sessions.read(child)
-        if (childSession.header.parentSurfaceId !== surface) {
-          throw new WorkSurfaceError('canonical-corrupt', `child '${child}' does not name parent '${surface}'`)
+        const childSession = await this.sessions.read(child.surface)
+        if (childSession.header.parentSurfaceId !== binding.surface) {
+          throw new WorkSurfaceError('canonical-corrupt', `child '${child.surface}' does not name its delegating parent '${binding.surface}'`, {
+            child: child.surface,
+            parent: binding.surface,
+            sessionParent: childSession.header.parentSurfaceId,
+          })
         }
-        included.add(child)
+        included.add(child.surface)
         queue.push(child)
       }
     }
-    const bindings = await this.listSessionBindings()
     const bindingBySurface = new Map(bindings.map(binding => [binding.surface, binding]))
     const nodes: WorkSurfaceGraphNode[] = []
-    for (const surface of [...included].sort()) {
-      const snapshot = snapshots.get(surface)
-      if (snapshot === undefined) continue
+    for (const binding of ordered) {
+      const snapshot = await this.readSnapshot(binding.surface)
+      const session = await this.sessions.read(binding.surface)
       const envelope = parseSurfaceDocument(snapshot.surfaceDocument)
-      const session = sessions.get(surface)
-      if (session === undefined) throw new WorkSurfaceError('canonical-corrupt', `missing Work Session '${surface}' during Graph fold`)
-      const binding = bindingBySurface.get(surface)
       nodes.push({
-        surface,
-        sessionId: binding?.sessionId ?? null,
-        phase: binding === undefined ? 'draft' : binding.outputRevision === undefined ? 'bound' : 'completed',
+        surface: binding.surface,
+        sessionId: binding.sessionId,
+        phase: binding.outputRevision === undefined ? 'bound' : 'completed',
         revision: snapshot.revision,
         parent: session.header.parentSurfaceId,
         status: envelope.status,
@@ -675,7 +688,7 @@ export class WorkSurfaceStore {
     }
     return {
       rootSurface,
-      rootSessionId: bindingBySurface.get(rootSurface)?.sessionId ?? null,
+      rootSessionId: rootBinding.sessionId,
       createdAt: new Date().toISOString(),
       nodes,
       edges,
@@ -693,15 +706,6 @@ export class WorkSurfaceStore {
       attemptId: options.attemptId,
       idempotencyKey: `surface-created:${commitId}`,
     })
-    if (parent !== null) {
-      await this.sessions.append({
-        surface: parent,
-        type: 'child/created',
-        data: { childSurfaceId: surface, initialRevision: result.revision },
-        attemptId: options.attemptId,
-        idempotencyKey: `child-created:${commitId}`,
-      })
-    }
   }
 
   private async ensureCommitFact(

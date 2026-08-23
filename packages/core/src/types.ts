@@ -78,10 +78,6 @@ export interface WorkSessionEventDataMap {
     readonly revision: Revision
     readonly commitId: string
   }
-  readonly 'child/created': {
-    readonly childSurfaceId: SurfaceId
-    readonly initialRevision: Revision
-  }
   readonly 'surface/revision-published': {
     readonly revision: Revision
     readonly previousRevision: Revision
@@ -119,13 +115,15 @@ export interface WorkSessionEventDataMap {
 }
 
 /**
- * Legacy Work Session event types accepted only to fail fast on pre-delegation-record
- * streams. Agent/Session attachment is no longer a domain event: it is a write-once
- * delegation record per Surface (`binding.json`), and the child boundary is owned by
- * the DSH Session tree. rc.6 streams containing these types are rejected as
+ * Legacy Work Session event types accepted only to fail fast on streams that
+ * predate the current fact sources. Agent/Session attachment is a write-once
+ * delegation record per Surface (`binding.json`), child existence is owned by
+ * delegation records aligned with the DSH Session tree, and a Surface exists
+ * only when its Session exists. Streams containing these types are rejected as
  * canonical-corrupt with an actionable message.
  */
-export type LegacyBoundaryEventType =
+export type LegacyEventType =
+  | 'child/created'
   | 'agent/session-bound'
   | 'agent/session-completed'
   | 'child/session-started'
@@ -208,8 +206,8 @@ export interface WorkSurfaceGraphBlock {
 /** One independent work unit in a Session-scoped WorkGraph. */
 export interface WorkSurfaceGraphNode {
   readonly surface: SurfaceId
-  readonly sessionId: string | null
-  readonly phase: 'draft' | 'bound' | 'completed'
+  readonly sessionId: string
+  readonly phase: 'bound' | 'completed'
   readonly revision: Revision
   readonly parent: SurfaceId | null
   readonly status: string

@@ -3,11 +3,10 @@ export const VERSION = '0.1.0-rc.6'
 export const HELP = `Usage: ws <command> [arguments] [options]
 
 Commands:
-  ws new --from <template> --key <key> [--parent <surface>] [--surface <id>] [--retry]
   ws checkout <surface> <target> [--revision <revision>]
   ws commit <working-copy> --base <revision> --key <key> [--retry]
   ws show <surface> [--revision <revision>] [--projection --profile <name> [--token-budget <n>]]
-  ws agent run --surface <surface> --task <text> --profile <name> --key <key> --result <path> [--retry]
+  ws agent run --surface <surface> --task <text> --profile <name> --key <key> --result <path> [--from <template>] [--parent <surface>] [--retry]
   ws help init
 
 Global options:

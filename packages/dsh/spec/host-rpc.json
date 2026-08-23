@@ -33,15 +33,14 @@
     }
   },
   "methods": {
-    "new": "Create a Surface from a template under an authorized parent. Requires an idempotency key.",
     "checkout": "Materialize a Surface revision into a target path inside the attempt workspace.",
     "commit": "Publish a working copy against a base revision. Requires an idempotency key.",
     "show": "Read a Surface at a revision.",
     "projection": "Render the model-facing projection of a Surface for a named profile, optionally under a token budget.",
-    "agent.run": "Delegate a task to a child Agent and return its structured completion, validated against the child-Agent return contract."
+    "agent.run": "Delegate a task to a child Agent and return its structured completion, validated against the child-Agent return contract. A delegated work unit is created by its delegation: an optional templatePath materializes the Surface when it does not exist yet."
   },
   "idempotency": {
-    "scope": ["new", "commit", "agent.run"],
+    "scope": ["commit", "agent.run"],
     "description": "Effect methods require a stable caller-supplied key so a replayed Orchestrator does not duplicate an effect. Replay after a crash is bounded by maxCrashReplays."
   },
   "contracts": {

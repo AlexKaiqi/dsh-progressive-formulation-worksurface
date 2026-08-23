@@ -7,11 +7,10 @@
 ## 命令
 
 ```text
-ws new --from <template> --key <key> [--parent <surface>] [--surface <id>]
 ws checkout <surface> <target> [--revision <revision>]
 ws commit <working-copy> --base <revision> --key <key> [--retry]
 ws show <surface> [--revision <revision>] [--projection --profile <name>]
-ws agent run --surface <surface> --task <text> --profile <name> --key <key> --result <path>
+ws agent run --surface <surface> --task <text> --profile <name> --key <key> --result <path> [--from <template>] [--parent <surface>]
 ws help init
 ```
 
@@ -25,7 +24,7 @@ Effect 命令要求稳定的 key。`--json` 在 stdout 输出一个 JSON 值；�
 
 存在 `WS_HOST_SOCKET`、`WS_ATTEMPT_ID` 和 `WS_ATTEMPT_TOKEN` 时，CLI 使用 `WorkSurfaceHostClient`；`DSH_WS_*` 别名支持子 Agent 的 shell environment。若存在 attempt-directory 变量但没有 Host socket，CLI 会 fail closed，而不会回退到 canonical 文件。
 
-直接模式要求 `WS_STORE_ROOT`，并为管理和测试提供文件操作。`agent run` 仅限 Host，因为只有插件能创建子 Agent 并校验其结构化完成结果。
+直接模式要求 `WS_STORE_ROOT`，并为管理和测试提供对既有 canonical state 的操作。Surface 创建与委派绑定，`agent run` 仅限 Host，因为只有插件能创建工作单元和子 Agent，并校验其结构化完成结果。
 
 ## 退出状态
 

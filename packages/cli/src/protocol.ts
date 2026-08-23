@@ -3,7 +3,6 @@ export type WorkSurfaceRpcMethod =
   | 'agent.run'
   | 'checkout'
   | 'commit'
-  | 'new'
   | 'projection'
   | 'show'
 

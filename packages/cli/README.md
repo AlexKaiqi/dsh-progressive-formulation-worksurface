@@ -7,11 +7,10 @@ English | [中文](README.zh.md)
 ## Commands
 
 ```text
-ws new --from <template> --key <key> [--parent <surface>] [--surface <id>]
 ws checkout <surface> <target> [--revision <revision>]
 ws commit <working-copy> --base <revision> --key <key> [--retry]
 ws show <surface> [--revision <revision>] [--projection --profile <name>]
-ws agent run --surface <surface> --task <text> --profile <name> --key <key> --result <path>
+ws agent run --surface <surface> --task <text> --profile <name> --key <key> --result <path> [--from <template>] [--parent <surface>]
 ws help init
 ```
 
@@ -25,7 +24,7 @@ Effect commands require stable keys. `--json` emits one JSON value on stdout, fa
 
 When `WS_HOST_SOCKET`, `WS_ATTEMPT_ID`, and `WS_ATTEMPT_TOKEN` are present, the CLI uses `WorkSurfaceHostClient`; `DSH_WS_*` aliases support child-Agent shell environments. If an attempt-directory variable is present without a Host socket, the CLI fails closed instead of falling back to canonical files.
 
-Direct mode requires `WS_STORE_ROOT` and supports file operations for administration and tests. `agent run` is Host-only because only the plugin can create a child Agent and validate its structured completion.
+Direct mode requires `WS_STORE_ROOT` and supports operations on existing canonical state for administration and tests. Surface creation is delegation-bound, and `agent run` is Host-only because only the plugin can create the work unit and child Agent, then validate its structured completion.
 
 ## Exit status
 

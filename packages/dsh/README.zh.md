@@ -29,9 +29,9 @@ Plugin activation 会等待 canonical store、session template 和已认证 Host
 
 Host 对每个 NDJSON 请求进行授权。Orchestrator 只能访问其 attempt 创建或纳入的 Surface。Child credential 更窄：它只能查看被分配的 Surface，并且只能 commit 精确分配给它的 checkout。Service 还会阻止其他 model tool 接收 canonical root path。
 
-`ws agent run` 编译 revision-pinned Projection，物化新的 checkout，启动 in-process Subagent provider，并要求 child 返回 `{ surface, surfaceRevision, summary, outputs }`。只有在被分配 Surface 已产生新 commit，且每个 output 都指向该精确当前 revision 中存在的 Block 时，完成结果才会被接受。Final prose 绝不会作为结果 fallback。
+`ws agent run` 由委派创建工作单元：可选的 `--from <template>` 在 Surface 尚不存在时物化它，随后 Host 编译 revision-pinned Projection、启动 in-process Subagent provider，并要求 child 返回 `{ surface, surfaceRevision, summary, outputs }`。只有在被分配 Surface 已产生新 commit，且每个 output 都指向该精确当前 revision 中存在的 Block 时，完成结果才会被接受。Final prose 绝不会作为结果 fallback。
 
-每个物理平级的 Surface 从创建起就拥有一条 append-only Work Session。父 Work Session 记录直接 child 的创建，每个 child 的 write-once 委派记录则指明执行它的 Agent Session、精确输入 pin 与已提交输出；递归 fold 这些局部历史得到 WorkGraph。顶层 Agent Session 就是 root Surface，delegated Agent Session 就是它的 child Surface；任一身份最多参与一次委派。Child 实际读取的 Projection revision 保存在它的委派记录中，用于构建可审计的信息依赖图。Orchestrator program 按内容寻址保存在 `canonical/orchestrator/definitions/<sha256>`；run 生命周期事实留在调用方 Surface Session，attempt workspace 仍只是 runtime state。Web profile 可另外安装 `@pf-worksurface/web` 来显示该图与各节点的关联对话。
+每个物理平级的 Surface 从创建起就拥有一条 append-only Work Session，并且只在它的 Session 存在时存在。每个 child 的 write-once 委派记录则指明执行它的 Agent Session、精确输入 pin 与已提交输出；从 root 递归跟随委派记录得到 WorkGraph。顶层 Agent Session 就是 root Surface，delegated Agent Session 就是它的 child Surface；任一身份最多参与一次委派。Child 实际读取的 Projection revision 保存在它的委派记录中，用于构建可审计的信息依赖图。Orchestrator program 按内容寻址保存在 `canonical/orchestrator/definitions/<sha256>`；run 生命周期事实留在调用方 Surface Session，attempt workspace 仍只是 runtime state。Web profile 可另外安装 `@pf-worksurface/web` 来显示该图与各节点的关联对话。
 
 每个外部 effect 都按 attempt 与 key 记入 journal。Attempt identity 同时包含不可变 control-script hash 与公开 workspace 的确定性 hash，因此同一脚本配不同 b2f 输入时不会错误 replay。不可变 commit 已落盘后的 crash 会通过幂等完成对应 Work Session 发布来恢复；由 signal 终止的 Orchestrator 最多按 `maxCrashReplays` 重放；service 会等待进行中的 child operation 达到静止状态，之后才释放 attempt authority。
 

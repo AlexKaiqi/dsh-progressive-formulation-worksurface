@@ -62,7 +62,7 @@ describe('Surface/Session binding', () => {
 })
 
 describe('WorkGraph projection', () => {
-  test('keeps draft nodes and derives multi-parent edges from exact delegated input revisions', async () => {
+  test('derives the tree from delegation records and pins multi-parent input revisions', async () => {
     const { root, store } = await graphFixture()
     const rootTemplate = await template(root, 'root-template', '# Root\n', { root_fact: 'root fact' })
     const sourceTemplate = await template(root, 'source-template', '# Source\n', { source_fact: 'source fact' })
@@ -96,21 +96,27 @@ describe('WorkGraph projection', () => {
 
     const graph = await store.graphSnapshot('ws-root')
     expect(graph.rootSessionId).toBe('session-root')
-    expect(graph.nodes.map(node => [node.surface, node.phase])).toEqual([
-      ['ws-root', 'bound'],
-      ['ws-source', 'bound'],
-      ['ws-target', 'completed'],
+    expect(graph.nodes.map(node => [node.surface, node.sessionId, node.phase])).toEqual([
+      ['ws-root', 'session-root', 'bound'],
+      ['ws-source', 'session-source', 'bound'],
+      ['ws-target', 'session-target', 'completed'],
     ])
     expect(graph.edges.map(edge => [edge.source, edge.target, edge.sourceBlock, edge.sourceRevision])).toEqual([
       ['ws-root', 'ws-target', 'root_fact', projection.blockRevisions[0]?.revision],
       ['ws-source', 'ws-target', 'source_fact', projection.blockRevisions[1]?.revision],
     ])
 
-    const draftTemplate = await template(root, 'draft-template', '# Draft\n')
-    await store.newSurface({ attemptId: 'a', key: 'draft', templatePath: draftTemplate, surface: 'ws-draft', parent: 'ws-root' })
-    expect((await store.graphSnapshot('ws-root')).nodes.find(node => node.surface === 'ws-draft')).toMatchObject({
-      sessionId: null,
-      phase: 'draft',
-    })
+    // A Surface without a delegation record is not a graph member: a work unit
+    // exists only when its Session exists.
+    const orphanTemplate = await template(root, 'orphan-template', '# Orphan\n')
+    await store.newSurface({ attemptId: 'a', key: 'orphan', templatePath: orphanTemplate, surface: 'ws-orphan', parent: 'ws-root' })
+    expect((await store.graphSnapshot('ws-root')).nodes.map(node => node.surface)).not.toContain('ws-orphan')
+  })
+
+  test('rejects a graph root without a delegation record', async () => {
+    const { root, store } = await graphFixture()
+    const source = await template(root, 'root-template', '# Root\n')
+    await store.newSurface({ attemptId: 'a', key: 'root', templatePath: source, surface: 'ws-root' })
+    await expect(store.graphSnapshot('ws-root')).rejects.toMatchObject({ code: 'not-found' } satisfies Partial<WorkSurfaceError>)
   })
 })

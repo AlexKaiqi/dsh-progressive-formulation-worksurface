@@ -10,16 +10,15 @@ describe('ws CLI model-facing help', () => {
 
   it('documents every command the model can invoke', () => {
     for (const command of [
-      'ws new --from <template> --key <key> [--parent <surface>] [--surface <id>] [--retry]',
       'ws checkout <surface> <target>',
       'ws commit <working-copy> --base <revision> --key <key>',
       'ws show <surface> [--revision <revision>] [--projection --profile <name> [--token-budget <n>]]',
-      'ws agent run --surface <surface> --task <text> --profile <name> --key <key> --result <path> [--retry]',
+      'ws agent run --surface <surface> --task <text> --profile <name> --key <key> --result <path> [--from <template>] [--parent <surface>] [--retry]',
       'ws help init',
     ]) {
       expect(HELP).toContain(command)
     }
-    expect(HELP).toContain('ws new --from <template> --key <key>')
+    expect(HELP).not.toContain('ws new')
     expect(HELP).toContain('--token-budget <n>')
     expect(HELP).toContain('ws agent run --surface <surface>')
     expect(HELP).toContain('Effect commands require a stable idempotency key')

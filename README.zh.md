@@ -13,7 +13,7 @@
 
 `/dsh` bundle 会组合 `@deepseek-ai/dsh-block-to-file` 作为模型可见的文件物化层；`/core` 仍独立于 Harness runtime。
 
-数据边界是：每个物理平级的 Surface 都拥有且仅拥有一条 append-only Work Session；父 Session 记录直接 Child Surface 的边界，从 root 递归 fold 得到 WorkGraph。Agent 实际执行 Surface 时可以不可变地附着一个 Agent Session，而 draft Surface 在委派前已经拥有 Work Session。Surface 内的 Block 是概念、证据或决策；只有需要独立 Agent、验收、版本或生命周期的 Block 才提升为 Child Surface。信息依赖来自实际 Projection 中 revision-pinned 的 BlockRef，不从时间戳或文件目录嵌套推断。完整的目录与事实源决策见 [`docs/work-session-storage.zh.md`](docs/work-session-storage.zh.md)。
+数据边界是：每个物理平级的 Surface 都拥有且仅拥有一条 append-only Work Session。Surface 只在对应 Session 存在时存在：委派创建工作单元，从 root 递归跟随委派记录得到 WorkGraph。Agent Session 通过唯一的 write-once 委派记录执行 Surface。Surface 内的 Block 是概念、证据或决策；只有需要独立 Agent、验收、版本或生命周期的 Block 才提升为 Child Surface。信息依赖来自实际 Projection 中 revision-pinned 的 BlockRef，不从时间戳或文件目录嵌套推断。完整的目录与事实源决策见 [`docs/work-session-storage.zh.md`](docs/work-session-storage.zh.md)。
 
 Web 插件的产品级端到端评估维度、用例、固定测试数据和真实 DSH 执行记录维护在 [`packages/web/evals`](packages/web/evals/README.zh.md)。它与单元测试分开管理，并在 Web 包构建时校验。
 

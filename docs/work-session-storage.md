@@ -5,15 +5,16 @@
 A WorkSurface and a Work Session are the state and history facets of one work
 unit. Every Surface owns exactly one append-only Work Session. All Surface
 directories are physical siblings; parent/child relationships are facts in the
-parent Work Session rather than filesystem nesting.
+child Surface's own header and its write-once delegation record rather than
+filesystem nesting.
 
 There is no separate canonical WorkGraph document or global Graph event log. A
-WorkGraph is a read-only projection obtained by recursively folding the root
-Surface's Session and the child Sessions it names.
+WorkGraph is a read-only projection obtained by recursively following delegation
+records aligned with the DSH Session tree.
 
-An Agent Session may be attached to a Work Session when an Agent executes that
-work unit. The attachment is immutable and one-to-one, but it is not the Work
-Session itself: draft Surfaces have a Work Session before an Agent starts.
+A Surface exists only when its Agent Session exists. Delegation creates the work
+unit, records the immutable one-to-one Session/Surface identity, and pins the
+exact input Projection; there is no independent draft phase.
 
 ## Canonical layout
 
@@ -49,9 +50,9 @@ Session itself: draft Surfaces have a Work Session before an Agent starts.
 ```
 
 The layout deliberately keeps all `surfaces/<surface-id>` entries at the same
-depth. A child can be discovered only through its parent's accepted
-`child/created` event. An unreferenced directory is an orphan, not a member of a
-Graph.
+depth. A child is discovered through its write-once delegation record and the
+parent Session identity it names. A Surface directory without a delegation
+record is an unreachable orphan, not a member of a Graph.
 
 ## Sources of truth
 
@@ -109,18 +110,20 @@ The initial vocabulary is intentionally small:
 
 - `surface/created` establishes the work unit and its immutable structural
   parent.
-- `child/created` makes a direct child reachable from the parent Graph.
 - `surface/revision-published` records an accepted content revision and its base.
 - `orchestrator/defined` pins an immutable definition.
 - `orchestrator/run-started` and `orchestrator/run-completed` or
   `orchestrator/run-interrupted` or `orchestrator/run-failed` explain one
   execution attempt.
 
-Agent/Session attachment is not a domain event. Which Session executes a
-Surface, with which exact input pins, and to which committed output is a
-write-once delegation record per Surface (`binding.json`), and the parent/child
-boundary between Sessions is owned by the DSH Session tree (`parentSession` in
-the durable Session header). rc.6 streams that still contain
+A Surface exists only when its Session exists: a delegated work unit is created
+by its delegation. Child existence and Agent/Session attachment are not domain
+events. Which Session executes a Surface, with which exact input pins, and to
+which committed output is a write-once delegation record per Surface
+(`binding.json`); the parent/child boundary between Sessions is owned by the
+DSH Session tree (`parentSession` in the durable Session header). A Surface
+without a delegation record is an unreachable orphan, not a graph member, and
+is safe to collect. rc.6 streams that still contain `child/created`,
 `agent/session-bound`, `agent/session-completed`, `child/session-started`, or
 `child/session-completed` facts fail fast as canonical corruption with an
 actionable message.
@@ -132,10 +135,11 @@ that never started.
 
 ## Recursive composition
 
-The parent records only the child boundary: creation (in its Work Session) and
-the child's launch identity, pinned input, and accepted output (in the child's
-delegation record). The child Session owns its internal work. If the child
-creates more Surfaces, the same rule applies recursively.
+The parent records only the child boundary: the child's launch identity, pinned
+input, and accepted output (in the child's write-once delegation record), and
+each child's structural parent lives in its own `surface/created` fact. The
+child Session owns its internal work. If the child creates more Surfaces, the
+same rule applies recursively.
 
 Every canonical fact belongs to the nearest Work Session or delegation record.
 The root Session can therefore explain the complete process by recursively
@@ -170,7 +174,8 @@ reconciles a non-terminal run instead of blindly executing it again.
    `surfaceId`.
 2. Session event `seq` values are contiguous from zero and event ids are unique.
 3. `surface/created` is event zero and agrees with immutable Surface metadata.
-4. A child is reachable only after one `child/created` event in its parent.
+4. A child is reachable in the WorkGraph only through the delegation record of
+   its owning Session; a Surface without a delegation record is an orphan.
 5. A child has exactly one structural parent; cycles are invalid.
 6. An Agent Session id and a Surface may each participate in at most one
    delegation record.

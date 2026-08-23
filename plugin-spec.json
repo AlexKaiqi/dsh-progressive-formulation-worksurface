@@ -69,11 +69,10 @@
     "file": "packages/cli/src/help.ts",
     "versionExport": "VERSION",
     "commands": [
-      "ws new --from <template> --key <key>",
       "ws checkout <surface> <target>",
       "ws commit <working-copy> --base <revision> --key <key>",
       "ws show <surface>",
-      "ws agent run --surface <surface> --task <text> --profile <name> --key <key> --result <path>",
+      "ws agent run --surface <surface> --task <text> --profile <name> --key <key> --result <path> [--from <template>]",
       "ws help init"
     ]
   },

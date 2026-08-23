@@ -6,7 +6,7 @@ import type {} from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-subprocess'
 import type { Context } from '@deepseek-ai/cordis'
-import { EffectJournal, ProjectionCompiler, WorkSurfaceError, WorkSurfaceStore } from '@pf-worksurface/core'
+import { EffectJournal, ProjectionCompiler, SurfaceId, WorkSurfaceError, WorkSurfaceStore } from '@pf-worksurface/core'
 import type { SurfaceIdType } from '@pf-worksurface/core'
 import { AGENT_OUTPUT_SCHEMA, childPersona } from './model/child-agent.ts'
 import { renderFileProjection } from './model/file-projection.ts'
@@ -26,6 +26,10 @@ export interface AgentRunRequest {
   readonly task: string
   readonly profile: string
   readonly key: string
+  /** Optional template directory that creates the Surface when it does not exist yet. */
+  readonly templatePath?: string
+  /** Optional structural parent for a Surface created by this delegation; defaults to the attempt root. */
+  readonly parent?: string
   readonly retry: boolean
   readonly signal: AbortSignal
 }
@@ -46,7 +50,6 @@ export async function runAgent(
 ): Promise<AgentRunResult> {
   const profile = host.profile(request.profile)
   const keyComponent = safeKey(request.key)
-  const head = await host.store.readHead(request.surface)
   const journalRequest = {
     surface: request.surface,
     task: request.task,
@@ -66,6 +69,24 @@ export async function runAgent(
       attempt.activeAgents += 1
       let childId: string | undefined
       try {
+        // A delegated work unit is created by its delegation: when the Surface
+        // does not exist yet, materialize it from the provided template first.
+        if (request.templatePath !== undefined && !(await host.store.hasSurface(request.surface))) {
+          const parent = request.parent === undefined ? attempt.rootSurface : SurfaceId(request.parent)
+          if (attempt.surfaces.has(parent) === false) {
+            throw new WorkSurfaceError('unauthorized', `attempt cannot create under Surface '${parent}'`)
+          }
+          await host.store.newSurface({
+            attemptId: attempt.id,
+            key: `${request.key}-surface`,
+            templatePath: request.templatePath,
+            parent,
+            surface: request.surface,
+            ...(request.retry ? { retry: true } : {}),
+          })
+          attempt.surfaces.add(request.surface)
+        }
+        const head = await host.store.readHead(request.surface)
         const runRoot = join(attempt.root, 'runtime', 'agents', keyComponent)
         const workingPath = join(attempt.workspaceRoot, 'work', `${request.surface}-${keyComponent}`)
         const projection = await host.projections.compile({

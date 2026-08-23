@@ -31,12 +31,12 @@ describe('Surface-local Work Session', () => {
       header: { surfaceId: 'ws-child', parentSurfaceId: 'ws-root' },
       events: [{ seq: 0, type: 'surface/created', data: { revision: child.revision } }],
     })
-    expect((await store.readWorkSession('ws-root')).events).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        type: 'child/created',
-        data: { childSurfaceId: 'ws-child', initialRevision: child.revision },
-      }),
-    ]))
+    // Child existence is not a Work Session event: the parent linkage lives in
+    // the child's own surface/created fact, and graph structure is derived from
+    // delegation records aligned with the DSH Session tree.
+    expect((await store.readWorkSession('ws-root')).events.map(event => event.type)).toEqual([
+      'surface/created',
+    ])
     expect(parent.surface).toBe('ws-root')
   })
 
@@ -99,7 +99,6 @@ describe('Surface-local Work Session', () => {
     })
     expect((await store.readWorkSession(rootSurface.surface)).events.map(event => event.type)).toEqual([
       'surface/created',
-      'child/created',
     ])
     expect((await store.readWorkSession(child.surface)).events.map(event => event.type)).toEqual([
       'surface/created',
@@ -117,22 +116,28 @@ describe('Surface-local Work Session', () => {
     const { root, store, template } = await fixture()
     await store.newSurface({ attemptId: 'a', key: 'root', templatePath: template, surface: 'ws-root' })
     const events = join(root, 'store', 'canonical', 'surfaces', 'ws-root', 'session', 'events')
-    await writeFile(
-      join(events, '000000000001.json'),
-      JSON.stringify({
-        version: 1,
-        surface: 'ws-root',
-        seq: 1,
-        eventId: 'legacy',
-        type: 'agent/session-bound',
-        data: { sessionId: 'agent-root', role: 'root', rootSurface: 'ws-root' },
-        createdAt: new Date().toISOString(),
-        idempotencyKey: 'legacy-bound',
-      }),
-    )
-    await expect(store.readWorkSession('ws-root')).rejects.toMatchObject({
-      code: 'canonical-corrupt',
-    })
+    for (const [type, data, key] of [
+      ['agent/session-bound', { sessionId: 'agent-root', role: 'root', rootSurface: 'ws-root' }, 'legacy-bound'],
+      ['child/created', { childSurfaceId: 'ws-child', initialRevision: `sha256:${'a'.repeat(64)}` }, 'legacy-child'],
+    ] as const) {
+      await writeFile(
+        join(events, '000000000001.json'),
+        JSON.stringify({
+          version: 1,
+          surface: 'ws-root',
+          seq: 1,
+          eventId: `legacy-${key}`,
+          type,
+          data,
+          createdAt: new Date().toISOString(),
+          idempotencyKey: key,
+        }),
+      )
+      await expect(store.readWorkSession('ws-root')).rejects.toMatchObject({
+        code: 'canonical-corrupt',
+      })
+      await rm(join(events, '000000000001.json'))
+    }
   })
 
   test('rejects reuse of a Work Session event identity for another fact', async () => {

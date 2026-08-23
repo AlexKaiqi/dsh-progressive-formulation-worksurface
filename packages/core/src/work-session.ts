@@ -6,7 +6,7 @@ import { sha256, stableStringify } from './hash.ts'
 import { SurfaceId } from './ids.ts'
 import { withRecoverableLock } from './lock.ts'
 import type {
-  LegacyBoundaryEventType,
+  LegacyEventType,
   Revision,
   SurfaceId as SurfaceIdType,
   WorkSessionEvent,
@@ -34,7 +34,6 @@ interface WorkSessionHead {
 const EVENT_FILE = /^(\d{12})\.json$/
 const EVENT_TYPES = new Set<WorkSessionEventType>([
   'surface/created',
-  'child/created',
   'surface/revision-published',
   'orchestrator/defined',
   'orchestrator/run-started',
@@ -44,19 +43,21 @@ const EVENT_TYPES = new Set<WorkSessionEventType>([
 ])
 
 /**
- * Boundary facts that moved out of the Work Session stream into write-once
- * delegation records and the DSH Session tree. Streams that still contain them
- * predate that move and fail fast with an actionable message.
+ * Facts that moved out of the Work Session stream: child existence is owned by
+ * delegation records aligned with the DSH Session tree, and Agent/Session
+ * attachment is a write-once delegation record per Surface. Streams that still
+ * contain them predate that move and fail fast with an actionable message.
  */
-const LEGACY_BOUNDARY_TYPES = new Set<LegacyBoundaryEventType>([
+const LEGACY_TYPES = new Set<LegacyEventType>([
+  'child/created',
   'agent/session-bound',
   'agent/session-completed',
   'child/session-started',
   'child/session-completed',
 ])
 
-function isLegacyBoundaryType(type: string): type is LegacyBoundaryEventType {
-  return LEGACY_BOUNDARY_TYPES.has(type as LegacyBoundaryEventType)
+function isLegacyType(type: string): type is LegacyEventType {
+  return LEGACY_TYPES.has(type as LegacyEventType)
 }
 
 /** Append-only domain history physically contained by each flat Surface directory. */
@@ -251,10 +252,11 @@ function validateEvent(event: WorkSessionEvent, surface: SurfaceIdType, seq: num
     || typeof event.idempotencyKey !== 'string' || event.idempotencyKey === '') {
     throw new WorkSurfaceError('canonical-corrupt', `invalid Work Session event ${seq} for Surface '${surface}'`)
   }
-  if (isLegacyBoundaryType(event.type)) {
+  if (isLegacyType(event.type)) {
     throw new WorkSurfaceError('canonical-corrupt',
-      `Work Session event ${seq} for Surface '${surface}' is a legacy '${event.type}' boundary fact; `
-      + 'Agent/Session attachment is now a write-once delegation record and the child boundary is owned by the DSH Session tree. '
+      `Work Session event ${seq} for Surface '${surface}' is a legacy '${event.type}' fact; `
+      + 'a Surface exists only when its Session exists, child existence is owned by delegation records aligned with the DSH Session tree, '
+      + 'and Agent/Session attachment is a write-once delegation record. '
       + 'Recreate the Surface or migrate its rc.6 state.',
       { surface, seq, type: event.type })
   }
@@ -303,14 +305,6 @@ function validateTransition(
     return
   }
   if (type === 'surface/created') corrupt('contains more than one surface/created fact')
-  if (type === 'child/created') {
-    const child = SurfaceId((data as WorkSessionEventDataMap['child/created']).childSurfaceId)
-    if (child === surface) corrupt('cannot create itself as a child')
-    if (events.some(event => event.type === 'child/created'
-      && (event.data as WorkSessionEventDataMap['child/created']).childSurfaceId === child)) {
-      corrupt(`creates child '${child}' more than once`)
-    }
-  }
   if (type === 'surface/revision-published') {
     const publication = data as WorkSessionEventDataMap['surface/revision-published']
     assertEventRevision(publication.revision, corrupt)

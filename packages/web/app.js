@@ -243,8 +243,8 @@ function render() {
   const viewport = root.querySelector('#viewport')
   setGraphVisibility(empty, viewport, true)
   root.querySelector('#scope').textContent = graph.rootSurface
-  const counts = Object.fromEntries(['draft', 'bound', 'completed'].map(phase => [phase, graph.nodes.filter(node => node.phase === phase).length]))
-  root.querySelector('#summary').innerHTML = `<span><b>${graph.nodes.length}</b> ${t('surfaces')}</span><span><b>${graph.edges.length}</b> ${t('dependencies')}</span><span class="running"><i></i><b>${counts.bound}</b> ${t('running')}</span><span class="done"><i></i><b>${counts.completed}</b> ${t('completed')}</span>${counts.draft ? `<span class="draft"><i></i><b>${counts.draft}</b> ${t('pending')}</span>` : ''}`
+  const counts = Object.fromEntries(['bound', 'completed'].map(phase => [phase, graph.nodes.filter(node => node.phase === phase).length]))
+  root.querySelector('#summary').innerHTML = `<span><b>${graph.nodes.length}</b> ${t('surfaces')}</span><span><b>${graph.edges.length}</b> ${t('dependencies')}</span><span class="running"><i></i><b>${counts.bound}</b> ${t('running')}</span><span class="done"><i></i><b>${counts.completed}</b> ${t('completed')}</span>`
   renderCards()
   sizeCanvas()
   renderEdges()
@@ -305,7 +305,7 @@ function titleOf(node) {
 }
 
 function phaseLabel(phase) {
-  return phase === 'completed' ? t('phaseCompleted') : phase === 'bound' ? t('phaseRunning') : t('phasePending')
+  return phase === 'completed' ? t('phaseCompleted') : t('phaseRunning')
 }
 
 function installDrag(card, surface) {
@@ -387,7 +387,6 @@ function surfaceDetail(node) {
 }
 
 function conversationDetail(node, messages) {
-  if (!node.sessionId) return `<p class="muted">${t('draftUnbound')}</p>`
   if (messages.length === 0) return `<p class="muted">${t('noMessages')}</p>`
   return `<div class="conversation">${messages.map(message => `<article class="message ${message.role}"><span>${message.role === 'user' ? t('you') : message.role === 'assistant' ? t('agent') : t('error')}</span><div>${escapeHtml(message.text).replaceAll('\n', '<br>')}</div></article>`).join('')}</div>`
 }

@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { WorkSurfaceStore } from '@pf-worksurface/core'
 import { executeDirect } from '../src/direct.ts'
 import * as invariant from '../src/invariant.ts'
 import type { WorkSurfaceRpcMethod } from '../src/protocol.ts'
@@ -23,16 +24,15 @@ async function fixture(): Promise<{ root: string; template: string }> {
 }
 
 describe('executeDirect', () => {
-  it('runs every file operation with optional revisions, parents, surfaces, and retries', async () => {
+  it('runs every file operation with optional revisions, parents, and retries', async () => {
     const { root, template } = await fixture()
-    const parent = await executeDirect(root, 'new', 'attempt', { key: 'parent', templatePath: template }) as {
-      surface: string
-      revision: string
-    }
-    const child = await executeDirect(root, 'new', 'attempt', {
-      key: 'child', templatePath: template, parent: parent.surface, surface: 'ws-child', retry: true,
-    }) as { surface: string; revision: string }
-    expect(child.surface).toBe('ws-child')
+    // Direct mode operates on existing canonical state; surfaces are seeded
+    // through the store because creation is bound to Host delegation.
+    const store = new WorkSurfaceStore({ root })
+    const parent = await store.newSurface({ attemptId: 'attempt', key: 'parent', templatePath: template, surface: 'ws-parent' })
+    const child = await store.newSurface({
+      attemptId: 'attempt', key: 'child', templatePath: template, parent: parent.surface, surface: 'ws-child',
+    })
 
     const directory = join(root, '..', 'checkout')
     await executeDirect(root, 'checkout', 'attempt', { surface: child.surface, targetPath: directory, revision: child.revision })
@@ -64,15 +64,15 @@ describe('executeDirect', () => {
   })
 
   it('rejects Host-only, invalid typed parameters, and an unreachable method', async () => {
-    const { root, template } = await fixture()
+    const { root } = await fixture()
     await expect(executeDirect(root, 'agent.run', 'attempt', {})).rejects.toMatchObject({ code: 'unauthorized' })
     for (const params of [
-      { key: 1, templatePath: template },
-      { key: '', templatePath: template },
-      { key: 'key', templatePath: template, parent: 1 },
-      { key: 'key', templatePath: template, surface: '' },
+      { surface: 1, targetPath: 'x' },
+      { surface: '', targetPath: 'x' },
+      { surface: 'ws-root', targetPath: 1 },
+      { surface: 'ws-root', targetPath: '' },
     ]) {
-      await expect(executeDirect(root, 'new', 'attempt', params)).rejects.toMatchObject({ code: 'invalid-working-copy' })
+      await expect(executeDirect(root, 'checkout', 'attempt', params)).rejects.toMatchObject({ code: 'invalid-working-copy' })
     }
     for (const tokenBudget of ['1', 1.5]) {
       await expect(executeDirect(root, 'projection', 'attempt', {
