@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/event.schema.json",
+  "title": "WorkSurface Event Envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "id", "subject", "seq", "name", "payload", "causes", "meta", "recordedAt"],
+  "properties": {
+    "version": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "enum": ["surface", "registration"] },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "seq": { "type": "integer", "minimum": 0 },
+    "name": { "type": "string", "minLength": 1 },
+    "payload": true,
+    "causes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/eventRef" }
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1 },
+        "turn": { "type": "integer", "minimum": 0 },
+        "registrationId": { "type": "string", "minLength": 1 },
+        "activationId": { "type": "string", "minLength": 1 },
+        "operationKey": { "type": "string", "minLength": 1 },
+        "definitionRevision": { "$ref": "#/$defs/revision" },
+        "inputSource": { "enum": ["published", "authoring", "revision"] },
+        "inputRevision": { "$ref": "#/$defs/revision" },
+        "expectedHead": { "anyOf": [{ "$ref": "#/$defs/revision" }, { "type": "null" }] },
+        "outputRevision": { "$ref": "#/$defs/revision" }
+      }
+    },
+    "recordedAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "eventRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "seq", "id"],
+      "properties": {
+        "subject": { "type": "string", "pattern": "^(surface|registration):[^\\s]+$" },
+        "seq": { "type": "integer", "minimum": 0 },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

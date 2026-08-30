@@ -1,823 +1,451 @@
-import { randomBytes } from 'node:crypto'
-import { mkdir, readFile, realpath, rm, stat } from 'node:fs/promises'
-import { delimiter, join, resolve, sep } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { dirname, join, resolve, sep } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import type {} from '@deepseek-ai/dsh-shell-env'
-import type {} from '@deepseek-ai/dsh-sandbox'
-import type {} from '@deepseek-ai/dsh-system-prompt'
-import type {} from '@deepseek-ai/dsh-subagent'
-import type {} from '@deepseek-ai/dsh-subprocess'
-import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
+import type { Session } from '@deepseek-ai/dsh-session'
 import {
-  EffectJournal,
-  asWorkSurfaceError,
-  parseSurfaceDocument,
-  ProjectionCompiler,
-  sessionSurfaceId as sessionSurfaceIdCore,
-  sha256,
-  SurfaceId,
+  DefinitionStore,
+  FileEventStore,
+  RevisionStore,
   WorkSurfaceError,
-  WorkSurfaceStore,
+  defineOrchestration,
+  projectSurfaceLifecycle,
+  stableStringify,
+  validateSurfaceMarkdown,
+  type EventRef,
+  type JsonValue,
+  type Revision,
+  type RevisionGcResult,
+  type SurfaceLifecycleProjection,
+  type WorkSurfaceEvent,
+  type WorkSurfaceViewDefinition,
 } from '@pf-worksurface/core'
-import type { Revision, SurfaceIdType, WorkSurfaceGraphSnapshot } from '@pf-worksurface/core'
-import type { WorkSurfaceRpcRequest } from '@pf-worksurface/cli'
-import { runAgent } from './agent-run.ts'
-import { prepareAttempt } from './attempt.ts'
-import { runAttemptGc } from './attempt-gc.ts'
-import { attemptPath, authorizeRequest, childBinding, requireOrchestrator, requireSurface } from './authority.ts'
-import { installB2FRootResolver, type B2FPublicationReceipt, type B2FPublicationRequest, type B2FRootScope } from './b2f.ts'
-import { installHarnessCapabilities } from './capabilities.ts'
-import { ContinuableDelegationRuntime } from './continuable-delegation.ts'
-import { assertOutsideImplicitTemporaryRoots, assertSocketPath, CONFIG_SCHEMA, resolveConfig, validateProfiles } from './config.ts'
-import type { Config } from './config.ts'
-import { SESSION_ROOT_TEMPLATE } from './model/session-root-template.ts'
+import type { WorkSurfaceRpcCall } from '@pf-worksurface/cli'
+import { SubprocessCodeHandlerRunner } from './code-handler.ts'
+import { CONFIG_SCHEMA, resolveConfig, type Config, type WorkSurfaceConfig } from './config.ts'
+import { WorkSurfaceEngine, type OrchestrationInspection } from './engine.ts'
 import { WorkSurfaceHost } from './host.ts'
-import { numberParam, optionalString, stringParam } from './params.ts'
-import type { AgentRunResult, AttemptAuthority, OrchestratorResult, PendingWorkspace, WorkSurfaceConfig, WorkSurfaceProfile } from './types.ts'
-import { hashWorkspace, preparePendingWorkspace } from './workspace.ts'
+import { SurfaceSessionAdmission, type SurfaceSessionAdmissionRequest, type SurfaceSessionAdmissionResult } from './session-admission.ts'
+import { SurfaceSessionService, type SurfaceInputSource, type SurfaceSessionBinding, type SurfaceSessionGcResult } from './session-surface.ts'
+import { installDshSessionAdapter } from './session-adapter.ts'
 
 declare module '@deepseek-ai/cordis' {
-  interface Context {
-    workSurfaces: WorkSurfaceService
-  }
-
-  interface Events {
-    /**
-     * An Orchestrator attempt acquired its authority and is about to run.
-     * @param info - The attempt identity, root Surface, script hash, and public workspace hash.
-     * @mode emit
-     */
-    'worksurface/attempt-start'(info: {
-      attemptId: string
-      rootSurface: SurfaceIdType
-      codeHash: string
-      workspaceHash: string
-    }): void
-    /**
-     * An Orchestrator attempt settled and its final root revision is known.
-     * @param info - The persisted process outcome and replay count.
-     * @mode emit
-     */
-    'worksurface/attempt-end'(info: OrchestratorResult): void
-    /**
-     * A child Agent run is starting against a pinned Surface Projection.
-     * @param info - The owning attempt, assigned Surface, and profile.
-     * @mode emit
-     */
-    'worksurface/agent-start'(info: { attemptId: string; surface: SurfaceIdType; profile: string }): void
-    /**
-     * A child Agent returned a validated revision-pinned completion.
-     * @param info - The owning attempt, child identity, and committed completion.
-     * @mode emit
-     */
-    'worksurface/agent-end'(info: AgentRunResult & { attemptId: string; agentId?: string }): void
-  }
+  interface Context { workSurfaces: WorkSurfaceService }
 }
 
-/** DeepSeek Harness WorkSurface Host and orchestration service. */
+export interface OrchestrationSummary {
+  readonly orchestrationId: string
+  readonly registrationId: string
+  readonly definitionRevision: Revision
+  readonly status: 'active' | 'paused' | 'retired'
+  readonly bindings: Readonly<Record<string, string>>
+  readonly subscriptionCount: number
+  readonly activationCount: number
+  readonly pendingOperationCount: number
+}
+
+export interface SurfaceTopologyNode {
+  readonly surfaceId: string
+  readonly title: string
+  readonly group?: string
+  readonly lifecycle: SurfaceLifecycleProjection
+}
+
+export interface SurfaceChoice { readonly surfaceId: string; readonly title: string }
+
+export interface SurfaceCreationResult {
+  readonly surfaceId: string
+  readonly created: boolean
+  readonly planner: { readonly surfaceId: string; readonly sessionId: string; readonly turn: number }
+}
+
+export interface TopologyInspection {
+  readonly anchorSurfaceId: string
+  readonly surfaces: readonly SurfaceTopologyNode[]
+  readonly orchestrations: readonly OrchestrationInspection[]
+  readonly view?: WorkSurfaceViewDefinition
+}
+
+export interface LegacyDataReport {
+  readonly status: 'read-only'
+  readonly detected: boolean
+  readonly v2Present: boolean
+  readonly v3Present: boolean
+}
+
+export interface WorkSurfaceGcResult {
+  readonly revisions: RevisionGcResult
+  readonly worktrees: SurfaceSessionGcResult
+}
+
+/** Cordis assembly around file events, immutable revisions, and existing DSH Sessions. */
 export class WorkSurfaceService extends Service {
-  static inject = ['b2f', 'tools', 'systemPrompt', 'subagents', 'sandbox', 'subprocess', 'shellEnv']
+  static inject = [
+    'subprocess',
+    'shellEnv',
+    'sandbox',
+    'agents',
+    'agentDefaultModel',
+    'sessions',
+    'sessionPersistence',
+  ]
   static Config = CONFIG_SCHEMA
 
-  /** Resolved immutable service configuration. */
   readonly config: WorkSurfaceConfig
-  /** Canonical file store owned by this service. */
-  readonly store: WorkSurfaceStore
-  /** Projection compiler bound to the canonical store. */
-  readonly projections: ProjectionCompiler
-  private readonly attempts = new Map<string, AttemptAuthority>()
-  private readonly agentJournal: EffectJournal
+  readonly eventStore: FileEventStore
+  readonly revisions: RevisionStore
+  readonly surfaces: SurfaceSessionService
+  readonly sessionAdmission: SurfaceSessionAdmission
+  readonly engine: WorkSurfaceEngine
   private readonly host: WorkSurfaceHost
-  private readonly delegations: ContinuableDelegationRuntime
-  private readonly sessionTemplatePath: string
+  private readonly registrationIds = new Set<string>()
   private readonly initialization: Promise<void>
-  private readonly sessionSurfaceInitializations = new WeakMap<Agent, Promise<SurfaceIdType>>()
-  private readonly pendingWorkspaceInitializations = new Map<string, Promise<PendingWorkspace>>()
-  private readonly pendingWorkspaces = new Map<string, PendingWorkspace>()
-  private readonly disposedAgentIds = new Set<string>()
-  private disposingPendingWorkspaces = false
-  private sessionTemplatePreparation: Promise<void> | undefined
-  private harness: {
-    readonly sandbox: Context['sandbox']
-    readonly subagents: Context['subagents']
-    readonly subprocess: Context['subprocess']
-  } | undefined
+  private readonly startupRecovery: Promise<void>
+  private wakeQueued = false
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'workSurfaces')
     this.config = resolveConfig(config)
-    this.store = new WorkSurfaceStore({ root: this.config.root })
-    this.projections = new ProjectionCompiler(this.store)
-    this.agentJournal = new EffectJournal(join(this.store.runtimeRoot, 'orchestrator', 'agent-effects'))
+    this.eventStore = new FileEventStore(this.config.eventRoot)
+    this.revisions = new RevisionStore(this.config.revisionRoot)
+    this.surfaces = new SurfaceSessionService(this.eventStore, this.revisions, this.config.workRoot, this.config.root)
+    this.engine = new WorkSurfaceEngine(
+      new DefinitionStore(this.config.definitionRoot, this.revisions),
+      this.surfaces,
+      new SubprocessCodeHandlerRunner(ctx, this.config.runtimeRoot, this.revisions),
+    )
     this.host = new WorkSurfaceHost(this.config.socketPath, this)
-    this.delegations = new ContinuableDelegationRuntime(
-      ctx,
-      this.store,
-      this.projections,
-      name => this.profile(name),
-    )
-    this.sessionTemplatePath = join(this.store.runtimeRoot, 'templates', 'session-root')
-    validateProfiles(this.config.profiles)
-    assertOutsideImplicitTemporaryRoots(this.config.root, 'WorkSurface root')
-    assertOutsideImplicitTemporaryRoots(this.config.socketPath, 'WorkSurface Host socket')
-    assertSocketPath(this.config.socketPath, this.config.attemptsRoot)
-
-    const restoreB2F = installB2FRootResolver(
-      ctx,
-      (agent, paths) => this.resolveB2FRoot(agent, paths),
-      request => this.publishB2F(request),
-    )
-    ctx.effect(() => restoreB2F, 'worksurface.b2fRoot()')
-    ctx.on('agent/disposed', ({ agent }) => {
-      const agentId = String(agent.id)
-      this.disposedAgentIds.add(agentId)
-      void this.disposePendingWorkspace(agentId).catch(() => {})
-    })
-    ctx.effect(() => () => {
-      this.disposingPendingWorkspaces = true
-      return this.disposePendingWorkspaces()
-    }, 'worksurface.pendingWorkspaces()')
 
     const lifecycle = ctx.effect(async () => {
-      await this.store.init()
-      await mkdir(this.config.attemptsRoot, { recursive: true, mode: 0o700 })
-      await this.gcRuntime()
-      await this.prepareSessionTemplate()
+      await Promise.all([
+        mkdir(this.config.runtimeRoot, { recursive: true, mode: 0o700 }),
+        mkdir(join(this.config.workRoot, 'surfaces'), { recursive: true }),
+        mkdir(join(this.config.workRoot, 'orchestrations'), { recursive: true }),
+        this.eventStore.init(),
+        this.revisions.init(),
+      ])
+      await this.surfaces.init()
+      for (const id of await this.eventStore.list('registration')) this.registrationIds.add(id)
+      await this.collectGarbage()
+      const unwatch = this.eventStore.watch(event => {
+        if (event.subject.kind === 'surface' || event.name === 'registration.operation-recorded') this.queueReconcile()
+      })
       await this.host.start()
-      return () => this.host.close()
-    }, 'worksurface.host()')
+      installDshSessionAdapter(ctx, this.surfaces, this.config.socketPath, async surfaceId => {
+        const result = await this.sessionAdmission.ensure({ surfaceId })
+        return { sessionId: result.sessionId }
+      })
+      await this.surfaces.recover()
+      return async () => { unwatch(); await this.host.close() }
+    }, 'worksurface.v1SessionIntegration()')
     this.initialization = Promise.resolve(lifecycle).then(() => undefined)
-
-    this.harness = {
-      sandbox: ctx.sandbox,
-      subagents: ctx.subagents,
-      subprocess: ctx.subprocess,
-    }
-    ctx.effect(() => () => {
-      this.harness = undefined
-    }, 'worksurface.capabilities()')
-    installHarnessCapabilities({
-      ctx,
-      config: this.config,
-      store: this.store,
-      projections: this.projections,
-      openSessionSurface: (agent) => this.openSessionSurface(agent),
-      peekSessionSurface: (agent) => this.peekSessionSurface(agent),
-      defaultProfile: () => this.defaultProfile(),
-      runOrchestrator: (parent, language, script, rootSurfaceInput, signal, control) =>
-        this.runOrchestrator(parent, language, script, rootSurfaceInput, signal, control),
-      childBinding: (agentId) => childBinding(this.attempts, agentId) ?? this.delegations.childBinding(agentId),
-      parentWorkspace: (agentId) => this.parentWorkspace(agentId),
+    this.sessionAdmission = new SurfaceSessionAdmission(ctx, this.surfaces, () => this.initialization)
+    this.startupRecovery = this.initialization.then(async () => {
+      const sessions = await this.sessionAdmission.recoverAfterRestart()
+      const registrations = [...this.registrationIds].sort()
+      const reconciled = await Promise.allSettled(registrations.map(id => this.engine.reconcile(id)))
+      for (const [index, result] of reconciled.entries()) {
+        if (result.status === 'rejected') {
+          ctx.logger.warn(`WorkSurface startup reconcile '${registrations[index]}' failed: ${renderError(result.reason)}`)
+        }
+      }
+      const failedRegistrations = reconciled.filter(result => result.status === 'rejected').length
+      ctx.logger.info(
+        `WorkSurface startup recovery resumed ${sessions.length} Session(s); `
+        + `reconciled ${registrations.length - failedRegistrations}/${registrations.length} Registration(s)`,
+      )
     })
   }
 
-  async [Service.init](): Promise<void> {
-    await this.initialization
-  }
+  async [Service.init](): Promise<void> { await this.startupRecovery }
 
-  /**
-   * Resolve the durable root Surface bound to one Agent session, creating its default file template once.
-   * @param agent - Agent whose stable session identity owns the root Surface.
-   * @returns The session root and its current revision.
-   */
-  async openSessionSurface(agent: Agent): Promise<{ surface: SurfaceIdType; revision: Revision }> {
-    let initialization = this.sessionSurfaceInitializations.get(agent)
-    if (initialization === undefined) {
-      initialization = this.initializeSessionSurface(agent)
-      this.sessionSurfaceInitializations.set(agent, initialization)
-      void initialization.catch(() => {
-        this.sessionSurfaceInitializations.delete(agent)
-      })
-    }
-    const surface = await initialization
-    return { surface, revision: (await this.store.readHead(surface)).revision }
-  }
-
-  /**
-   * Resolve an existing Session root Surface without creating it.
-   * @param agent - Agent whose stable session identity would own the root Surface.
-   * @returns The root and its current revision, or null when the Session has no WorkSurface state yet.
-   */
-  async peekSessionSurface(agent: Agent): Promise<{ surface: SurfaceIdType; revision: Revision } | null> {
-    const surface = sessionSurfaceId(agent)
-    if (!(await this.store.hasSurface(surface))) return null
-    return this.openSessionSurface(agent)
-  }
-
-  /** Resolve a top-level or delegated Session to its owning WorkGraph. */
-  async graphForSession(sessionId: string): Promise<WorkSurfaceGraphSnapshot> {
-    const binding = await this.store.readSessionBinding({ sessionId })
-    if (binding === undefined) throw new WorkSurfaceError('not-found', `Session '${sessionId}' has no WorkSurface binding`, { sessionId })
-    return this.store.graphSnapshot(binding.rootSurface)
-  }
-
-  /** Build the WorkGraph rooted at an explicitly known top-level Surface. */
-  async graphSnapshot(rootSurface: string): Promise<WorkSurfaceGraphSnapshot> {
-    return this.store.graphSnapshot(rootSurface)
-  }
-
-  /**
-   * Prepare the parent workspace before model generation so b2f has a synchronous root.
-   * @param agent - Agent that owns the pending workspace.
-   * @param current - Optional already resolved session Surface pin.
-   * @returns The unclaimed public workspace and prepared root checkout.
-   */
-  async openSessionWorkspace(
-    agent: Agent,
-    current?: { surface: SurfaceIdType; revision: Revision },
-  ): Promise<PendingWorkspace> {
-    const agentId = String(agent.id)
-    if (this.disposingPendingWorkspaces || this.disposedAgentIds.has(agentId)) {
-      throw new WorkSurfaceError('cancelled', `Agent '${agentId}' no longer owns a pending workspace`)
-    }
-    const ready = this.pendingWorkspaces.get(agentId)
-    if (ready !== undefined) {
-      assertWorkspaceSurface(ready, current)
-      return ready
-    }
-
-    let initialization = this.pendingWorkspaceInitializations.get(agentId)
-    if (initialization === undefined) {
-      initialization = (async () => {
-        const sessionRoot = current ?? await this.openSessionSurface(agent)
-        const workspace = await preparePendingWorkspace(
-          this.store,
-          this.config.attemptsRoot,
-          agent,
-          sessionRoot.surface,
-          sessionRoot.revision,
-        )
-        if (this.disposingPendingWorkspaces || this.disposedAgentIds.has(agentId)) {
-          await rm(workspace.root, { recursive: true, force: true })
-          throw new WorkSurfaceError('cancelled', `Agent '${agentId}' no longer owns a pending workspace`)
-        }
-        this.pendingWorkspaces.set(agentId, workspace)
-        return workspace
-      })()
-      this.pendingWorkspaceInitializations.set(agentId, initialization)
-    }
+  async createSurface(surfaceId: string, markdown: string, capability: string): Promise<SurfaceCreationResult> {
+    validateAuthorId(surfaceId, 'Surface')
+    validateSurfaceMarkdown(markdown)
+    const planner = this.surfaces.planningSource(capability)
+    const directory = this.authorPath('surfaces', surfaceId)
+    const contract = join(directory, 'surface.md')
+    const content = markdown.endsWith('\n') ? markdown : `${markdown}\n`
+    await mkdir(directory, { recursive: true })
+    let created = false
     try {
-      const workspace = await initialization
-      assertWorkspaceSurface(workspace, current)
-      return workspace
-    } finally {
-      if (this.pendingWorkspaceInitializations.get(agentId) === initialization) {
-        this.pendingWorkspaceInitializations.delete(agentId)
+      await writeFile(contract, content, { encoding: 'utf8', flag: 'wx' })
+      created = true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      if (await readFile(contract, 'utf8') !== content) {
+        throw new WorkSurfaceError('already-exists-conflict', `Surface '${surfaceId}' already has a different authoring contract`)
       }
     }
+    return { surfaceId, created, planner }
   }
 
-  /**
-   * Dispatch one already framed Host request after least-authority authentication.
-   * @param request - The authenticated attempt identity, method, and JSON parameters.
-   * @param signal - Aborts work when the client connection closes.
-   * @returns The method-specific JSON-compatible result.
-   */
-  async dispatch(request: WorkSurfaceRpcRequest, signal: AbortSignal): Promise<unknown> {
-    if (signal.aborted) throw new WorkSurfaceError('cancelled', 'Host request was cancelled')
-    const authority = authorizeRequest(this.attempts, request, this.delegations.activeAuthorities)
-    if (authority.child !== undefined) await authority.child.ready
-    const params = request.params
-    switch (request.method) {
-      case 'checkout': {
-        const surface = requireSurface(authority, stringParam(params, 'surface'))
-        if (authority.child !== undefined) {
-          throw new WorkSurfaceError('unauthorized', 'child Agents receive their checkout from the Host and cannot materialize another copy')
-        }
-        const targetPath = await attemptPath(authority.attempt, stringParam(params, 'targetPath'))
-        return this.store.checkout({
-          surface,
-          targetPath,
-          ...(optionalString(params, 'revision') === undefined
-            ? {}
-            : { revision: optionalString(params, 'revision') as Revision }),
-        })
-      }
-      case 'commit': {
-        const workingPath = await attemptPath(authority.attempt, stringParam(params, 'workingPath'))
-        if (authority.child !== undefined && workingPath !== authority.child.workingPath) {
-          throw new WorkSurfaceError('unauthorized', 'child Agent may commit only its assigned working copy')
-        }
-        const envelope = parseSurfaceDocument(await readFile(join(workingPath, 'surface.md'), 'utf8'))
-        requireSurface(authority, envelope.surfaceId)
-        return this.store.commit({
-          attemptId: request.attemptId,
-          key: stringParam(params, 'key'),
-          workingPath,
-          baseRevision: stringParam(params, 'baseRevision') as Revision,
-          ...(params.retry === true ? { retry: true } : {}),
-        })
-      }
-      case 'show': {
-        const surface = requireSurface(authority, stringParam(params, 'surface'))
-        const snapshot = await this.store.readSnapshot(surface, optionalString(params, 'revision') as Revision | undefined)
-        return {
-          surface: snapshot.surface,
-          revision: snapshot.revision,
-          surfaceDocument: snapshot.surfaceDocument,
-          blocks: Object.fromEntries(snapshot.blocks),
-        }
-      }
-      case 'projection': {
-        const surface = requireSurface(authority, stringParam(params, 'surface'))
-        return this.projections.compile({
-          surface,
-          profile: stringParam(params, 'profile'),
-          tokenBudget: numberParam(params, 'tokenBudget'),
-          ...(optionalString(params, 'revision') === undefined
-            ? {}
-            : { revision: optionalString(params, 'revision') as Revision }),
-        })
-      }
-      case 'agent.run': {
-        requireOrchestrator(authority)
-        const surface = SurfaceId(stringParam(params, 'surface'))
-        const templatePath = optionalString(params, 'templatePath')
-        // runAgent performs canonical admission. A reconstructed attempt may
-        // safely re-admit its already-bound child only after checking the exact
-        // root and parent Session identities; arbitrary existing Surfaces stay denied.
-        const operation = runAgent({
-          ctx: this.ctx,
-          store: this.store,
-          projections: this.projections,
-          agentJournal: this.agentJournal,
-          profile: (name) => this.profile(name),
-          startContinuable: (profile, parent, surface, task, persona, childSignal) =>
-            this.delegations.start(profile, parent, surface, task, persona, childSignal),
-          resumeContinuable: (parent, binding, task, childSignal) =>
-            this.delegations.resume(parent, binding, task, childSignal),
-          bindingCommitted: sessionId => this.delegations.bindingCommitted(sessionId),
-          bindingFailed: (sessionId, error) => this.delegations.bindingFailed(sessionId, error),
-          waitForCompletion: (sessionId, childSignal) => this.delegations.waitForCompletion(sessionId, childSignal),
-        }, authority.attempt, {
-          surface,
-          task: stringParam(params, 'task'),
-          profile: stringParam(params, 'profile'),
-          key: stringParam(params, 'key'),
-          ...(templatePath === undefined ? {} : { templatePath: await attemptPath(authority.attempt, templatePath) }),
-          ...(optionalString(params, 'parent') === undefined ? {} : { parent: optionalString(params, 'parent') as string }),
-          retry: params.retry === true,
-          signal,
-        })
-        authority.attempt.operations.add(operation)
-        operation.then(
-          () => authority.attempt.operations.delete(operation),
-          () => authority.attempt.operations.delete(operation),
-        )
-        return operation
-      }
-    }
+  emitEvent(
+    surfaceId: string,
+    name: string,
+    payload: JsonValue,
+    options: { readonly eventId?: string; readonly causes?: readonly EventRef[] } = {},
+  ): Promise<EventRef> {
+    return this.surfaces.appendSurface(surfaceId, {
+      id: options.eventId ?? `evt_${randomUUID()}`,
+      name,
+      payload,
+      causes: options.causes ?? [],
+    })
   }
 
-  /**
-   * Execute one sandboxed ordinary Bash or Python Orchestrator.
-   * @param parent - The Agent that invoked the model-facing orchestration tool.
-   * @param language - The ordinary script interpreter family.
-   * @param script - The unchanged inline control-script source persisted for audit.
-   * @param rootSurfaceInput - The attempt's pre-existing root Surface.
-   * @param signal - Cancels the subprocess and its accepted child work.
-   * @param control - Optional committed control-script path inside the attempt workspace,
-   *   for example work/control/plan.sh; exactly one of script or control is required.
-   * @returns The persisted process outcome and final root revision.
-   */
-  async runOrchestrator(
-    parent: Agent,
-    language: 'bash' | 'python',
-    script: string,
-    rootSurfaceInput: string,
-    signal: AbortSignal,
-    control?: string,
-  ): Promise<OrchestratorResult> {
-    const inline = script.trim()
-    const controlPath = control?.trim() ?? ''
-    if (inline === '' && controlPath === '') {
-      throw new WorkSurfaceError('invalid-working-copy', 'Orchestrator requires either an inline script or a control path')
-    }
-    if (inline !== '' && controlPath !== '') {
-      throw new WorkSurfaceError('invalid-working-copy', 'provide either an inline script or a control path, not both')
-    }
-    const rootSurface = SurfaceId(rootSurfaceInput)
-    const rootHead = await this.store.readHead(rootSurface)
-    const workspace = await this.openSessionWorkspace(parent, { surface: rootSurface, revision: rootHead.revision })
-    const source = controlPath === '' ? inline : await this.controlSource(workspace.workspaceRoot, controlPath, language)
-    const definition = await this.store.defineOrchestrator(language, source)
-    await this.store.bindSession({
-      surface: rootSurface,
-      sessionId: String(parent.id),
-      role: 'root',
-      rootSurface,
+  emitTurn(capability: string, name: string, payload: JsonValue, operationKey?: string): Promise<EventRef> {
+    return this.surfaces.emitTurn(capability, name, payload, operationKey)
+  }
+
+  /** Called by the creator during DSH Agent setup, before the Surface Session starts. */
+  bindSession(session: Session, surfaceId: string, source?: SurfaceInputSource): Promise<SurfaceSessionBinding> {
+    return this.surfaces.bindSession(session, surfaceId, source)
+  }
+
+  /** Use this as CreateAgentOptions.meta.cwd before calling bindSession in setup. */
+  cwdForSurface(surfaceId: string): string { return this.surfaces.cwdForSurface(surfaceId) }
+
+  /** Product admission: create or resume the Surface's one real DSH Session without starting a Turn. */
+  ensureSession(request: SurfaceSessionAdmissionRequest): Promise<SurfaceSessionAdmissionResult> {
+    return this.sessionAdmission.ensure(request)
+  }
+
+  replayEvents(surfaceId: string, fromSeq?: number): Promise<readonly WorkSurfaceEvent[]> {
+    return this.surfaces.replaySurface(surfaceId, fromSeq)
+  }
+
+  /** Wakeup only. Callers must rebuild their projection after it resolves. */
+  waitForProjectionWake(signal: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let settled = false
+      const unwatch = this.eventStore.watch(() => finish())
+      const cleanup = (): void => { unwatch(); signal.removeEventListener('abort', abort) }
+      const finish = (): void => { if (!settled) { settled = true; cleanup(); resolve() } }
+      const abort = (): void => {
+        if (!settled) {
+          settled = true
+          cleanup()
+          reject(new WorkSurfaceError('cancelled', 'projection wakeup cancelled'))
+        }
+      }
+      if (signal.aborted) abort()
+      else signal.addEventListener('abort', abort, { once: true })
     })
-    const workspaceHash = await hashWorkspace(workspace.workspaceRoot)
-    const codeHash = definition.codeHash
-    const attemptId = `attempt-${sha256(`${parent.id}\0${rootSurface}\0${codeHash}\0${workspaceHash}`).slice(0, 24)}`
-    if (this.attempts.has(attemptId)) throw new WorkSurfaceError('effect-failed', `attempt '${attemptId}' is already running`)
-    const authority: AttemptAuthority = {
-      id: attemptId,
-      token: randomBytes(32).toString('hex'),
-      rootSurface,
-      root: workspace.root,
-      workspaceRoot: workspace.workspaceRoot,
-      workspaceSurface: workspace.rootSurface,
-      rootWorkingPath: workspace.rootWorkingPath,
-      rootBaseRevision: workspace.rootBaseRevision,
-      workspaceHash,
-      parent,
-      surfaces: new Set([rootSurface, workspace.rootSurface]),
-      childCredentials: new Map(),
-      operations: new Set(),
-      activeAgents: 0,
-    }
-    if (this.pendingWorkspaces.get(String(parent.id)) === workspace) {
-      this.pendingWorkspaces.delete(String(parent.id))
-    }
-    await prepareAttempt(authority, language, source, codeHash, this.config.cliEntrypoint)
-    await this.store.sessions.append({
-      surface: rootSurface,
-      type: 'orchestrator/defined',
-      data: {
-        definitionRevision: definition.revision,
-        language: definition.language,
-        codeHash: definition.codeHash,
-      },
-      idempotencyKey: `orchestrator-defined:${definition.revision}`,
-    })
-    await this.store.sessions.append({
-      surface: rootSurface,
-      type: 'orchestrator/run-started',
-      data: {
-        runId: attemptId,
-        definitionRevision: definition.revision,
-        workspaceHash,
-        inputRevision: rootHead.revision,
-      },
-      correlationId: attemptId,
-      attemptId,
-      idempotencyKey: `orchestrator-run-started:${attemptId}`,
-    })
-    this.attempts.set(attemptId, authority)
-    let terminalRecorded = false
-    try {
+  }
+
+  async readRevisionFile(revision: Revision, path: string): Promise<{ revision: Revision; content: string }> {
+    return { revision, content: (await this.revisions.readFile(revision, path)).toString('utf8') }
+  }
+
+  async registerDefinition(
+    orchestrationId: string,
+    bindings: Readonly<Record<string, string>>,
+    registrationId = `reg_${randomUUID()}`,
+    definitionInput?: unknown,
+    capability?: string,
+  ): Promise<{ orchestrationId: string; registrationId: string; definitionRevision: Revision }> {
+    validateAuthorId(orchestrationId, 'Orchestration')
+    validateAuthorId(registrationId, 'Registration')
+    if (capability !== undefined) this.surfaces.planningSource(capability)
+    const directory = this.authorPath('orchestrations', orchestrationId)
+    if (definitionInput !== undefined) {
+      const definition = defineOrchestration(definitionInput).definition
+      const content = `${stableStringify(definition)}\n`
+      await mkdir(directory, { recursive: true })
+      const path = join(directory, 'definition.json')
       try {
-        this.ctx.emit('worksurface/attempt-start', { attemptId, rootSurface, codeHash, workspaceHash })
-      } catch {
-        // Lifecycle observers cannot control Orchestrator execution.
+        await writeFile(path, content, { encoding: 'utf8', flag: 'wx' })
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+        if (await readFile(path, 'utf8') !== content) {
+          throw new WorkSurfaceError('already-exists-conflict', `Orchestration '${orchestrationId}' already has a different authoring Definition`)
+        }
       }
-      const harness = this.requireHarness()
-      const command = language === 'bash' ? 'bash' : 'python3'
-      const executable = await harness.subprocess.resolveExecutable(command, undefined, signal)
-      const scriptPath = join(authority.root, 'control', language === 'bash' ? 'main.sh' : 'main.py')
-      const confined = harness.sandbox.confine([executable, scriptPath], {
-        mode: 'workspace-write',
-        workspaceRoot: authority.workspaceRoot,
-        sessionId: parent.id,
-      })
-      if (confined.enforcement !== 'full') {
-        throw new WorkSurfaceError('unauthorized', 'Orchestrator requires full filesystem sandbox enforcement')
-      }
-      let replayCount = 0
-      let outcome: { exitCode: number | null; signal: NodeJS.Signals | null }
-      let stdout = ''
-      let stderr = ''
-      do {
-        const handle = harness.subprocess.spawn({
-          argv: confined.argv,
-          cwd: authority.workspaceRoot,
-          stdio: {
-            stdin: 'ignore',
-            stdout: { maxBytes: this.config.maxOutputBytes },
-            stderr: { maxBytes: this.config.maxOutputBytes },
-          },
-          graceMs: this.config.orchestratorGraceMs,
-          signal,
-          env: {
-            PATH: `${join(authority.root, 'bin')}${delimiter}${process.env.PATH ?? ''}`,
-            DSH_B2F_ROOT: authority.workspaceRoot,
-            WS_ROOT_SURFACE: rootSurface,
-            WS_WORKING_SURFACE: authority.workspaceSurface,
-            WS_WORKING_PATH: authority.rootWorkingPath,
-            WS_BASE_REVISION: authority.rootBaseRevision,
-            WS_HOST_SOCKET: this.config.socketPath,
-            WS_ATTEMPT_ID: attemptId,
-            WS_ATTEMPT_TOKEN: authority.token,
-            WS_ATTEMPT_DIR: authority.workspaceRoot,
-          },
-        })
-        outcome = await handle.done
-        stdout = handle.collected.stdout?.readFrom(0).text ?? ''
-        stderr = handle.collected.stderr?.readFrom(0).text ?? ''
-        if (outcome.signal === null || signal.aborted || replayCount >= this.config.maxCrashReplays) break
-        replayCount += 1
-      } while (true)
-      await Promise.allSettled([...authority.operations])
-      const rootRevision = (await this.store.readHead(rootSurface)).revision
-      const result: OrchestratorResult = {
-        attemptId,
-        rootSurface,
-        codeHash,
-        workspaceHash,
-        exitCode: outcome.exitCode,
-        signal: outcome.signal,
-        stdout,
-        stderr,
-        replayCount,
-        rootRevision,
-      }
-      await writeFileAtomic(join(authority.root, 'runtime', 'result.json'), `${JSON.stringify(result, null, 2)}
-`, {
-        mode: 0o600,
-        dirMode: 0o700,
-      })
-      if (outcome.signal === null) {
-        await this.store.sessions.append({
-          surface: rootSurface,
-          type: 'orchestrator/run-completed',
-          data: {
-            runId: attemptId,
-            outputRevision: rootRevision,
-            exitCode: outcome.exitCode,
-            signal: null,
-            replayCount,
-          },
-          correlationId: attemptId,
-          attemptId,
-          idempotencyKey: `orchestrator-run-terminal:${attemptId}`,
-        })
-      } else {
-        await this.store.sessions.append({
-          surface: rootSurface,
-          type: 'orchestrator/run-interrupted',
-          data: { runId: attemptId, outputRevision: rootRevision, signal: outcome.signal, replayCount },
-          correlationId: attemptId,
-          attemptId,
-          idempotencyKey: `orchestrator-run-terminal:${attemptId}`,
-        })
-      }
-      terminalRecorded = true
-      try {
-        this.ctx.emit('worksurface/attempt-end', result)
-      } catch {
-        // Lifecycle observers cannot change a persisted attempt result.
-      }
-      return result
-    } catch (error) {
-      const failure = asWorkSurfaceError(error)
-      if (!terminalRecorded) {
-        await this.store.sessions.append({
-          surface: rootSurface,
-          type: 'orchestrator/run-failed',
-          data: { runId: attemptId, code: failure.code, message: failure.message },
-          correlationId: attemptId,
-          attemptId,
-          idempotencyKey: `orchestrator-run-terminal:${attemptId}`,
-        })
-      }
-      throw error
-    } finally {
-      await Promise.allSettled([...authority.operations])
-      this.attempts.delete(attemptId)
-      await this.gcRuntime().catch(() => undefined)
     }
+    const definitionRevision = (await this.revisions.snapshotDefinition(directory)).revision
+    let definition: unknown
+    try { definition = JSON.parse((await this.revisions.readFile(definitionRevision, 'definition.json')).toString('utf8')) }
+    catch { throw new WorkSurfaceError('invalid-definition', `Orchestration '${orchestrationId}' has invalid definition.json`) }
+
+    if ((await this.surfaces.replayRegistration(registrationId)).length > 0) {
+      const existing = await this.engine.inspect(registrationId)
+      if (existing.orchestrationId === orchestrationId
+        && existing.definitionRevision === definitionRevision
+        && stableStringify(existing.bindings) === stableStringify(bindings)) {
+        this.registrationIds.add(registrationId)
+        return { orchestrationId, registrationId, definitionRevision }
+      }
+      throw new WorkSurfaceError('already-exists-conflict', `Registration '${registrationId}' already fixes different orchestration facts`)
+    }
+
+    const result = await this.engine.register({ orchestrationId, registrationId, definitionRevision, definition: definition as never, bindings })
+    this.registrationIds.add(registrationId)
+    return result
   }
 
-  private async initializeSessionSurface(agent: Agent): Promise<SurfaceIdType> {
-    const surface = sessionSurfaceId(agent)
-    await this.prepareSessionTemplate()
-    try {
-      await this.store.newSurface({
-        attemptId: `session-${sha256(String(agent.id)).slice(0, 32)}`,
-        key: 'session-root',
-        templatePath: this.sessionTemplatePath,
-        surface,
-      })
-    } catch (error) {
-      if ((error instanceof WorkSurfaceError) === false || error.code !== 'already-exists') throw error
-      await this.store.readHead(surface)
-    }
-    await this.store.bindSession({
-      surface,
-      sessionId: String(agent.id),
-      role: 'root',
-      rootSurface: surface,
-    })
-    return surface
+  pauseDefinition(id: string): Promise<void> { return this.engine.pause(id) }
+  resumeDefinition(id: string): Promise<void> { return this.engine.resume(id) }
+  retireDefinition(id: string): Promise<void> { return this.engine.retire(id) }
+  inspectOrchestration(id: string): Promise<OrchestrationInspection> { return this.engine.inspect(id) }
+
+  async listOrchestrations(surfaceId?: string): Promise<readonly OrchestrationSummary[]> {
+    const inspections = await Promise.all([...this.registrationIds].sort().map(id => this.engine.inspect(id)))
+    return inspections.flatMap(inspection => surfaceId !== undefined && !Object.values(inspection.bindings).includes(surfaceId) ? [] : [{
+      orchestrationId: inspection.orchestrationId,
+      registrationId: inspection.registrationId,
+      definitionRevision: inspection.definitionRevision,
+      status: inspection.status,
+      bindings: inspection.bindings,
+      subscriptionCount: inspection.definition.subscriptions.length,
+      activationCount: inspection.activations.length,
+      pendingOperationCount: inspection.pendingOperations.length,
+    }])
   }
 
-  private async prepareSessionTemplate(): Promise<void> {
-    if (this.sessionTemplatePreparation !== undefined) return this.sessionTemplatePreparation
-    const preparation = (async () => {
-      await mkdir(join(this.sessionTemplatePath, 'blocks'), { recursive: true, mode: 0o700 })
-      await writeFileAtomic(join(this.sessionTemplatePath, 'surface.md'), SESSION_ROOT_TEMPLATE, {
-        mode: 0o600,
-        dirMode: 0o700,
-      })
-    })()
-    this.sessionTemplatePreparation = preparation
-    try {
-      await preparation
-    } catch (error) {
-      this.sessionTemplatePreparation = undefined
-      throw error
-    }
-  }
-
-  /**
-   * Resolve the control source from either a stored content-addressed definition
-   * revision (the replay form) or a committed workspace path (the authoring form).
-   */
-  private async controlSource(workspaceRoot: string, control: string, language: 'bash' | 'python'): Promise<string> {
-    if (DEFINITION_REVISION_RE.test(control)) {
-      const definition = await this.store.readOrchestratorDefinition(control as Revision)
-      if (definition.language !== language) {
-        throw new WorkSurfaceError('invalid-working-copy', `control definition '${control}' is a ${definition.language} program`, {
-          control,
-          definitionLanguage: definition.language,
-          requestedLanguage: language,
-        })
+  async inspectTopology(surfaceId: string, view?: WorkSurfaceViewDefinition): Promise<TopologyInspection> {
+    const all = await Promise.all([...this.registrationIds].sort().map(id => this.engine.inspect(id)))
+    const surfaceIds = new Set([surfaceId])
+    const included = new Set<string>()
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const inspection of all) {
+        if (included.has(inspection.registrationId)) continue
+        const bound = Object.values(inspection.bindings)
+        if (!bound.some(id => surfaceIds.has(id))) continue
+        included.add(inspection.registrationId)
+        for (const id of bound) if (!surfaceIds.has(id)) { surfaceIds.add(id); changed = true }
       }
-      return definition.source
     }
-    return this.readControlSource(workspaceRoot, control)
-  }
-
-  /** Read one committed control script from the public attempt workspace with containment checks. */
-  private async readControlSource(workspaceRoot: string, controlPath: string): Promise<string> {
-    const realRoot = await realpath(workspaceRoot)
-    const resolved = resolve(realRoot, controlPath)
-    if (resolved !== realRoot && !resolved.startsWith(`${realRoot}${sep}`)) {
-      throw new WorkSurfaceError('unauthorized', `control script '${controlPath}' escapes the attempt workspace`, { controlPath, resolved })
-    }
-    let real: string
-    try {
-      real = await realpath(resolved)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') {
-        throw new WorkSurfaceError('not-found', `control script '${controlPath}' does not exist in the attempt workspace`, { controlPath })
-      }
-      throw error
-    }
-    if (real !== realRoot && !real.startsWith(`${realRoot}${sep}`)) {
-      throw new WorkSurfaceError('unauthorized', `control script '${controlPath}' escapes the attempt workspace through a symbolic link`, { controlPath, real })
-    }
-    const info = await stat(real)
-    if (!info.isFile()) {
-      throw new WorkSurfaceError('invalid-working-copy', `control script '${controlPath}' is not a regular file`, { controlPath })
-    }
-    return readFile(real, 'utf8')
-  }
-
-  private async publishB2F(request: B2FPublicationRequest): Promise<B2FPublicationReceipt | undefined> {
-    if (request.scope !== 'worksurface' || !request.paths.some(isRootSurfacePath)) return undefined
-    const agentId = String(request.agent.id)
-    const workspace = this.pendingWorkspaces.get(agentId)
-    if (workspace === undefined || resolve(request.root) !== resolve(workspace.workspaceRoot)) return undefined
-    if (workspace.publishedRepoRevision === request.report.repoRevision) {
-      return { scope: 'worksurface', revision: workspace.rootBaseRevision, noOp: true }
-    }
-
-    const result = await this.store.commit({
-      attemptId: `b2f-${sha256(agentId).slice(0, 24)}`,
-      key: `publish-${sha256(`${workspace.rootSurface}\0${request.report.repoRevision}`).slice(0, 32)}`,
-      workingPath: workspace.rootWorkingPath,
-      baseRevision: workspace.rootBaseRevision,
-      retry: true,
-    })
-    if (this.pendingWorkspaces.get(agentId) === workspace) {
-      this.pendingWorkspaces.set(agentId, {
-        ...workspace,
-        rootBaseRevision: result.revision,
-        publishedRepoRevision: request.report.repoRevision,
-      })
-    }
-    return { scope: 'worksurface', revision: result.revision, noOp: result.noOp }
-  }
-
-  private resolveB2FRoot(
-    agent: Agent,
-    paths?: readonly string[],
-  ): B2FRootScope | undefined | Promise<B2FRootScope> {
-    const child = childBinding(this.attempts, String(agent.id)) ?? this.delegations.childBinding(String(agent.id))
-    if (child !== undefined) {
+    const orchestrations = all.filter(inspection => included.has(inspection.registrationId))
+    const surfaces = await Promise.all([...surfaceIds].sort().map(async id => {
+      const events = await this.replayEvents(id)
+      const configured = view?.surfaces?.[id]
       return {
-        root: child.credential.workingPath,
-        scope: `worksurface-child:${child.credential.surface}`,
-        authorization: 'mounted-workspace',
+        surfaceId: id,
+        title: configured?.title ?? await this.surfaceTitle(id),
+        ...(configured?.group === undefined ? {} : { group: configured.group }),
+        lifecycle: projectSurfaceLifecycle(events.map(event => ({ ref: { subject: `surface:${id}`, seq: event.seq, id: event.id }, event })), view?.interpretations ?? [], id),
       }
-    }
-    if (paths === undefined || paths.length === 0 || !paths.every(isWorkSurfacePath)) return undefined
-    const mounted = (workspace: PendingWorkspace): B2FRootScope => ({
-      root: workspace.workspaceRoot,
-      scope: 'worksurface',
-      authorization: 'mounted-workspace',
-    })
-    const existing = this.parentWorkspace(String(agent.id))
-    return existing === undefined ? this.openSessionWorkspace(agent).then(mounted) : mounted(existing)
+    }))
+    return { anchorSurfaceId: surfaceId, surfaces, orchestrations, ...(view === undefined ? {} : { view }) }
   }
 
-  private parentWorkspace(agentId: string): PendingWorkspace | undefined {
-    const pending = this.pendingWorkspaces.get(agentId)
-    if (pending !== undefined) return pending
-    for (const attempt of this.attempts.values()) {
-      if (String(attempt.parent.id) !== agentId) continue
-      return {
-        ownerId: agentId,
-        root: attempt.root,
-        workspaceRoot: attempt.workspaceRoot,
-        rootSurface: attempt.workspaceSurface,
-        rootWorkingPath: attempt.rootWorkingPath,
-        rootBaseRevision: attempt.rootBaseRevision,
+  async listSurfaces(): Promise<readonly SurfaceChoice[]> {
+    const ids = new Set(await this.eventStore.list('surface'))
+    for (const registrationId of this.registrationIds) {
+      const inspection = await this.engine.inspect(registrationId)
+      for (const surfaceId of Object.values(inspection.bindings)) ids.add(surfaceId)
+    }
+    try {
+      for (const entry of await readdir(join(this.config.workRoot, 'surfaces'), { withFileTypes: true })) if (entry.isDirectory()) ids.add(entry.name)
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+    return Promise.all([...ids].sort().map(async surfaceId => ({ surfaceId, title: await this.surfaceTitle(surfaceId) })))
+  }
+
+  async inspectLegacyData(): Promise<LegacyDataReport> {
+    const v2Present = await exists(join(dirname(this.config.root), 'v2'))
+    const v3Present = await exists(join(dirname(this.config.root), 'v3'))
+    return { status: 'read-only', detected: v2Present || v3Present, v2Present, v3Present }
+  }
+
+  /** Collect only old immutable objects that no durable Event fact or pin can reach. */
+  async collectGarbage(minAgeMs = 7 * 24 * 60 * 60 * 1_000): Promise<WorkSurfaceGcResult> {
+    const revisions = await this.surfaces.collectGarbage(minAgeMs)
+    const worktrees = await this.surfaces.collectWorktreeGarbage(minAgeMs)
+    return { revisions, worktrees }
+  }
+
+  async dispatch(call: WorkSurfaceRpcCall, signal: AbortSignal): Promise<unknown> {
+    const p = call.params
+    switch (call.method) {
+      case 'surface.create': return this.createSurface(text(p, 'surfaceId'), text(p, 'markdown'), text(p, 'capability'))
+      case 'event.emit': {
+        const eventId = optionalText(p, 'eventId')
+        return this.emitEvent(text(p, 'surfaceId'), text(p, 'name'), json(p.payload), {
+          ...(eventId === undefined ? {} : { eventId }),
+        })
       }
+      case 'event.emit-turn': return this.emitTurn(text(p, 'capability'), text(p, 'name'), json(p.payload), optionalText(p, 'operationKey'))
+      case 'event.replay': return this.replayEvents(text(p, 'surfaceId'), optionalInteger(p, 'fromSeq'))
+      case 'event.watch': return this.waitForEvents(text(p, 'surfaceId'), optionalInteger(p, 'fromSeq'), signal)
+      case 'orchestrate.register': return this.registerDefinition(
+        text(p, 'orchestrationId'),
+        recordOfStrings(p, 'bindings'),
+        optionalText(p, 'registrationId'),
+        p.definition,
+        optionalText(p, 'capability'),
+      )
+      case 'orchestrate.pause': await this.pauseDefinition(text(p, 'registrationId')); return { status: 'paused' }
+      case 'orchestrate.resume': await this.resumeDefinition(text(p, 'registrationId')); return { status: 'active' }
+      case 'orchestrate.retire': await this.retireDefinition(text(p, 'registrationId')); return { status: 'retired' }
+      case 'orchestrate.show': return this.inspectOrchestration(text(p, 'registrationId'))
+      case 'orchestrate.list': return this.listOrchestrations(optionalText(p, 'surfaceId'))
+      case 'topology.show': return this.inspectTopology(text(p, 'surfaceId'))
+      case 'revision.read': return this.revisions.read(text(p, 'revision') as Revision)
+      case 'revision.materialize': {
+        const path = this.materializationPath(text(p, 'path'))
+        await this.revisions.materialize(text(p, 'revision') as Revision, path)
+        return { path }
+      }
+      case 'legacy.report': return this.inspectLegacyData()
     }
-    return undefined
   }
 
-  private async disposePendingWorkspace(agentId: string): Promise<void> {
-    const initialization = this.pendingWorkspaceInitializations.get(agentId)
-    if (initialization !== undefined) await initialization.catch(() => undefined)
-    const workspace = this.pendingWorkspaces.get(agentId)
-    if (workspace === undefined) return
-    if (this.pendingWorkspaces.delete(agentId) === false) return
-    await rm(workspace.root, { recursive: true, force: true })
-  }
-
-  private async disposePendingWorkspaces(): Promise<void> {
-    await Promise.allSettled([...this.pendingWorkspaceInitializations.values()])
-    const workspaces = [...this.pendingWorkspaces.values()]
-    this.pendingWorkspaces.clear()
-    await Promise.all(workspaces.map(workspace => rm(workspace.root, { recursive: true, force: true })))
-  }
-
-  private defaultProfile(): WorkSurfaceProfile {
-    const profile = this.config.profiles[0]
-    if (profile === undefined) throw new WorkSurfaceError('unsupported-profile', 'WorkSurface has no default profile')
-    return profile
-  }
-
-  private profile(name: string): WorkSurfaceProfile {
-    const profile = this.config.profiles.find(candidate => candidate.name === name)
-    if (profile === undefined) throw new WorkSurfaceError('unsupported-profile', `unknown WorkSurface profile '${name}'`)
-    return profile
-  }
-
-  private requireHarness(): NonNullable<WorkSurfaceService['harness']> {
-    if (this.harness === undefined) {
-      throw new WorkSurfaceError('effect-failed', 'WorkSurface Harness capabilities are not active')
-    }
-    return this.harness
-  }
-
-  private async gcAttempts(): Promise<void> {
-    await runAttemptGc({
-      attemptsRoot: this.config.attemptsRoot,
-      attemptRetention: this.config.attemptRetention,
-      activeRoots: new Set([
-        ...[...this.attempts.values()].map(attempt => resolve(attempt.root)),
-        ...[...this.pendingWorkspaces.values()].map(workspace => resolve(workspace.root)),
-      ]),
-      runtimeRoot: join(this.store.runtimeRoot, 'orchestrator'),
+  private waitForEvents(surfaceId: string, fromSeq: number | undefined, signal: AbortSignal): Promise<readonly WorkSurfaceEvent[]> {
+    return new Promise((resolve, reject) => {
+      let settled = false
+      const cleanup = this.eventStore.watch(event => { if (event.subject.kind === 'surface' && event.subject.id === surfaceId) replay() })
+      const finish = (events: readonly WorkSurfaceEvent[]): void => { if (!settled && events.length > 0) { settled = true; cleanup(); signal.removeEventListener('abort', abort); resolve(events) } }
+      const fail = (error: unknown): void => { if (!settled) { settled = true; cleanup(); signal.removeEventListener('abort', abort); reject(error) } }
+      const replay = (): void => { void this.replayEvents(surfaceId, fromSeq).then(finish, fail) }
+      const abort = (): void => fail(new WorkSurfaceError('cancelled', 'event watch cancelled'))
+      if (signal.aborted) abort()
+      else { signal.addEventListener('abort', abort, { once: true }); replay() }
     })
   }
 
-  private async gcRuntime(): Promise<void> {
-    await this.gcAttempts()
-    const protectedSurfaces = new Set<string>([
-      ...[...this.attempts.values()].flatMap(attempt => [...attempt.surfaces]),
-      ...[...this.pendingWorkspaces.values()].map(workspace => workspace.rootSurface),
-    ])
-    await this.store.archiveUnboundSurfaces({
-      olderThan: new Date(Date.now() - this.config.unboundSurfaceRetentionMs).toISOString(),
-      protectedSurfaces,
+  private queueReconcile(): void {
+    if (this.wakeQueued) return
+    this.wakeQueued = true
+    queueMicrotask(() => {
+      this.wakeQueued = false
+      void Promise.all([...this.registrationIds].map(id => this.engine.reconcile(id))).catch(error => this.ctx.logger.warn(`WorkSurface reconcile failed: ${String(error)}`))
     })
+  }
+
+  private async surfaceTitle(surfaceId: string): Promise<string> {
+    try {
+      const markdown = await readFile(join(this.authorPath('surfaces', surfaceId), 'surface.md'), 'utf8')
+      const goal = markdown.split(/^# Acceptance Criteria\s*$/m)[0]?.replace(/^# Goal\s*/m, '').trim().split('\n').find(line => line.trim() !== '')?.trim()
+      if (goal !== undefined) return goal.slice(0, 120)
+    } catch { /* deterministic id fallback */ }
+    return surfaceId
+  }
+
+  private authorPath(collection: 'surfaces' | 'orchestrations', id: string): string {
+    const root = resolve(this.config.workRoot, collection)
+    const path = resolve(root, id)
+    if (!path.startsWith(`${root}${sep}`)) throw new WorkSurfaceError('unauthorized', `${collection} path escapes authoring root`)
+    return path
+  }
+
+  private materializationPath(input: string): string {
+    const root = resolve(this.config.workRoot)
+    const path = resolve(input)
+    if (!path.startsWith(`${root}${sep}`)) throw new WorkSurfaceError('unauthorized', 'revision materialization target must be inside the configured work root')
+    return path
   }
 }
 
-function sessionSurfaceId(agent: Agent): SurfaceIdType {
-  return sessionSurfaceIdCore(String(agent.id))
-}
-
-const DEFINITION_REVISION_RE = /^sha256:[0-9a-f]{64}$/
-
-function isWorkSurfacePath(path: string): boolean {
-  const normalized = path.replaceAll('\\', '/')
-  return normalized === 'work' || normalized.startsWith('work/')
-}
-
-function isRootSurfacePath(path: string): boolean {
-  const normalized = path.replaceAll('\\', '/')
-  return normalized === 'work/root' || normalized.startsWith('work/root/')
-}
-
-function assertWorkspaceSurface(
-  workspace: PendingWorkspace,
-  current?: { readonly surface: SurfaceIdType; readonly revision: Revision },
-): void {
-  if (current === undefined) return
-  if (workspace.rootSurface !== current.surface || workspace.rootBaseRevision !== current.revision) {
-    throw new WorkSurfaceError('session-binding-conflict', 'the prepared Session workspace belongs to a different Surface revision', {
-      preparedSurface: workspace.rootSurface,
-      preparedRevision: workspace.rootBaseRevision,
-      requestedSurface: current.surface,
-      requestedRevision: current.revision,
-    })
-  }
-}
+function text(record: Readonly<Record<string, unknown>>, key: string): string { const value = record[key]; if (typeof value !== 'string' || value === '') throw invalid(key); return value }
+function optionalText(record: Readonly<Record<string, unknown>>, key: string): string | undefined { const value = record[key]; if (value === undefined) return undefined; if (typeof value !== 'string' || value === '') throw invalid(key); return value }
+function optionalInteger(record: Readonly<Record<string, unknown>>, key: string): number | undefined { const value = record[key]; if (value === undefined) return undefined; if (!Number.isSafeInteger(value) || (value as number) < 0) throw invalid(key); return value as number }
+function recordOfStrings(record: Readonly<Record<string, unknown>>, key: string): Record<string, string> { const value = record[key]; if (!isRecord(value) || Object.values(value).some(item => typeof item !== 'string')) throw invalid(key); return value as Record<string, string> }
+function json(value: unknown): JsonValue { try { JSON.stringify(value) } catch { throw invalid('payload') } return value as JsonValue }
+function isRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value) }
+function invalid(key: string): WorkSurfaceError { return new WorkSurfaceError('invalid-working-copy', `invalid RPC parameter '${key}'`) }
+function renderError(error: unknown): string { return error instanceof Error ? error.message : String(error) }
+function validateAuthorId(value: string, label: string): void { if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value)) throw new WorkSurfaceError('invalid-id', `invalid ${label} id '${value}'`) }
+async function exists(path: string): Promise<boolean> { try { await lstat(path); return true } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error } }

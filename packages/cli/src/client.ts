@@ -1,111 +1,51 @@
 import { randomUUID } from 'node:crypto'
 import { createConnection } from 'node:net'
-import { WorkSurfaceError } from '@pf-worksurface/core'
-import type { WorkSurfaceErrorCode } from '@pf-worksurface/core'
-import type { WorkSurfaceRpcMethod, WorkSurfaceRpcRequest, WorkSurfaceRpcResponse } from './protocol.ts'
+import { WorkSurfaceError, type WorkSurfaceErrorCode } from '@pf-worksurface/core'
+import type { WorkSurfaceRpcCall, WorkSurfaceRpcMethod, WorkSurfaceRpcResponse } from './protocol.ts'
 
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 
-interface ClientOptions {
-  readonly socketPath: string
-  readonly attemptId: string
-  readonly token: string
-}
-
-/** One-request-per-connection local IPC client used inside an Orchestrator sandbox. */
+/** Thin one-call-per-connection client. The private socket authenticates the OS user. */
 export class WorkSurfaceHostClient {
-  constructor(private readonly options: ClientOptions) {}
+  constructor(private readonly socketPath: string) {}
 
-  /**
-   * Execute one Host operation and await its validated terminal frame.
-   * @param method - RPC operation to invoke.
-   * @param params - JSON-compatible operation parameters.
-   * @param signal - Optional caller cancellation signal.
-   * @returns The Host operation result.
-  */
   call(method: WorkSurfaceRpcMethod, params: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<unknown> {
-    if (signal?.aborted) return Promise.reject(cancellationError(signal.reason))
+    if (signal?.aborted) return Promise.reject(cancelled(signal.reason))
     return new Promise((resolve, reject) => {
-      const request: WorkSurfaceRpcRequest = {
-        id: randomUUID(),
-        method,
-        attemptId: this.options.attemptId,
-        token: this.options.token,
-        params,
-      }
-      const socket = createConnection(this.options.socketPath)
+      const call: WorkSurfaceRpcCall = { id: randomUUID(), method, params }
+      const socket = createConnection(this.socketPath)
       let buffer = ''
-      let settled = false
-      const finish = (action: () => void): void => {
-        if (settled) return
-        settled = true
-        signal?.removeEventListener('abort', abort)
+      let done = false
+      const settle = (fn: () => void): void => {
+        if (done) return
+        done = true
+        signal?.removeEventListener('abort', onAbort)
         socket.destroy()
-        action()
+        fn()
       }
-      const abort = (): void => {
-        finish(() => {
-          reject(cancellationError(signal?.reason))
-        })
-      }
-      signal?.addEventListener('abort', abort, { once: true })
+      const onAbort = (): void => settle(() => reject(cancelled(signal?.reason)))
+      signal?.addEventListener('abort', onAbort, { once: true })
       socket.setEncoding('utf8')
-      socket.once('connect', () => {
-        socket.write(`${JSON.stringify(request)}\n`)
-      })
+      socket.once('connect', () => socket.write(`${JSON.stringify(call)}\n`))
       socket.on('data', (chunk: string) => {
         buffer += chunk
-        if (Buffer.byteLength(buffer, 'utf8') > MAX_RESPONSE_BYTES) {
-          finish(() => {
-            reject(new WorkSurfaceError('effect-failed', 'WorkSurface Host response exceeded 16 MiB'))
-          })
-          return
-        }
+        if (Buffer.byteLength(buffer) > MAX_RESPONSE_BYTES) return settle(() => reject(new WorkSurfaceError('effect-failed', 'Host response exceeds 16 MiB')))
         const newline = buffer.indexOf('\n')
         if (newline < 0) return
         let response: WorkSurfaceRpcResponse
-        try {
-          response = JSON.parse(buffer.slice(0, newline)) as WorkSurfaceRpcResponse
-        } catch {
-          finish(() => {
-            reject(new WorkSurfaceError('effect-failed', 'WorkSurface Host returned invalid JSON'))
-          })
-          return
-        }
-        if (response.id !== request.id) {
-          finish(() => {
-            reject(new WorkSurfaceError('effect-failed', 'WorkSurface Host response id did not match request'))
-          })
-        } else if (response.error !== undefined) {
-          const responseError = response.error
-          finish(() => {
-            reject(new WorkSurfaceError(
-              responseError.code as WorkSurfaceErrorCode,
-              responseError.message,
-              responseError.details,
-            ))
-          })
-        } else {
-          finish(() => {
-            resolve(response.result)
-          })
-        }
+        try { response = JSON.parse(buffer.slice(0, newline)) as WorkSurfaceRpcResponse }
+        catch { return settle(() => reject(new WorkSurfaceError('effect-failed', 'Host returned invalid JSON'))) }
+        if (response.id !== call.id) return settle(() => reject(new WorkSurfaceError('effect-failed', 'Host response id mismatch')))
+        const failure = response.error
+        if (failure !== undefined) return settle(() => reject(new WorkSurfaceError(failure.code as WorkSurfaceErrorCode, failure.message, failure.details)))
+        settle(() => resolve(response.result))
       })
-      socket.once('error', (error) => {
-        finish(() => {
-          reject(new WorkSurfaceError('effect-failed', `cannot reach WorkSurface Host: ${error.message}`))
-        })
-      })
-      socket.once('end', () => {
-        finish(() => {
-          reject(new WorkSurfaceError('effect-failed', 'WorkSurface Host closed without a response'))
-        })
-      })
+      socket.once('error', error => settle(() => reject(new WorkSurfaceError('effect-failed', `cannot reach WorkSurface Host: ${error.message}`))))
+      socket.once('end', () => settle(() => reject(new WorkSurfaceError('effect-failed', 'Host closed without a response'))))
     })
   }
 }
 
-function cancellationError(reason: unknown): Error {
-  if (reason instanceof Error) return reason
-  return new WorkSurfaceError('cancelled', typeof reason === 'string' ? reason : 'operation cancelled')
+function cancelled(reason: unknown): Error {
+  return reason instanceof Error ? reason : new WorkSurfaceError('cancelled', typeof reason === 'string' ? reason : 'operation cancelled')
 }

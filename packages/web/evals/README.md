@@ -1,10 +1,3 @@
-# WorkSurface Web E2E evaluation
+# Web 投影验收
 
-This directory versions the product-level evaluation contract for `@pf-worksurface/web`.
-
-- `suite.json` defines evaluation dimensions, cases, expected outcomes, and required evidence.
-- `fixtures/` and `seed.mjs` create the deterministic three-node, two-edge graph used by release cases.
-- `runs/` stores immutable records from real DSH browser executions.
-- `validate-suite.mjs` enforces catalog coverage and release-run completeness.
-
-See [README.zh.md](./README.zh.md) for the complete runbook and maintenance rules.
+`npm run eval:check` 会执行引用的 Web 行为测试，验证无 iframe 的原生 `conversation.view`、连通拓扑重放、不同条件汇合点与可能/实际通路、关联 Session/Turn 与 publication、精确 Definition，以及已校验不可变 View YAML；浏览器不维护关系或执行状态。

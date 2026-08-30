@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "roles": ["source", "left", "right"],
+  "subscriptions": [
+    {
+      "id": "approved-fanout",
+      "history": "all",
+      "key": "$.payload.releaseId",
+      "when": { "role": "source", "event": "release.approved" },
+      "reaction": {
+        "emit": [
+          { "role": "left", "event": "lane.assigned", "payload": { "lane": "left" }, "operationKey": "assign-left" },
+          { "role": "right", "event": "lane.assigned", "payload": { "lane": "right" }, "operationKey": "assign-right" }
+        ]
+      }
+    }
+  ]
+}

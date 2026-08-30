@@ -1,7 +1,7 @@
 {
   "name": "@pf-worksurface/core",
-  "description": "File-backed canonical WorkSurface store, projection compiler, and replayable effect journal",
-  "version": "0.1.0-rc.6",
+  "description": "WorkSurface events, orchestration definitions, replay folds, projections, and immutable revision objects",
+  "version": "0.2.0-rc.1",
   "publishConfig": {
     "access": "public"
   },
@@ -38,10 +38,6 @@
   "peerDependencies": {
     "@deepseek-ai/dsh-invariants": "^0.1.0-rc.6",
     "@deepseek-ai/cordis": "^4.0.1"
-  },
-  "dependencies": {
-    "@deepseek-ai/dsh-atomic-write": "^0.1.0-rc.6",
-    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-invariants": "^0.1.0-rc.6",

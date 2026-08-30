@@ -1,36 +1,26 @@
-# Progressive Formalization WorkSurface
+# WorkSurface
 
-English | [中文](README.zh.md)
+WorkSurface 是文件化、事件驱动的多工作面推进层。它解决两个问题：如何把一项工作组织为可独立推进的 Surface，以及多个 Surface 如何依据已经发生的事件继续推进。不可变 Revision 保存内容事实，按 subject 分流的 append-only Event stream 保存过程事实。
 
-Progressive Formalization WorkSurface is one DeepSeek Harness plugin product. It gives a parent Agent a durable, file-native WorkSurface, an ordinary-script orchestration tool, and revision-pinned collaboration with child Agents.
+Surface 不是执行者，也不是任务树节点。它有公开的 `SurfaceId`，工作内容位于平铺的 `surfaces/<surface-id>/`，并且必须包含由标准模板实例化的 `surface.md` 作为目标、验收、事实、假设、问题、决策、领域事件契约和交付证据的主契约。Agent 遇到可独立验收的复杂部分时先规划，再通过活动 Turn capability 创建这些 Surface；依赖写入精确 Orchestrate Definition，而不是目录或通用父子关系。并行探索可以复制相同目录内容；复制后各自修改、发布和推进，不再共享可变演进。
 
-The repository contains four implementation packages. The first three form the canonical WorkSurface plugin; the Web package is an optional visualization companion:
+公开工作根只有平铺的 `surfaces/<surface-id>/` 与 `orchestrations/<orchestration-id>/`。前者是作者 checkout，后者是 Definition 作者文件；目录不表达依赖。每个 Surface 在开始推进前唯一绑定一个 DSH Session；这个 Session 的 Turn/Step 日志就是该 Surface 的完整推进历史，不能再选择或切换 Surface。持久 worktree 由 Surface 独占，并通过 expectedHead CAS 发布。文件由现有 shell/语言工具构造，WorkSurface CLI 只负责发领域事件。
 
-- [`@pf-worksurface/core`](packages/core) owns immutable Surface revisions, Surface-local Work Sessions, projections, Orchestrator definitions, and the effect journal.
-- [`@pf-worksurface/cli`](packages/cli) provides the authenticated `ws` process client.
-- [`@pf-worksurface/dsh`](packages/dsh) is the installable DeepSeek Harness plugin and profile bundle.
-- [`@pf-worksurface/web`](packages/web) adds the Conversation / WorkSurface Graph switch, the Surface DAG, and attached Session conversations to a Web profile.
+用户可以从 WorkSurface 原生 `conversation.view` 手动进入已有 Surface；更常见的复杂任务由当前 Agent 使用 `ws surface create` 创建子 Surface、使用 `ws orchestrate register` 固定依赖，然后在注册成功后 emit 无依赖入口事实。有依赖目标只在条件满足后由 managed followup 推进；Host 会自动创建或恢复目标 Surface 的唯一 Session，不需要用户逐个点击。模型仍不能 open、切换当前 Surface 或直接写私有状态。DSH 重启时，Host 自动续推被中断、因运行时销毁而终止或已有持久 `next-turn` 的绑定 Session；已完成、空闲或等待用户输入的 Session 保持休眠。
 
-The `/dsh` bundle composes `dsh-block-to-file` as its model-facing materialization layer; `/core` remains independent of the Harness runtime.
+Orchestrate Definition 订阅事件，匹配后通过统一 Event API 向 Surface 发事件，或先 admission、再向目标 Surface 的唯一 DSH Session 提交 durable `followup`。Registration 不保存第二份 Session 绑定。声明式 reaction 与固定 Definition Revision 中的 handler 使用相同语义。Registration 固定 Definition Revision、角色绑定和历史边界；中断恢复就是恢复该 Surface 的 DSH Session，并保留对应 worktree。WorkSurface 不再定义另一套执行、重试、等待输入或终态生命周期。
 
-The domain boundary is: every physically flat Surface owns exactly one append-only Work Session. Delegation is file-first: a child Surface may exist briefly as an unbound recovery anchor, but it enters the WorkGraph only after one continuable Agent Session is attached through its write-once binding. Recursively following those bindings from the root produces the WorkGraph. Blocks inside a Surface are concepts, evidence, or decisions. A Block is promoted to a child Surface only when it needs an independent Agent, acceptance boundary, version, or lifecycle. Information edges come from revision-pinned BlockRefs actually consumed by a Projection, never from timestamps or filesystem nesting. The complete storage and fact-source decision is documented in [`docs/work-session-storage.md`](docs/work-session-storage.md).
+不存在 canonical Relation、Relation 写接口或全局 parent-child 模型。Surface 之间的依赖语义由精确的 Orchestrate Definition revision 及其角色绑定解释，而不是由时间或图上的边解释。Definition 中的 `all`、`any`、`count`、`sequence`、payload 条件和代码 reaction 都是依赖语义的一部分。计划路径只是可能事件通路的有损索引；实际路径只是某次 activation 使用了哪些事件并发出了哪个事件的执行证据。它们都不能替代 Definition。fan-out、fan-in、pipeline、race、派生等只是 Definition 可以表达的 pattern。
 
-The Web plugin's product-level E2E dimensions, cases, deterministic fixtures, and real DSH run records are maintained under [`packages/web/evals`](packages/web/evals/README.md) and validated during the Web package build.
+详见：
 
-Whether a real model can decide when to use WorkSurface, commit correctly, choose Block versus Surface granularity, delegate, and recover is evaluated separately under [`packages/dsh/evals`](packages/dsh/evals/README.md); static prompt assertions are not treated as model capability evidence.
-
-
-## Development
-
-Requires Node.js `^22.19.0 || >=24.0.0` and pnpm 11.7.0.
+- [完整系统设计](docs/worksurface-complete-design.md)：领域、协议、文件布局、DSH Session 集成、Orchestration、恢复、并发与权限的权威规范
+- [UI 设计](docs/ui-design.md)：原生拓扑、视觉语言、证据侧栏、View Definition 与降级的权威规范
+- [文档索引](docs/README.md)：实现映射、机器规范、验证入口与历史材料说明
 
 ```sh
+source ~/.nvm/nvm.sh
+nvm use 24.17.0
 pnpm install
 pnpm check
 ```
-
-The package family currently targets DeepSeek Harness `0.1.0-rc.6`. See the [`dsh` package README](packages/dsh/README.md) for installation, runtime behavior, configuration, and model-visible behavior.
-
-## Repository scope
-
-This repository contains only the Progressive Formalization WorkSurface plugin. Plugin Inventory is maintained in a separate repository.

@@ -1,7 +1,7 @@
 {
   "name": "@pf-worksurface/cli",
-  "description": "Git-style ws CLI for WorkSurface file effects and DeepSeek Harness IPC",
-  "version": "0.1.0-rc.6",
+  "description": "Thin CLI client for the WorkSurface Event Service",
+  "version": "0.2.0-rc.1",
   "publishConfig": {
     "access": "public"
   },
@@ -45,7 +45,6 @@
     "@deepseek-ai/cordis": "^4.0.1"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-atomic-write": "^0.1.0-rc.6",
     "@pf-worksurface/core": "workspace:^"
   },
   "devDependencies": {

@@ -1,50 +1,14 @@
 {
-  "version": "1.2.0",
-  "name": "worksurface-host-rpc",
-  "summary": "Authenticated newline-delimited JSON protocol between the sandboxed `ws` CLI and the WorkSurface Host, over a Unix domain socket.",
-  "rationale": "This is deliberately not a DSH tool seam. The caller is an ordinary Bash or Python Orchestrator script running under sandbox confinement, not the model, so it cannot invoke tools. The Host keeps sole custody of canonical state and the CLI never opens it directly.",
-  "transport": {
-    "kind": "unix-domain-socket",
-    "address": "WS_HOST_SOCKET",
-    "framing": "newline-delimited JSON, one request and one terminal response per line",
-    "socketMode": "0600",
-    "notes": "The socket is created outside the attempts directory and outside implicitly temporary roots, and a stale socket file is removed only after a liveness probe refuses."
-  },
-  "authentication": {
-    "fields": ["attemptId", "token"],
-    "description": "Every request carries an authority-scope identity and token. An Orchestrator uses its live attempt scope; a continuable child uses a fresh activation scope reconstructed from its canonical Surface/Session binding. Tokens are Host-issued, process-local, and never derived from caller input or persisted in canonical state.",
-    "authority": "An Orchestrator may only address Surfaces admitted by its attempt. A child activation may address only its bound Surface and exact reconstructed checkout. Paths are resolved per component and any symlink or `..` escape is refused as `unauthorized`."
-  },
-  "request": {
-    "id": "string, echoed on the response",
-    "method": "one of the methods below",
-    "attemptId": "string, non-empty",
-    "token": "string, non-empty",
-    "params": "object"
-  },
-  "response": {
-    "id": "string, matching the request",
-    "result": "present on success",
-    "error": "present on failure; exactly one of result and error is set",
-    "errorShape": {
-      "code": "stable WorkSurfaceErrorCode",
-      "message": "string",
-      "details": "optional object"
-    }
-  },
-  "methods": {
-    "checkout": "Materialize a Surface revision into a target path inside the attempt workspace.",
-    "commit": "Publish a working copy against a base revision. Requires an idempotency key.",
-    "show": "Read a Surface at a revision.",
-    "projection": "Render the model-facing projection of a Surface for a named profile, optionally under a token budget.",
-    "agent.run": "Materialize the child Surface first when needed, then create or resume its one-to-one continuable Agent Session under binding contract v2. Return the canonical JSON completion after validating its committed revision and output refs. A retry reuses the existing binding; attempt-local result files are only audit caches. Continuation unavailability fails loud and never falls back to a one-shot child."
-  },
-  "idempotency": {
-    "scope": ["commit", "agent.run"],
-    "description": "Effect methods require a stable caller-supplied key. agent.run additionally reconciles through the canonical Surface/Session binding, so loss of an attempt directory cannot create a replacement child Session. Replay of a signal-terminated Orchestrator process remains bounded by maxCrashReplays."
-  },
-  "contracts": {
-    "childAgentReturn": "packages/dsh/spec/agent-return.schema.json",
-    "bindingCompatibility": "New root and delegated bindings are version 2. Missing version is legacy v1: completed records with a full validated completion remain readable, while incomplete or outputRevision-only delegated records are preserved and refused for cold resume."
-  }
+  "version": 8,
+  "status": "replaceable transport contract",
+  "authentication": "private Host socket, mode 0600",
+  "call": ["id", "method", "params"],
+  "methods": [
+    "surface.create",
+    "event.emit", "event.emit-turn", "event.replay", "event.watch",
+    "orchestrate.register", "orchestrate.pause", "orchestrate.resume", "orchestrate.retire", "orchestrate.show", "orchestrate.list",
+    "topology.show", "revision.read", "revision.materialize",
+    "legacy.report"
+  ],
+  "boundary": "A Surface is bound to one DSH Session before its first Turn. A live Turn capability can emit only for that fixed Surface and may create authoring contracts for new Surfaces; no RPC opens or switches the current Session."
 }

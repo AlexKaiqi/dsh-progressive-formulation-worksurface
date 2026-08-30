@@ -1,46 +1,48 @@
 {
   "name": "@pf-worksurface/web",
-  "description": "Web-only Session-scoped WorkSurface dependency graph for DeepSeek Harness",
-  "version": "0.1.0-rc.6",
+  "description": "Native DSH WorkSurface topology, event progress, and exact orchestration inspection",
+  "version": "0.2.0-rc.1",
   "type": "module",
   "main": "index.js",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
-    "./app": "./app.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
-  "files": ["index.js", "client.js", "app.js", "styles.css", "cordis.patch.yml", "README.md", "evals"],
+  "files": ["index.js", "client.js", "styles.css", "cordis.patch.yml", "README.md", "evals"],
   "license": "MIT",
   "scripts": {
-    "bundle": "node --check index.js && node --check client.js && node --check app.js && npm run eval:check",
+    "bundle": "node --check index.js && node --check client.js && node --check evals/browser-harness.mjs && npm run eval:check",
     "eval:check": "node evals/validate-suite.mjs",
-    "eval:seed": "node evals/seed.mjs",
     "prepack": "npm run bundle"
   },
   "engines": { "node": "^22.19.0 || >=24.0.0" },
   "peerDependencies": {
     "@deepseek-ai/dsh-client-locale": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-runtime": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-host-webserver": ">=0.1.0-rc.6 <0.2.0",
     "@pf-worksurface/core": "workspace:^",
-    "@pf-worksurface/dsh": "workspace:^"
+    "@pf-worksurface/dsh": "workspace:^",
+    "react": "^18.2.0"
   },
-  "devDependencies": {
+  "dependencies": {
     "yaml": "^2.9.0"
   },
   "dsh": {
     "inventory": {
       "summary": {
-        "zh": "按顶层 Session 展示 Surface 工作节点、版本固定的信息依赖与关联对话。",
-        "en": "Visualizes Session-scoped Surface nodes, revision-pinned information dependencies, and attached conversations."
+        "zh": "在 DSH 原生会话视图中展示 WorkSurface 拓扑、事件推进与精确编排证据。",
+        "en": "Shows WorkSurface topology, event progress, and exact orchestration evidence in the native DSH conversation view."
       },
-      "tags": ["visualization", "web", "subagent", "workspace"],
-      "dependencies": ["@pf-worksurface/dsh"]
+      "tags": ["visualization", "web", "events", "orchestration"],
+      "dependencies": ["@pf-worksurface/dsh", "@deepseek-ai/dsh-host-webserver", "@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-ui-conversation"]
     },
     "bundle": { "patch": "./cordis.patch.yml" },
     "client": {
       "platform": "web",
-      "inject": ["@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-locale"],
+      "inject": ["@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-ui-conversation"],
       "immediately": false
     }
   }

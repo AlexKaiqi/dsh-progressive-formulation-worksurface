@@ -1,120 +1,54 @@
 {
   "specVersion": "0.2.0",
   "name": "@pf-worksurface/dsh",
-  "pluginTypes": [
-    "F1",
-    "F2",
-    "F3"
-  ],
+  "pluginTypes": ["F1", "F3"],
   "facts": {
     "modelVisible": true,
-    "registersTools": true,
+    "registersTools": false,
     "filesystem": "write",
     "persistentState": true,
     "subprocess": true,
-    "subagents": true,
+    "subagents": false,
     "temporaryResources": true,
     "customProtocol": true
   },
   "package": {
     "path": "packages/dsh/package.json"
   },
-  "model": {
-    "dir": "packages/dsh/src/model",
-    "readme": "packages/dsh/src/model/README.md",
-    "files": [
-      {
-        "path": "guidance.ts",
-        "export": "worksurfaceGuidance",
-        "role": "staticText"
-      },
-      {
-        "path": "session-root-template.ts",
-        "export": "SESSION_ROOT_TEMPLATE",
-        "role": "template"
-      },
-      {
-        "path": "file-projection.ts",
-        "export": "renderFileProjection",
-        "role": "dynamicRenderer"
-      },
-      {
-        "path": "orchestrator-tool.ts",
-        "export": "ORCHESTRATOR_TOOL_SURFACE",
-        "role": "toolSurface",
-        "toolName": "run_orchestrator",
-        "helpPointer": "ws help init"
-      },
-      {
-        "path": "orchestrator-tool.ts",
-        "export": "ORCHESTRATOR_OUTPUT",
-        "role": "contract",
-        "contractKind": "toolOutput"
-      },
-      {
-        "path": "child-agent.ts",
-        "export": "AGENT_OUTPUT_SCHEMA",
-        "role": "contract",
-        "contractKind": "subagentReturn",
-        "schemaFile": "packages/dsh/spec/agent-return.schema.json"
-      },
-      {
-        "path": "child-agent.ts",
-        "export": "childPersona",
-        "role": "dynamicRenderer"
-      }
-    ]
-  },
-  "help": {
-    "file": "packages/cli/src/help.ts",
-    "versionExport": "VERSION",
-    "commands": [
-      "ws checkout <surface> <target>",
-      "ws commit <working-copy> --base <revision> --key <key>",
-      "ws show <surface>",
-      "ws agent run --surface <surface> --task <text> --profile <name> --key <key> --result <path> [--from <template>]",
-      "ws help init"
-    ]
-  },
   "tests": {
-    "contractTests": [
-      {
-        "file": "packages/dsh/tests/model-awareness.spec.ts",
-        "references": [
-          "worksurfaceGuidance",
-          "SESSION_ROOT_TEMPLATE",
-          "renderFileProjection",
-          "ORCHESTRATOR_TOOL_SURFACE",
-          "ORCHESTRATOR_OUTPUT",
-          "AGENT_OUTPUT_SCHEMA",
-          "childPersona"
-        ]
-      }
-    ],
+    "contractTests": [],
     "runtimeTests": [
+      {
+        "file": "packages/dsh/tests/engine.spec.ts",
+        "layer": "L2"
+      },
+      {
+        "file": "packages/dsh/tests/session-surface.spec.ts",
+        "layer": "L2"
+      },
+      {
+        "file": "packages/dsh/tests/code-handler.spec.ts",
+        "layer": "L2"
+      },
+      {
+        "file": "packages/dsh/tests/session-adapter.spec.ts",
+        "layer": "L0"
+      },
+      {
+        "file": "packages/dsh/tests/session-admission.spec.ts",
+        "layer": "L1"
+      },
+      {
+        "file": "packages/dsh/tests/session-admission-agent-loop.spec.ts",
+        "layer": "L2"
+      },
       {
         "file": "packages/dsh/tests/host.spec.ts",
         "layer": "L1"
       },
       {
-        "file": "packages/dsh/tests/host-probe.spec.ts",
+        "file": "packages/dsh/tests/eval-suite.spec.ts",
         "layer": "L1"
-      },
-      {
-        "file": "packages/dsh/tests/bundle.spec.ts",
-        "layer": "L1"
-      },
-      {
-        "file": "packages/dsh/tests/service.spec.ts",
-        "layer": "L2"
-      },
-      {
-        "file": "packages/dsh/tests/agent-run-recovery.spec.ts",
-        "layer": "L2"
-      },
-      {
-        "file": "packages/dsh/tests/workspace.spec.ts",
-        "layer": "L2"
       }
     ]
   },
@@ -122,7 +56,6 @@
     "file": "packages/dsh/src/config.ts",
     "schemaExport": "CONFIG_SCHEMA",
     "rootField": "root",
-    "gcField": "attemptRetention",
     "assembly": {
       "file": "packages/dsh/src/service.ts"
     }

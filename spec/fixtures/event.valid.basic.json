@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "id": "evt_fixture",
+  "subject": { "kind": "surface", "id": "surface-a" },
+  "seq": 0,
+  "name": "surface.revision.published",
+  "payload": { "summary": "validate schema" },
+  "causes": [],
+  "meta": {
+    "sessionId": "session_fixture",
+    "turn": 1,
+    "inputSource": "revision",
+    "inputRevision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "expectedHead": null,
+    "outputRevision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "recordedAt": "2026-08-30T00:00:00.000Z"
+}

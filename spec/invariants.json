@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "invariants": [
+    { "id": "WS-01", "statement": "Surface 与其推进用 DSH Session 一对一绑定；Orchestration 和 Registration 仍是独立身份", "enforcedAt": ["binding-admission", "registration-admission"], "tests": ["packages/dsh/tests/session-surface.spec.ts"] },
+    { "id": "WS-02", "statement": "内容事实仅由不可变 Revision 表示", "enforcedAt": ["snapshot", "publication-fold"], "tests": ["packages/core/tests/revision-store.spec.ts"] },
+    { "id": "WS-03", "statement": "Surface Revision 必须包含合法 surface.md", "enforcedAt": ["surface-snapshot"], "tests": ["packages/core/tests/revision-store.spec.ts"] },
+    { "id": "WS-04", "statement": "Definition Revision 必须包含合法 definition.json", "enforcedAt": ["definition-snapshot"], "tests": ["packages/core/tests/definition-v1.spec.ts"] },
+    { "id": "WS-05", "statement": "事件 append 同 id 同内容幂等、同 id 异内容冲突", "enforcedAt": ["event-append"], "tests": ["packages/core/tests/file-event-store.spec.ts"] },
+    { "id": "WS-06", "statement": "seq 仅在单 subject stream 有序，跨 stream 因果使用 EventRef", "enforcedAt": ["event-admission", "definition-admission"], "tests": ["packages/core/tests/event-model-v1.spec.ts"] },
+    { "id": "WS-07", "statement": "时间戳、目录与 UI edge 不产生依赖", "enforcedAt": ["definition-admission", "projection"], "tests": ["packages/core/tests/definition-v1.spec.ts"] },
+    { "id": "WS-08", "statement": "live wakeup 不影响 replay 结果", "enforcedAt": ["replay", "orchestration-reconcile"], "tests": ["packages/dsh/tests/engine.spec.ts"] },
+    { "id": "WS-09", "statement": "Surface Session binding 在首个 Turn 前固定 SurfaceId、SessionId、inputRevision 与 expectedHead", "enforcedAt": ["binding-admission"], "tests": ["packages/dsh/tests/session-surface.spec.ts"] },
+    { "id": "WS-10", "statement": "每个 Surface Session 独占一个以 SurfaceId 定位的持久 worktree", "enforcedAt": ["binding-admission", "worktree-materialization"], "tests": ["packages/dsh/tests/session-surface.spec.ts"] },
+    { "id": "WS-11", "statement": "执行状态只来自 DSH Session/Turn，不写入 Surface 生命周期", "enforcedAt": ["session-adapter", "surface-event-admission"], "tests": ["packages/dsh/tests/session-adapter.spec.ts", "packages/core/tests/view-projection.spec.ts"] },
+    { "id": "WS-12", "statement": "publication 使用 expectedHead CAS，冲突不覆盖", "enforcedAt": ["publication"], "tests": ["packages/dsh/tests/session-surface.spec.ts"] },
+    { "id": "WS-13", "statement": "同一 DSH Session 的后续 Turn 沿用持久 WIP；Host 重启只自动续推 interrupted、aborted/disposed 或持久 next-turn", "enforcedAt": ["checkout-recovery", "session-startup-recovery"], "tests": ["packages/dsh/tests/session-surface.spec.ts", "packages/dsh/tests/session-admission-agent-loop.spec.ts"] },
+    { "id": "WS-14", "statement": "Turn 结束后其 capability 不能 emit", "enforcedAt": ["turn-capability"], "tests": ["packages/dsh/tests/session-surface.spec.ts"] },
+    { "id": "WS-15", "statement": "Registration 固定 Definition Revision、绑定和历史边界", "enforcedAt": ["registration-admission"], "tests": ["packages/core/tests/definition-v1.spec.ts"] },
+    { "id": "WS-16", "statement": "Activation 由 Registration、Subscription 与业务 key 决定", "enforcedAt": ["activation-derive"], "tests": ["packages/core/tests/definition-v1.spec.ts"] },
+    { "id": "WS-17", "statement": "同一 activation/operation/target 最多一个目标事件", "enforcedAt": ["managed-emit"], "tests": ["packages/dsh/tests/engine.spec.ts"] },
+    { "id": "WS-18", "statement": "声明式 reaction 与 handler 使用同一 Event API", "enforcedAt": ["orchestration-reconcile"], "tests": ["packages/dsh/tests/engine.spec.ts"] },
+    { "id": "WS-19", "statement": "handler 只能向声明并授权的角色 emit", "enforcedAt": ["definition-admission", "handler-emit"], "tests": ["packages/dsh/tests/code-handler.spec.ts"] },
+    { "id": "WS-20", "statement": "Surface 在 Agent 启动前完成绑定；模型不能 open 或切换当前 Surface，但活动 Turn 可经 Host 创建独立 Surface 契约、注册精确 Definition，并通过 ws emit 驱动依赖", "enforcedAt": ["binding-admission", "product-session-admission", "planning-capability", "cli-boundary"], "tests": ["packages/cli/tests/help.spec.ts", "packages/dsh/tests/session-adapter.spec.ts", "packages/dsh/tests/session-admission.spec.ts", "packages/dsh/tests/session-admission-agent-loop.spec.ts", "packages/web/tests/web.spec.ts"] },
+    { "id": "WS-21", "statement": "Agent 默认只写其唯一 Surface Session worktree；跨 Surface 作者契约只经活动 Turn capability 交给 Host 落盘", "enforcedAt": ["session-shell-context", "planning-capability"], "tests": ["packages/dsh/tests/session-surface.spec.ts"] },
+    { "id": "WS-22", "statement": "UI 与 projection 可删除并由事实重建", "enforcedAt": ["projection"], "tests": ["packages/web/tests/web.spec.ts"] },
+    { "id": "WS-23", "statement": "Core 不建立 Agent ownership、Task Tree、canonical Relation 或通用业务成功状态", "enforcedAt": ["static-boundary"], "tests": ["scripts/check.py"] }
+  ]
+}

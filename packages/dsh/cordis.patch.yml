@@ -1,21 +1,7 @@
-# PF WorkSurface profile layer. b2f owns model-output materialization; the
-# WorkSurface service resolves each Agent to a least-authority working root.
+# WorkSurface event/revision service, DSH Session integration, and orchestration reconcile.
 
 - insert:
-    - id: block-to-file
-      name: 'dsh-block-to-file'
-      config:
-        root: !!js dshHomePath('pf-worksurface/unbound-b2f')
     - id: pf-worksurface
       name: '@pf-worksurface/dsh'
       config:
         root: !!js dshHomePath('pf-worksurface')
-        profiles:
-          - name: default
-            provider: spawn
-            tokenBudget: 40000
-            maxDepth: 3
-            maxParallel: 4
-            persona: >-
-              Work only from the assigned WorkSurface projection and editable checkout.
-              Publish every accepted result with ws commit and return only committed references.

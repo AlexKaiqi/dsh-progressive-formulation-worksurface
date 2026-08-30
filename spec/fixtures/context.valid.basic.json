@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "execution": { "sessionId": "session_fixture" },
+  "surface": {
+    "id": "surface-a",
+    "inputSource": "authoring",
+    "inputRevision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "expectedHead": null
+  },
+  "capabilities": {
+    "emit": ["surface.revision.published", "*"],
+    "targetSurfaces": ["surface-a"],
+    "createSurface": true
+  }
+}

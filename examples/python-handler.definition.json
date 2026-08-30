@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "roles": ["source", "target"],
+  "subscriptions": [
+    {
+      "id": "python-handler",
+      "history": "from-registration",
+      "key": "$.payload.reviewId",
+      "when": {
+        "role": "source",
+        "event": "review.accepted"
+      },
+      "reaction": {
+        "handler": {
+          "command": "python3",
+          "path": "python-handler.py",
+          "reads": ["source"],
+          "emits": ["target"]
+        }
+      }
+    }
+  ]
+}

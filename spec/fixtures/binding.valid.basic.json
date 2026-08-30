@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "surfaceId": "surface_fixture",
+  "sessionId": "session_fixture",
+  "inputSource": "authoring",
+  "inputRevision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "expectedHead": null
+}

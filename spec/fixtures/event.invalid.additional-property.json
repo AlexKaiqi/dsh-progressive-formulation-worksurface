@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "id": "evt_fixture",
+  "subject": { "kind": "surface", "id": "surface-a" },
+  "seq": 0,
+  "name": "ready",
+  "payload": null,
+  "causes": [],
+  "meta": {},
+  "recordedAt": "2026-08-30T00:00:00.000Z",
+  "sessionId": "forbidden"
+}

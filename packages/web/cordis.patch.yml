@@ -1,5 +1,5 @@
 # Web-only companion: the canonical WorkSurface service remains usable in
-# CLI/headless profiles without webServer or sessions.
+# CLI/headless profiles without webServer or the conversation UI.
 - insert:
     - id: pf-worksurface-web
       name: "@pf-worksurface/web"

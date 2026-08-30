@@ -1,89 +1,93 @@
 import { readFile } from 'node:fs/promises'
+import { defineWorkSurfaceView } from '@pf-worksurface/core'
+import { parse } from 'yaml'
 
 export const name = 'pf-worksurface-web'
-export const inject = ['webServer', 'sessions', 'workSurfaces']
-
-function contentText(content) {
-  if (!Array.isArray(content)) return ''
-  return content.flatMap(block => {
-    if (block?.type === 'text') return [block.text]
-    if (block?.type === 'tool-call') return [`调用 ${block.name ?? '工具'}\n${block.arguments ?? ''}`]
-    if (block?.type === 'tool-result') return [contentText(block.content)]
-    return []
-  }).filter(value => typeof value === 'string' && value.trim() !== '').join('\n')
-}
-
-function isRuntimeContext(text) {
-  return text.trimStart().startsWith('Current runtime context. This snapshot supersedes earlier runtime-context snapshots.')
-}
-
-/** Project committed DSH events into the compact conversation attached to a Surface card. */
-export function projectSessionConversation(session) {
-  if (session === undefined) return []
-  const replayFrom = session.header?.parentSession === undefined ? 0 : (session.firstLiveSeq ?? 0)
-  const messages = []
-  for (const event of session.events ?? []) {
-    if ((event.seq ?? 0) < replayFrom) continue
-    let role
-    let text
-    if (event.type === 'user/message') {
-      role = 'user'
-      text = contentText(event.data?.content)
-      if (isRuntimeContext(text)) continue
-    } else if (event.type === 'assistant/message') {
-      role = 'assistant'
-      text = contentText(event.data?.message?.content)
-    } else if (event.type === 'turn/end' && event.data?.reason?.kind === 'error') {
-      role = 'error'
-      text = event.data.reason.error?.message ?? 'Agent 执行失败'
-    } else {
-      continue
-    }
-    text = text.trim()
-    if (text !== '') messages.push({ seq: event.seq ?? null, role, text, at: event.at ?? event.time ?? null })
-  }
-  return messages
-}
+export const inject = ['webServer', 'workSurfaces']
 
 function send(res, status, type, body) {
   res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store' })
   res.end(body)
 }
 
-function sendJson(res, status, body) {
-  send(res, status, 'application/json; charset=utf-8', JSON.stringify(body))
-}
-
-function page() {
-  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WorkGraph</title><link rel="stylesheet" href="/worksurface-map/styles.css"></head><body><div id="app"></div><script type="module" src="/worksurface-map/app.js"></script></body></html>'
-}
-
-/** Mount the read-only WorkGraph and conversation APIs on the existing DSH Web Server. */
+function json(res, status, body) { send(res, status, 'application/json; charset=utf-8', JSON.stringify(body)) }
+/** Read-only orchestration discovery and inspection; the browser owns no domain state. */
 export function apply(ctx, config) {
-  const trustedHosts = new Set(['localhost', '127.0.0.1', ...[...(config?.trustedHosts ?? [])].map(value => String(value).trim().toLowerCase()).filter(Boolean)])
-  const api = async (req, res) => {
+  const hosts = new Set(['localhost', '127.0.0.1', ...[...(config?.trustedHosts ?? [])].map(String)])
+  let lastValidView
+  const loadView = async () => {
+    const viewRevision = String(config?.viewRevision ?? '').trim()
+    if (!viewRevision) return {}
     try {
-      const hostname = (typeof req.headers.host === 'string' ? req.headers.host : '').replace(/:\d+$/, '').toLowerCase()
-      if (!trustedHosts.has(hostname)) return sendJson(res, 403, { error: '不被信任的 Host' })
-      const url = new URL(req.url ?? '/', 'http://dsh.local')
-      if (url.pathname !== '/worksurface-map/api/graph' || req.method !== 'GET') return sendJson(res, 404, { error: '接口不存在' })
-      const sessionId = url.searchParams.get('session')?.trim()
-      if (!sessionId) return sendJson(res, 400, { error: '缺少 session' })
-      const graph = await ctx.workSurfaces.graphForSession(sessionId)
-      const sessions = new Map([...ctx.sessions.list()].map(session => [String(session.id), session]))
-      const conversations = Object.fromEntries(graph.nodes
-        .filter(node => node.sessionId !== null)
-        .map(node => [node.sessionId, projectSessionConversation(sessions.get(node.sessionId))]))
-      return sendJson(res, 200, { graph, conversations })
+      const file = String(config?.viewFile ?? 'worksurface-view.yaml')
+      const revision = await ctx.workSurfaces.readRevisionFile(viewRevision, file)
+      if (lastValidView?.revision === revision.revision) return lastValidView
+      lastValidView = { revision: revision.revision, definition: defineWorkSurfaceView(parse(revision.content)) }
+      return lastValidView
     } catch (error) {
-      if (error?.code === 'not-found') return sendJson(res, 404, { error: error.message })
-      ctx.logger.error(error instanceof Error ? error : new Error(String(error)))
-      return sendJson(res, 500, { error: 'WorkSurface 图暂时不可用' })
+      const message = error instanceof Error ? error.message : String(error)
+      return { ...(lastValidView ?? {}), warning: message }
     }
   }
-  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/worksurface-map', handler: (_req, res) => { res.writeHead(302, { location: '/worksurface-map/' }); res.end() } }), 'worksurface-map: redirect')
-  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/worksurface-map/', handler: (_req, res) => send(res, 200, 'text/html; charset=utf-8', page()) }), 'worksurface-map: page')
-  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/worksurface-map/app.js', handler: async (_req, res) => send(res, 200, 'text/javascript; charset=utf-8', await readFile(new URL('./app.js', import.meta.url), 'utf8')) }), 'worksurface-map: app')
-  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/worksurface-map/styles.css', handler: async (_req, res) => send(res, 200, 'text/css; charset=utf-8', await readFile(new URL('./styles.css', import.meta.url), 'utf8')) }), 'worksurface-map: styles')
-  ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/worksurface-map/api', handler: api }), 'worksurface-map: api')
+  const api = async (req, res) => {
+    try {
+      const hostname = String(req.headers.host ?? '').replace(/:\d+$/, '').toLowerCase()
+      if (!hosts.has(hostname)) return json(res, 403, { error: 'untrusted Host' })
+      const url = new URL(req.url ?? '/', 'http://dsh.local')
+      if (req.method === 'POST' && url.pathname === '/worksurface-map/api/session') {
+        const origin = String(req.headers.origin ?? '')
+        if (origin && new URL(origin).hostname.toLowerCase() !== hostname) return json(res, 403, { error: 'cross-origin admission denied' })
+        const surfaceId = url.searchParams.get('surface')?.trim()
+        if (!surfaceId) return json(res, 400, { error: 'missing Surface id' })
+        return json(res, 200, await ctx.workSurfaces.ensureSession({ surfaceId }))
+      }
+      if (req.method !== 'GET') return json(res, 404, { error: 'not found' })
+      if (url.pathname === '/worksurface-map/api/topology') {
+        const surface = url.searchParams.get('surface')?.trim()
+        if (!surface) return json(res, 400, { error: 'missing Surface id' })
+        const view = await loadView()
+        const topology = await ctx.workSurfaces.inspectTopology(surface, view.definition)
+        return json(res, 200, {
+          ...topology,
+          ...(view.revision === undefined ? {} : { viewRevision: view.revision }),
+          ...(view.warning === undefined ? {} : { viewWarning: view.warning }),
+        })
+      }
+      if (url.pathname === '/worksurface-map/api/watch') {
+        const abort = new AbortController()
+        let timedOut = false
+        const timer = setTimeout(() => { timedOut = true; abort.abort() }, 25_000)
+        const disconnected = () => abort.abort()
+        res.once?.('close', disconnected)
+        try {
+          await ctx.workSurfaces.waitForProjectionWake(abort.signal)
+          return json(res, 200, { changed: true })
+        } catch (error) {
+          if (timedOut) return json(res, 200, { changed: false })
+          if (abort.signal.aborted) return undefined
+          throw error
+        } finally {
+          clearTimeout(timer)
+          res.off?.('close', disconnected)
+        }
+      }
+      if (url.pathname === '/worksurface-map/api/surfaces') return json(res, 200, { surfaces: await ctx.workSurfaces.listSurfaces() })
+      if (url.pathname === '/worksurface-map/api/orchestrations') {
+        const surface = url.searchParams.get('surface')?.trim() || undefined
+        return json(res, 200, { orchestrations: await ctx.workSurfaces.listOrchestrations(surface) })
+      }
+      if (url.pathname === '/worksurface-map/api/orchestration') {
+        const id = url.searchParams.get('id')?.trim()
+        if (!id) return json(res, 400, { error: 'missing orchestration id' })
+        return json(res, 200, await ctx.workSurfaces.inspectOrchestration(id))
+      }
+      return json(res, 404, { error: 'not found' })
+    } catch (error) {
+      if (error?.code === 'not-found') return json(res, 404, { error: error.message })
+      ctx.logger.error(error instanceof Error ? error : new Error(String(error)))
+      return json(res, 500, { error: 'projection unavailable' })
+    }
+  }
+  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/worksurface-map/styles.css', handler: async (_req, res) => send(res, 200, 'text/css; charset=utf-8', await readFile(new URL('./styles.css', import.meta.url), 'utf8')) }), 'worksurface-map.styles')
+  ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/worksurface-map/api', handler: api }), 'worksurface-map.api')
 }

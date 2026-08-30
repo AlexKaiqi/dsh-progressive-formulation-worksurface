@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/binding.schema.json",
+  "title": "Surface to DSH Session Binding v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "surfaceId", "sessionId", "inputSource", "inputRevision", "expectedHead"],
+  "properties": {
+    "version": { "const": 1 },
+    "surfaceId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+    "sessionId": { "type": "string", "minLength": 1 },
+    "inputSource": { "enum": ["published", "authoring", "revision"] },
+    "inputRevision": { "$ref": "#/$defs/revision" },
+    "expectedHead": { "anyOf": [{ "$ref": "#/$defs/revision" }, { "type": "null" }] }
+  },
+  "$defs": {
+    "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

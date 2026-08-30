@@ -2,8 +2,7 @@
  * Contract tests for the stable failure surface.
  *
  * Every failure a caller can receive must name an executable next step: the
- * caller is usually an Orchestrator script or a child Agent choosing an action
- * without a human, so a bare code is not actionable. The `Record` type makes
+ * caller needs to choose a recovery action, so a bare code is not actionable. The `Record` type makes
  * coverage a compile-time guarantee; these assert it at runtime and check that
  * the guidance is actually usable rather than a restatement of the code.
  */
@@ -27,7 +26,7 @@ describe('RECOVERY', () => {
       const text = RECOVERY[code]
       // An actionable alternative names a command, or a decision the caller can
       // take. Pure restatement ("invalid reference") would pass neither.
-      const actionable = /\bws\b|--\w|WS_[A-Z_]+|\b(?:use|run|retry|check|choose|stay|stop|supersede|rebase|point|pass|remove|copy|re-emit)\b/i
+      const actionable = /\b(?:use|retry|check|choose|stop|rebase|remove|register|inspect|replay|read)\b/i
       expect(text, `${code} must offer an executable alternative`).toMatch(actionable)
     }
   })

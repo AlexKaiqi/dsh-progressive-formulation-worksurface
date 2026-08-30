@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "roles": ["source", "target"],
+  "subscriptions": [{
+    "id": "broken",
+    "history": "all",
+    "when": { "role": "source", "event": "ready" },
+    "reaction": { "emit": [{ "role": "target", "event": "done", "payload": {} }] }
+  }]
+}

@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "roles": ["reviewA", "reviewB", "next"],
+  "subscriptions": [
+    {
+      "id": "accepted-join",
+      "history": "from-registration",
+      "key": "$.payload.reviewId",
+      "when": {
+        "all": [
+          {
+            "role": "reviewA",
+            "event": "review.accepted"
+          },
+          {
+            "role": "reviewB",
+            "event": "review.accepted"
+          }
+        ]
+      },
+      "reaction": {
+        "emit": [
+          {
+            "role": "next",
+            "event": "review.bundle.ready",
+            "payload": {
+              "reason": "both reviews accepted",
+              "reviewId": "${activation.key}"
+            },
+            "operationKey": "announce-next"
+          }
+        ]
+      }
+    }
+  ]
+}

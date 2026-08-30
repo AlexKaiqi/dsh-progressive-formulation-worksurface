@@ -1,0 +1,361 @@
+// Invariant assertions: [WS-01] [WS-09] [WS-10] [WS-13] [WS-20] [WS-21]
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { Context } from '@deepseek-ai/cordis'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import AgentDefaultModel from '@deepseek-ai/dsh-agent-default-model'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import LlmRuntime, { LlmAdapter, createUserMessage, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as ShellEnvPlugin from '@deepseek-ai/dsh-shell-env'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
+import { FileEventStore, RevisionStore, SURFACE_TEMPLATE } from '@pf-worksurface/core'
+import { afterEach, describe, expect, it } from 'vitest'
+import { installDshSessionAdapter } from '../src/session-adapter.ts'
+import { SurfaceSessionAdmission } from '../src/session-admission.ts'
+import { SurfaceSessionService } from '../src/session-surface.ts'
+import { WorkSurfaceService } from '../src/service.ts'
+
+const roots: string[] = []
+afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))))
+
+class ScriptedAdapter extends LlmAdapter {
+  readonly requests: GenerateOptions[] = []
+
+  constructor(private readonly replies: string[]) { super() }
+
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({ provider, id: model, name: model })
+  }
+
+  override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    this.requests.push(options)
+    const text = this.replies.shift()
+    if (text === undefined) throw new Error('script exhausted')
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'text-delta', index: 0, text }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+    yield { type: 'usage', usage: { inputTokens: 10, outputTokens: 2 } }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+}
+
+async function mountRuntime(root: string, surfaces: SurfaceSessionService, replies: string[], persistenceRoot?: string) {
+  const ctx = new Context()
+  await ctx.plugin(LlmRuntime)
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(SystemPrompt, { persona: 'You are the test deployment.' })
+  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(AgentDefaultModel, { provider: 'mock', model: 'mock-model' })
+  await ctx.plugin(ShellEnvPlugin, { dshHome: join(root, 'dsh-home') })
+  if (persistenceRoot !== undefined) await ctx.plugin(JsonlSessionPersistence, { root: persistenceRoot, compression: 'none' })
+  const adapter = new ScriptedAdapter(replies)
+  ctx.llm.registerAdapter(['mock'], adapter)
+  installDshSessionAdapter(ctx, surfaces, join(root, 'unused.sock'))
+  const admission = new SurfaceSessionAdmission(ctx, surfaces, () => Promise.resolve())
+  return { admission, adapter, ctx }
+}
+
+async function mountServiceRuntime(root: string, work: string, replies: string[], persistenceRoot: string) {
+  const ctx = new Context()
+  await ctx.plugin(LlmRuntime)
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(SystemPrompt, { persona: 'You are the service restart test deployment.' })
+  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(AgentDefaultModel, { provider: 'mock', model: 'mock-model' })
+  await ctx.plugin(ShellEnvPlugin, { dshHome: join(root, 'dsh-home') })
+  await ctx.plugin(JsonlSessionPersistence, { root: persistenceRoot, compression: 'none' })
+  ctx.provide('subprocess', {} as never)
+  ctx.provide('sandbox', {} as never)
+  const adapter = new ScriptedAdapter(replies)
+  ctx.llm.registerAdapter(['mock'], adapter)
+  await ctx.plugin(WorkSurfaceService, {
+    root: join(root, 'worksurface-state'),
+    workRoot: work,
+    socketPath: join(root, 'worksurface.sock'),
+  })
+  return { adapter, ctx }
+}
+
+async function fixture(options: { persistence?: boolean } = {}) {
+  const root = await mkdtemp(join(tmpdir(), 'ws-real-agent-loop-')); roots.push(root)
+  const work = join(root, 'work'); const state = join(root, 'state')
+  await mkdir(join(work, 'surfaces', 'surface-a'), { recursive: true })
+  await writeFile(join(work, 'surfaces', 'surface-a', 'surface.md'), SURFACE_TEMPLATE)
+
+  const events = new FileEventStore(join(state, 'events'))
+  const revisions = new RevisionStore(join(state, 'revisions'))
+  await Promise.all([events.init(), revisions.init()])
+  const surfaces = new SurfaceSessionService(events, revisions, work, state)
+  await surfaces.init()
+  const persistenceRoot = options.persistence === true ? join(root, 'sessions') : undefined
+  const runtime = await mountRuntime(root, surfaces, ['first turn', 'second turn'], persistenceRoot)
+  return { ...runtime, persistenceRoot, root, state, surfaces, work }
+}
+
+function send(agent: Agent, text: string): void {
+  agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
+}
+
+describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
+  it('opens blank, then runs two ordinary Turns in one Session and one persistent cwd', async () => {
+    const { admission, adapter, ctx, surfaces } = await fixture()
+    try {
+      const opened = await admission.ensure({ surfaceId: 'surface-a' })
+      const agent = ctx.agents.get(SessionId(opened.sessionId))!
+      expect(agent.session.events[0]?.type).toBe('worksurface/binding')
+      expect(agent.session.events.some(event => event.type === 'turn/start' || event.type === 'user/message')).toBe(false)
+
+      send(agent, 'start from the contract')
+      await agent.whenIdle()
+      const eventTypes = agent.session.events.map(event => event.type)
+      expect(eventTypes.indexOf('worksurface/binding')).toBeLessThan(eventTypes.indexOf('turn/start'))
+      expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+      expect(agent.session.header.cwd).toBe(surfaces.cwdForSurface('surface-a'))
+      expect(adapter.requests[0]?.messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('complete progress history of WorkSurface')))).toBe(true)
+
+      const wip = join(agent.session.header.cwd!, 'wip.txt')
+      await writeFile(wip, 'same worktree\n')
+      expect((await admission.ensure({ surfaceId: 'surface-a' })).sessionId).toBe(opened.sessionId)
+      send(agent, 'continue the same work')
+      await agent.whenIdle()
+
+      expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
+      expect(await readFile(wip, 'utf8')).toBe('same worktree\n')
+      expect(surfaces.bindingForSurface('surface-a')?.sessionId).toBe(opened.sessionId)
+      expect(surfaces.activeSurface(opened.sessionId)).toBeUndefined()
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('automatically continues a crash-interrupted Turn in the same Session and worktree after restart', async () => {
+    const first = await fixture({ persistence: true })
+    const opened = await first.admission.ensure({ surfaceId: 'surface-a' })
+    const firstAgent = first.ctx.agents.get(SessionId(opened.sessionId))!
+    send(firstAgent, 'first process')
+    await firstAgent.whenIdle()
+    await writeFile(join(firstAgent.session.header.cwd!, 'restart-wip.txt'), 'survives restart\n')
+    // Model the last durable boundary of a process that died during Turn 2.
+    // Persistence will synthesize its interrupted closer during cold inspect.
+    firstAgent.session.append('turn/start', { turn: 2 })
+    await first.ctx.sessions.flush(firstAgent.session)
+    await first.ctx.fiber.dispose()
+
+    const events = new FileEventStore(join(first.state, 'events'))
+    const revisions = new RevisionStore(join(first.state, 'revisions'))
+    await Promise.all([events.init(), revisions.init()])
+    const recoveredSurfaces = new SurfaceSessionService(events, revisions, first.work, first.state)
+    await recoveredSurfaces.init()
+    const second = await mountRuntime(first.root, recoveredSurfaces, ['after restart'], first.persistenceRoot)
+    try {
+      const recovery = await second.admission.recoverAfterRestart()
+      const resumed = second.ctx.agents.get(SessionId(opened.sessionId))!
+      await resumed.whenIdle()
+      expect(recovery).toEqual([{ surfaceId: 'surface-a', sessionId: opened.sessionId, cause: 'interrupted' }])
+      expect(resumed.session.events.filter(event => event.type === 'worksurface/binding')).toHaveLength(1)
+      expect(resumed.session.events.filter(event => event.type === 'turn/start')).toHaveLength(3)
+      expect(resumed.session.events.filter(event => event.type === 'turn/end').map(event => event.type === 'turn/end' && event.data.reason.kind))
+        .toEqual(['completed', 'interrupted', 'completed'])
+      expect(resumed.session.events.some(event => event.type === 'user/message'
+        && event.data.source.kind === 'plugin'
+        && event.data.source.plugin === '@pf-worksurface/dsh')).toBe(true)
+      expect(resumed.session.header.cwd).toBe(firstAgent.session.header.cwd)
+      expect(await readFile(join(resumed.session.header.cwd!, 'restart-wip.txt'), 'utf8')).toBe('survives restart\n')
+      expect(recoveredSurfaces.bindingForSurface('surface-a')?.sessionId).toBe(opened.sessionId)
+    } finally {
+      await second.ctx.fiber.dispose()
+    }
+  })
+
+  it('does not auto-resume a completed idle Surface Session after restart', async () => {
+    const first = await fixture({ persistence: true })
+    const opened = await first.admission.ensure({ surfaceId: 'surface-a' })
+    const firstAgent = first.ctx.agents.get(SessionId(opened.sessionId))!
+    send(firstAgent, 'completed before restart')
+    await firstAgent.whenIdle()
+    await first.ctx.sessions.flush(firstAgent.session)
+    await first.ctx.fiber.dispose()
+
+    const events = new FileEventStore(join(first.state, 'events'))
+    const revisions = new RevisionStore(join(first.state, 'revisions'))
+    await Promise.all([events.init(), revisions.init()])
+    const recoveredSurfaces = new SurfaceSessionService(events, revisions, first.work, first.state)
+    await recoveredSurfaces.init()
+    const second = await mountRuntime(first.root, recoveredSurfaces, ['must stay unused'], first.persistenceRoot)
+    try {
+      expect(await second.admission.recoverAfterRestart()).toEqual([])
+      expect(second.ctx.agents.get(SessionId(opened.sessionId))).toBeUndefined()
+      expect(second.adapter.requests).toEqual([])
+    } finally {
+      await second.ctx.fiber.dispose()
+    }
+  })
+
+  it('continues a Turn closed as disposed by a graceful DSH restart', async () => {
+    const first = await fixture({ persistence: true })
+    const opened = await first.admission.ensure({ surfaceId: 'surface-a' })
+    const firstAgent = first.ctx.agents.get(SessionId(opened.sessionId))!
+    send(firstAgent, 'first process')
+    await firstAgent.whenIdle()
+    firstAgent.session.append('turn/start', { turn: 2 })
+    firstAgent.session.append('turn/end', { turn: 2, reason: { kind: 'aborted', reason: { kind: 'disposed' } } })
+    await first.ctx.sessions.flush(firstAgent.session)
+    await first.ctx.fiber.dispose()
+
+    const events = new FileEventStore(join(first.state, 'events'))
+    const revisions = new RevisionStore(join(first.state, 'revisions'))
+    await Promise.all([events.init(), revisions.init()])
+    const recoveredSurfaces = new SurfaceSessionService(events, revisions, first.work, first.state)
+    await recoveredSurfaces.init()
+    const second = await mountRuntime(first.root, recoveredSurfaces, ['continued after graceful restart'], first.persistenceRoot)
+    try {
+      expect(await second.admission.recoverAfterRestart())
+        .toEqual([{ surfaceId: 'surface-a', sessionId: opened.sessionId, cause: 'disposed' }])
+      const resumed = second.ctx.agents.get(SessionId(opened.sessionId))!
+      await resumed.whenIdle()
+      expect(resumed.session.events.filter(event => event.type === 'turn/start')).toHaveLength(3)
+    } finally {
+      await second.ctx.fiber.dispose()
+    }
+  })
+
+  it('wakes a durable queued followup that had not opened its Turn before restart', async () => {
+    const first = await fixture({ persistence: true })
+    const opened = await first.admission.ensure({ surfaceId: 'surface-a' })
+    const firstAgent = first.ctx.agents.get(SessionId(opened.sessionId))!
+    const queued = createUserMessage({ content: [{ type: 'text', text: 'queued before restart' }], source: { kind: 'user' } })
+    firstAgent.session.append('agent/inbox/spliced', {
+      target: 'next-turn',
+      start: 0,
+      inserted: [queued],
+    })
+    await first.ctx.sessions.flush(firstAgent.session)
+    await first.ctx.fiber.dispose()
+
+    const events = new FileEventStore(join(first.state, 'events'))
+    const revisions = new RevisionStore(join(first.state, 'revisions'))
+    await Promise.all([events.init(), revisions.init()])
+    const recoveredSurfaces = new SurfaceSessionService(events, revisions, first.work, first.state)
+    await recoveredSurfaces.init()
+    const second = await mountRuntime(first.root, recoveredSurfaces, ['continued queued followup'], first.persistenceRoot)
+    try {
+      expect(await second.admission.recoverAfterRestart())
+        .toEqual([{ surfaceId: 'surface-a', sessionId: opened.sessionId, cause: 'queued-followup' }])
+      const resumed = second.ctx.agents.get(SessionId(opened.sessionId))!
+      await resumed.whenIdle()
+      expect(resumed.session.deriveMessages().some(message => message.content.some(block => block.type === 'text' && block.text === 'queued before restart'))).toBe(true)
+      expect(resumed.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+    } finally {
+      await second.ctx.fiber.dispose()
+    }
+  })
+
+  it('lets an Agent plan Surfaces and admits a dependent target only after its exact event condition matches', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ws-agent-plan-')); roots.push(root)
+    const work = join(root, 'work')
+    const persistenceRoot = join(root, 'sessions')
+    await mkdir(join(work, 'surfaces', 'planner'), { recursive: true })
+    await writeFile(join(work, 'surfaces', 'planner', 'surface.md'), SURFACE_TEMPLATE)
+    const runtime = await mountServiceRuntime(root, work, ['dependent child ran'], persistenceRoot)
+    try {
+      const opened = await runtime.ctx.workSurfaces.ensureSession({ surfaceId: 'planner' })
+      const planner = runtime.ctx.agents.get(SessionId(opened.sessionId))!
+      planner.session.append('turn/start', { turn: 1 })
+      const capability = runtime.ctx.workSurfaces.surfaces.activeTurn(opened.sessionId)!.capability
+      const contract = SURFACE_TEMPLATE
+        .replace('# Goal\n', '# Goal\n\nProduce the dependent deliverable.\n')
+        .replace('# Known Facts and Constraints\n', '# Known Facts and Constraints\n\nEmit `delivery.completed` with stable key `delivery-v1`.\n')
+      expect(await runtime.ctx.workSurfaces.createSurface('dependent-child', contract, capability))
+        .toMatchObject({ surfaceId: 'dependent-child', created: true, planner: { surfaceId: 'planner', sessionId: opened.sessionId, turn: 1 } })
+      expect(await runtime.ctx.workSurfaces.createSurface('dependent-child', contract, capability))
+        .toMatchObject({ surfaceId: 'dependent-child', created: false })
+
+      const definition = {
+        version: 1 as const,
+        roles: ['sourceA', 'sourceB', 'child'],
+        subscriptions: [{
+          id: 'join-roots', history: 'all' as const, key: '$.payload.plan',
+          when: { all: [{ role: 'sourceA', event: 'root.a.ready' }, { role: 'sourceB', event: 'root.b.ready' }] },
+          reaction: { followup: [{ role: 'child', message: 'Read surface.md and execute the dependent deliverable.', operationKey: 'start-dependent' }] },
+        }],
+      }
+      const bindings = { sourceA: 'planner', sourceB: 'planner', child: 'dependent-child' }
+      const registered = await runtime.ctx.workSurfaces.registerDefinition('dependent-plan', bindings, 'reg-dependent-plan', definition, capability)
+      expect(await runtime.ctx.workSurfaces.registerDefinition('dependent-plan', bindings, 'reg-dependent-plan', definition, capability)).toEqual(registered)
+      await expect(runtime.ctx.workSurfaces.registerDefinition(
+        'dependent-plan', { ...bindings, child: 'other-child' }, 'reg-dependent-plan', definition, capability,
+      )).rejects.toMatchObject({ code: 'already-exists-conflict' })
+
+      await runtime.ctx.workSurfaces.emitTurn(capability, 'root.a.ready', { plan: 'p1' }, 'root-a')
+      await runtime.ctx.workSurfaces.engine.reconcile('reg-dependent-plan')
+      expect(runtime.ctx.workSurfaces.surfaces.bindingForSurface('dependent-child')).toBeUndefined()
+
+      await runtime.ctx.workSurfaces.emitTurn(capability, 'root.b.ready', { plan: 'p1' }, 'root-b')
+      await runtime.ctx.workSurfaces.engine.reconcile('reg-dependent-plan')
+      const childBinding = runtime.ctx.workSurfaces.surfaces.bindingForSurface('dependent-child')!
+      const child = runtime.ctx.agents.get(SessionId(childBinding.sessionId))!
+      await child.whenIdle()
+      expect(child.session.events.filter(event => event.type === 'worksurface/binding')).toHaveLength(1)
+      expect(child.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+      expect(child.session.deriveMessages().some(message => message.content.some(block => block.type === 'text'
+        && block.text === 'Read surface.md and execute the dependent deliverable.'))).toBe(true)
+      const inspection = await runtime.ctx.workSurfaces.inspectOrchestration('reg-dependent-plan')
+      expect(inspection.pendingOperations).toEqual([])
+      const target = inspection.runs[0]?.operations[0]?.target
+      if (target === undefined || !('messageId' in target)) throw new Error('expected managed followup receipt')
+      await runtime.ctx.workSurfaces.surfaces.followupSurface(
+        'dependent-child', 'Read surface.md and execute the dependent deliverable.', target.messageId,
+      )
+      await runtime.ctx.workSurfaces.engine.reconcile('reg-dependent-plan')
+      expect(child.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+      expect(runtime.ctx.agents.list().filter(agent => String(agent.id) === childBinding.sessionId)).toHaveLength(1)
+      planner.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    } finally {
+      await runtime.ctx.fiber.dispose()
+    }
+  })
+
+  it('automatically invokes restart recovery from WorkSurfaceService initialization', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ws-service-restart-')); roots.push(root)
+    const work = join(root, 'work')
+    const persistenceRoot = join(root, 'sessions')
+    await mkdir(join(work, 'surfaces', 'surface-a'), { recursive: true })
+    await writeFile(join(work, 'surfaces', 'surface-a', 'surface.md'), SURFACE_TEMPLATE)
+
+    const first = await mountServiceRuntime(root, work, ['first service turn'], persistenceRoot)
+    const opened = await first.ctx.workSurfaces.ensureSession({ surfaceId: 'surface-a' })
+    const firstAgent = first.ctx.agents.get(SessionId(opened.sessionId))!
+    send(firstAgent, 'start before service restart')
+    await firstAgent.whenIdle()
+    await writeFile(join(firstAgent.session.header.cwd!, 'service-restart.txt'), 'same durable worktree\n')
+    firstAgent.session.append('turn/start', { turn: 2 })
+    await first.ctx.sessions.flush(firstAgent.session)
+    await first.ctx.fiber.dispose()
+
+    // Mounting the complete service is the only recovery action in lifecycle 2.
+    // WorkSurfaceService.init must inspect, resume, and wake the bound Session.
+    const second = await mountServiceRuntime(root, work, ['automatic service continuation'], persistenceRoot)
+    try {
+      const resumed = second.ctx.agents.get(SessionId(opened.sessionId))!
+      expect(resumed).toBeDefined()
+      await resumed.whenIdle()
+      expect(second.adapter.requests).toHaveLength(1)
+      expect(resumed.session.events.filter(event => event.type === 'turn/start')).toHaveLength(3)
+      expect(resumed.session.events.filter(event => event.type === 'turn/end').map(event => event.type === 'turn/end' && event.data.reason.kind))
+        .toEqual(['completed', 'interrupted', 'completed'])
+      expect(await readFile(join(resumed.session.header.cwd!, 'service-restart.txt'), 'utf8'))
+        .toBe('same durable worktree\n')
+      expect(second.ctx.workSurfaces.surfaces.bindingForSurface('surface-a')?.sessionId).toBe(opened.sessionId)
+    } finally {
+      await second.ctx.fiber.dispose()
+    }
+  })
+})

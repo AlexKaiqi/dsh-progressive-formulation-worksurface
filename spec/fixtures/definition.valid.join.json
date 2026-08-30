@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "roles": ["left", "right", "target"],
+  "subscriptions": [{
+    "id": "join",
+    "history": "all",
+    "key": "$.payload.caseId",
+    "when": { "all": [
+      { "role": "left", "event": "approved" },
+      { "role": "right", "event": "approved" }
+    ] },
+    "reaction": { "emit": [{
+      "role": "target",
+      "event": "review.bundle.ready",
+      "operationKey": "announce-ready",
+      "payload": {}
+    }] }
+  }]
+}

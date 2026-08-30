@@ -1,59 +1,92 @@
 /**
- * Canonical file WorkSurface domain, immutable store, Projection compiler, and effect journal.
- * This package imports no DeepSeek Harness agent-loop implementation.
+ * Event-driven WorkSurface domain: event envelopes, Definitions, immutable
+ * revisions, orchestration folds, and planned/actual projections.
+ * DSH Session integration and storage-adapter implementations stay outside this package.
  * @module @pf-worksurface/core
  */
 
 export { WorkSurfaceError, asWorkSurfaceError } from './error.ts'
 export type { WorkSurfaceErrorCode } from './error.ts'
-export { sha256, stableStringify, hashSurfaceContent } from './hash.ts'
-export { SurfaceId, BlockId, deriveSurfaceId, sessionSurfaceId } from './ids.ts'
+export { sha256, stableStringify } from './hash.ts'
+export { DefinitionStore } from './definition-store.ts'
+export { FileEventStore } from './file-event-store.ts'
 export {
-  parseFrontMatter,
-  parseSurfaceDocument,
-  parseBlockDocument,
-  parseBlockReferences,
-  instantiateSurfaceDocument,
-  instantiateBlockDocument,
-} from './markdown.ts'
-export { EffectJournal } from './journal.ts'
-export { WorkSurfaceStore } from './store.ts'
-export { WorkSessionLog } from './work-session.ts'
-export { ProjectionCompiler, createBlockRef } from './projection.ts'
+  RevisionStore,
+  SURFACE_SECTION_TITLES,
+  SURFACE_TEMPLATE,
+  validateSurfaceMarkdown,
+} from './revision-store.ts'
 export type {
-  BlockEnvelope,
-  BindSurfaceSessionOptions,
-  ArchiveUnboundSurfacesResult,
-  BlockId as BlockIdType,
-  BlockRef,
-  CheckoutResult,
-  CommitResult,
-  EffectRecord,
-  EffectStatus,
-  FaultInjector,
-  FaultPoint,
-  NewSurfaceResult,
-  OmittedWorkSurfaceProjectionFile,
-  OrchestratorDefinition,
-  WorkSurfaceProjectionFile,
-  WorkSurfaceProjectionFileKind,
-  WorkSurfaceProjectionSnapshot,
+  RevisionGcOptions,
+  RevisionGcResult,
+  RevisionKind,
+  RevisionManifest,
+  RevisionManifestEntry,
+  SnapshotLimits,
+} from './revision-store.ts'
+export {
+  assertJson,
+  defineOrchestration,
+  emissionEventId,
+  eventRef,
+  expressionRoles,
+  foldOrchestration,
+  isSelector,
+  operationIdentity,
+  registrationSubject,
+  requiresActivationKey,
+  subjectKey,
+  surfaceSubject,
+  publicationEventId,
+  validateEventDraft,
+  validateEventRef,
+  validateRegistration,
+  validateWorkSurfaceEvent,
+} from './event-model.ts'
+export type {
+  ActivationId,
+  ActivationSource,
+  CodeReaction,
+  DeclarativeReaction,
+  EmitAction,
+  EmitReaction,
+  FollowupAction,
+  FollowupReaction,
+  EventDraft,
+  EventExpression,
+  EventMeta,
+  EventRef,
+  EventSelector,
+  EventSubject,
+  HandlerSpec,
+  JsonValue,
+  ObservedEvent,
+  OrchestrationActivation,
+  OrchestrationDefinition,
+  OrchestrationId,
+  OrchestrationRecord,
+  OrchestrationState,
+  Registration,
+  RegistrationId,
+  StoredDefinition,
+  SubjectKey,
+  SubscriptionDefinition,
+  SurfaceId,
   Revision,
-  SurfaceEnvelope,
-  SurfaceHead,
-  SurfaceId as SurfaceIdType,
-  SurfaceSnapshot,
-  SurfaceSessionBinding,
-  SurfaceSessionCompletion,
-  SurfaceSessionInput,
-  SurfaceSessionRole,
-  WorkSurfaceDependencyEdge,
-  WorkSurfaceGraphBlock,
-  WorkSurfaceGraphNode,
-  WorkSurfaceGraphSnapshot,
-  WorkSessionEvent,
-  WorkSessionEventDataMap,
-  WorkSessionEventType,
-  WorkSessionHeader,
-  WorkSessionSnapshot,
-} from './types.ts'
+  WorkSurfaceEvent,
+} from './event-model.ts'
+export {
+  deriveActivations,
+  inspectEventCondition,
+  projectActualFlow,
+  projectPlannedFlow,
+  subscriptionFor,
+} from './orchestration.ts'
+export type { ActualFlowEdge, EventConditionInspection, PlannedFlowEdge } from './orchestration.ts'
+export { defineWorkSurfaceView, projectSurfaceLifecycle } from './view-projection.ts'
+export type {
+  SurfaceDisplayPhase,
+  SurfaceLifecycleProjection,
+  ViewInterpretationDisplay,
+  WorkSurfaceViewDefinition,
+} from './view-projection.ts'

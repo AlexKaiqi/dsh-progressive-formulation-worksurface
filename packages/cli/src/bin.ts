@@ -1,294 +1,151 @@
 #!/usr/bin/env node
 
-import { realpathSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { readFileSync, realpathSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
-import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
-import { asWorkSurfaceError, WorkSurfaceError } from '@pf-worksurface/core'
+import { asWorkSurfaceError, sha256, WorkSurfaceError } from '@pf-worksurface/core'
 import { WorkSurfaceHostClient } from './client.ts'
-import { executeDirect } from './direct.ts'
-import { HELP, INIT_HELP, VERSION } from './help.ts'
-import type { WorkSurfaceRpcMethod } from './protocol.ts'
+import { HELP, VERSION } from './help.ts'
 
-interface ParsedArgs {
-  readonly flags: ReadonlyMap<string, string | true>
-  readonly positional: readonly string[]
-}
+interface Args { readonly flags: Map<string, string | true>; readonly positional: readonly string[] }
 
-interface Command {
-  readonly method: WorkSurfaceRpcMethod
-  readonly params: Readonly<Record<string, unknown>>
-  readonly json: boolean
-  readonly resultPath?: string
-}
-
-
-
-/**
- * Run the CLI and return its process exit code.
- * @param argv - Command arguments without the executable name.
- * @param env - Environment used to locate the Host or direct store.
- * @returns The stable process exit code.
- */
 export async function main(argv = process.argv.slice(2), env = process.env): Promise<number> {
-  if (argv.length === 0 || argv.includes('--help') || (argv[0] === 'help' && argv.length === 1)) {
-    process.stdout.write(HELP)
-    return 0
-  }
-  if (argv.length === 2 && argv[0] === 'help' && argv[1] === 'init') {
-    process.stdout.write(INIT_HELP)
-    return 0
-  }
-  if (argv.length === 1 && argv[0] === '--version') {
-    process.stdout.write(`${VERSION}\n`)
-    return 0
-  }
-  let command: Command | undefined
+  if (argv.length === 0 || argv.includes('--help')) { process.stdout.write(HELP); return 0 }
+  if (argv.length === 1 && argv[0] === '--version') { process.stdout.write(`${VERSION}\n`); return 0 }
   try {
-    command = parseCommand(argv)
-    const parsed = parseArgs(command.method === 'agent.run' ? argv.slice(2) : argv.slice(1))
-    const attemptId = option(parsed, 'attempt') ?? env.WS_ATTEMPT_ID ?? env.DSH_WS_ATTEMPT_ID ?? 'adhoc'
-    const controller = new AbortController()
-    const abort = (): void => {
-      controller.abort(new WorkSurfaceError('effect-failed', 'operation cancelled'))
-    }
-    process.once('SIGINT', abort)
-    process.once('SIGTERM', abort)
-    try {
-      const result = await execute(command, attemptId, env, controller.signal)
-      if (command.resultPath !== undefined) {
-        await writeFileAtomic(command.resultPath, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600, dirMode: 0o700 })
-      }
-      renderSuccess(command, result)
-      return 0
-    } finally {
-      process.removeListener('SIGINT', abort)
-      process.removeListener('SIGTERM', abort)
-    }
+    const result = await execute(parseArgs(argv), env)
+    process.stdout.write(`${JSON.stringify(result)}\n`)
+    return 0
   } catch (error) {
     const stable = asWorkSurfaceError(error)
-    const json = command?.json ?? argv.includes('--json')
-    if (json) {
-      process.stderr.write(`${JSON.stringify({ error: { code: stable.code, message: stable.message, details: stable.details } })}\n`)
-    } else {
-      process.stderr.write(`ws: ${stable.code}: ${stable.message}\n`)
-    }
-    return exitCode(stable)
+    process.stderr.write(`${JSON.stringify({ error: { code: stable.code, message: stable.message, details: stable.details } })}\n`)
+    return stable.code === 'not-found' ? 10 : stable.code === 'unauthorized' ? 14 : stable.code === 'invalid-definition' ? 12 : 15
   }
 }
 
-async function execute(command: Command, attemptId: string, env: NodeJS.ProcessEnv, signal: AbortSignal): Promise<unknown> {
-  const socketPath = env.WS_HOST_SOCKET ?? env.DSH_WS_HOST_SOCKET
-  const attemptToken = env.WS_ATTEMPT_TOKEN ?? env.DSH_WS_ATTEMPT_TOKEN
-  if (socketPath !== undefined) {
-    if (!attemptToken) throw new WorkSurfaceError('unauthorized', 'WorkSurface attempt token is required with the Host socket')
-    return new WorkSurfaceHostClient({
-      socketPath,
-      attemptId,
-      token: attemptToken,
-    }).call(command.method, command.params, signal)
-  }
-  if (env.WS_ATTEMPT_DIR !== undefined || env.DSH_WS_ATTEMPT_DIR !== undefined) {
-    throw new WorkSurfaceError('unauthorized', 'an Orchestrator process cannot fall back to direct canonical-store access')
-  }
-  if (!env.WS_STORE_ROOT) throw new WorkSurfaceError('unauthorized', 'WS_STORE_ROOT is required for direct file commands')
-  return executeDirect(env.WS_STORE_ROOT, command.method, attemptId, command.params)
+async function execute(args: Args, env: NodeJS.ProcessEnv): Promise<unknown> {
+  if (args.positional[0] === 'emit' && args.positional.length === 2) return emit(args, env)
+  if (args.positional[0] === 'surface' && args.positional[1] === 'create' && args.positional.length === 3) return createSurface(args, env)
+  if (args.positional[0] === 'orchestrate' && args.positional[1] === 'register' && args.positional.length === 3) return registerOrchestration(args, env)
+  throw usage('expected `ws emit`, `ws surface create`, or `ws orchestrate register`')
 }
 
-function parseCommand(argv: readonly string[]): Command {
-  if (argv[0] === 'agent') {
-    if (argv[1] !== 'run') throw usage('expected ws agent run')
-    const parsed = parseArgs(argv.slice(2))
-    validateFlags(parsed, ['attempt', 'from', 'json', 'key', 'parent', 'profile', 'result', 'retry', 'surface', 'task'])
-    requirePositionals(parsed, 0)
-    return {
-      method: 'agent.run',
-      json: flag(parsed, 'json'),
-      resultPath: requiredOption(parsed, 'result'),
-      params: {
-        surface: requiredOption(parsed, 'surface'),
-        task: requiredOption(parsed, 'task'),
-        profile: requiredOption(parsed, 'profile'),
-        key: requiredOption(parsed, 'key'),
-        ...option(parsed, 'from') === undefined ? {} : { templatePath: option(parsed, 'from') },
-        ...option(parsed, 'parent') === undefined ? {} : { parent: option(parsed, 'parent') },
-        ...(flag(parsed, 'retry') ? { retry: true } : {}),
-      },
-    }
+async function emit(args: Args, env: NodeJS.ProcessEnv): Promise<unknown> {
+  allowFlags(args, ['surface', 'key', 'payload', 'payload-file', 'socket', 'capability'])
+  const target = args.positional[1]!
+  const surfaceId = stringFlag(args, 'surface') ?? env.DSH_SURFACE_ID
+  const client = clientFor(args, env)
+  const capability = stringFlag(args, 'capability') ?? env.DSH_WORKSURFACE_CAPABILITY
+  const operationKey = stringFlag(args, 'key')
+  const value = parseJson(payload(args), 'payload')
+  if (capability !== undefined) {
+    return client.call('event.emit-turn', {
+      capability, name: target, payload: value,
+      ...(operationKey === undefined ? {} : { operationKey }),
+    })
   }
-  const parsed = parseArgs(argv.slice(1))
-  switch (argv[0]) {
-    case 'checkout':
-      validateFlags(parsed, ['attempt', 'json', 'revision'])
-      requirePositionals(parsed, 2)
-      return {
-        method: 'checkout',
-        json: flag(parsed, 'json'),
-        params: {
-          surface: positional(parsed, 0),
-          targetPath: positional(parsed, 1),
-          ...option(parsed, 'revision') === undefined ? {} : { revision: option(parsed, 'revision') },
-        },
-      }
-    case 'commit':
-      validateFlags(parsed, ['attempt', 'base', 'json', 'key', 'retry'])
-      requirePositionals(parsed, 1)
-      return {
-        method: 'commit',
-        json: flag(parsed, 'json'),
-        params: {
-          workingPath: positional(parsed, 0),
-          baseRevision: requiredOption(parsed, 'base'),
-          key: requiredOption(parsed, 'key'),
-          ...(flag(parsed, 'retry') ? { retry: true } : {}),
-        },
-      }
-    case 'show': {
-      validateFlags(parsed, ['attempt', 'json', 'profile', 'projection', 'revision', 'token-budget'])
-      requirePositionals(parsed, 1)
-      if (flag(parsed, 'projection')) {
-        const budget = Number.parseInt(option(parsed, 'token-budget') ?? '40000', 10)
-        if (!Number.isSafeInteger(budget) || budget <= 0) throw usage('--token-budget must be a positive integer')
-        return {
-          method: 'projection',
-          json: flag(parsed, 'json'),
-          params: {
-            surface: positional(parsed, 0),
-            profile: option(parsed, 'profile') ?? 'default',
-            tokenBudget: budget,
-            ...option(parsed, 'revision') === undefined ? {} : { revision: option(parsed, 'revision') },
-          },
-        }
-      }
-      if (option(parsed, 'profile') !== undefined || option(parsed, 'token-budget') !== undefined) {
-        throw usage('--profile and --token-budget require --projection')
-      }
-      return {
-        method: 'show',
-        json: flag(parsed, 'json'),
-        params: {
-          surface: positional(parsed, 0),
-          ...option(parsed, 'revision') === undefined ? {} : { revision: option(parsed, 'revision') },
-        },
-      }
-    }
-    default:
-      throw usage(`unknown command '${argv[0] ?? ''}'`)
-  }
+  if (surfaceId === undefined) throw new WorkSurfaceError('unauthorized', '--surface is required outside a managed DSH Turn')
+  const eventId = operationKey === undefined
+    ? `evt_${randomUUID()}`
+    : `evt_${sha256(`${surfaceId}\0${target}\0${operationKey}`).slice(0, 40)}`
+  return client.call('event.emit', { surfaceId, name: target, payload: value, eventId })
 }
 
-function parseArgs(argv: readonly string[]): ParsedArgs {
+async function createSurface(args: Args, env: NodeJS.ProcessEnv): Promise<unknown> {
+  allowFlags(args, ['contract-file', 'socket', 'capability'])
+  const capability = managedCapability(args, env)
+  const contractPath = requiredFlag(args, 'contract-file')
+  const markdown = readFileSync(realpathSync(contractPath), 'utf8')
+  return clientFor(args, env).call('surface.create', {
+    capability,
+    surfaceId: args.positional[2]!,
+    markdown,
+  })
+}
+
+async function registerOrchestration(args: Args, env: NodeJS.ProcessEnv): Promise<unknown> {
+  allowFlags(args, ['definition-file', 'bindings', 'bindings-file', 'registration', 'socket', 'capability'])
+  const capability = managedCapability(args, env)
+  const definition = parseJson(readFileSync(realpathSync(requiredFlag(args, 'definition-file')), 'utf8'), 'definition')
+  const inlineBindings = stringFlag(args, 'bindings')
+  const bindingsFile = stringFlag(args, 'bindings-file')
+  if ((inlineBindings === undefined) === (bindingsFile === undefined)) throw usage('exactly one of --bindings and --bindings-file is required')
+  const bindings = parseBindings(bindingsFile === undefined ? inlineBindings! : readFileSync(realpathSync(bindingsFile), 'utf8'))
+  return clientFor(args, env).call('orchestrate.register', {
+    capability,
+    orchestrationId: args.positional[2]!,
+    registrationId: requiredFlag(args, 'registration'),
+    definition,
+    bindings,
+  })
+}
+
+function clientFor(args: Args, env: NodeJS.ProcessEnv): WorkSurfaceHostClient {
+  const socket = stringFlag(args, 'socket') ?? env.DSH_WORKSURFACE_SOCKET
+  if (socket === undefined) throw new WorkSurfaceError('unauthorized', '--socket is required outside a managed DSH Turn')
+  return new WorkSurfaceHostClient(socket)
+}
+
+function managedCapability(args: Args, env: NodeJS.ProcessEnv): string {
+  const capability = stringFlag(args, 'capability') ?? env.DSH_WORKSURFACE_CAPABILITY
+  if (capability === undefined) throw new WorkSurfaceError('unauthorized', 'a live DSH WorkSurface Turn capability is required')
+  return capability
+}
+
+function parseArgs(argv: readonly string[]): Args {
   const flags = new Map<string, string | true>()
   const positional: string[] = []
-  let positionalOnly = false
   for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index]
-    if (token === undefined) break
-    if (positionalOnly) {
-      positional.push(token)
-      continue
-    }
-    if (token === '--') {
-      positionalOnly = true
-      continue
-    }
-    if (!token.startsWith('--')) {
-      positional.push(token)
-      continue
-    }
-    const equals = token.indexOf('=')
-    const name = token.slice(2, equals < 0 ? undefined : equals)
-    if (name === '') throw usage('empty option name')
-    if (flags.has(name)) throw usage(`option --${name} was provided more than once`)
-    if (equals >= 0) {
-      const value = token.slice(equals + 1)
-      if (value === '') throw usage(`option --${name} requires a value`)
-      flags.set(name, value)
-      continue
-    }
-    if (['json', 'projection', 'retry'].includes(name)) {
-      flags.set(name, true)
-      continue
-    }
-    const value = argv[index + 1]
-    if (value === undefined || value.startsWith('--')) throw usage(`option --${name} requires a value`)
+    const token = argv[index]!
+    if (!token.startsWith('--')) { positional.push(token); continue }
+    const name = token.slice(2)
+    if (flags.has(name)) throw usage(`--${name} was provided more than once`)
+    const value = argv[++index]
+    if (value === undefined || value.startsWith('--')) throw usage(`--${name} requires a value`)
     flags.set(name, value)
-    index += 1
   }
   return { flags, positional }
 }
 
-function validateFlags(parsed: ParsedArgs, allowed: readonly string[]): void {
-  const permit = new Set(allowed)
-  for (const name of parsed.flags.keys()) if (!permit.has(name)) throw usage(`unknown option --${name}`)
+function allowFlags(args: Args, allowed: readonly string[]): void {
+  for (const name of args.flags.keys()) if (!allowed.includes(name)) throw usage(`unknown option --${name}`)
 }
 
-function requirePositionals(parsed: ParsedArgs, count: number): void {
-  if (parsed.positional.length !== count) throw usage(`expected ${count} positional argument${count === 1 ? '' : 's'}`)
+function payload(args: Args): string {
+  const inline = stringFlag(args, 'payload')
+  const file = stringFlag(args, 'payload-file')
+  if (inline !== undefined && file !== undefined) throw usage('--payload and --payload-file are mutually exclusive')
+  if (file !== undefined) return readFileSync(realpathSync(file), 'utf8')
+  return inline ?? '{}'
 }
 
-function positional(parsed: ParsedArgs, index: number): string {
-  const value = parsed.positional[index]
-  if (value === undefined) throw usage(`missing positional argument ${index + 1}`)
+function requiredFlag(args: Args, name: string): string {
+  const value = stringFlag(args, name)
+  if (value === undefined) throw usage(`--${name} is required`)
   return value
 }
 
-function requiredOption(parsed: ParsedArgs, name: string): string {
-  const value = option(parsed, name)
-  if (value === undefined) throw usage(`missing required option --${name}`)
-  return value
+function stringFlag(args: Args, name: string): string | undefined {
+  const value = args.flags.get(name)
+  return typeof value === 'string' ? value : undefined
 }
 
-function option(parsed: ParsedArgs, name: string): string | undefined {
-  const value = parsed.flags.get(name)
-  if (value === true) throw usage(`option --${name} requires a value`)
-  return value
+function parseJson(text: string, label: string): unknown {
+  try { return JSON.parse(text) }
+  catch { throw usage(`${label} is not valid JSON`) }
 }
 
-function flag(parsed: ParsedArgs, name: string): boolean {
-  const value = parsed.flags.get(name)
-  if (typeof value === 'string') throw usage(`option --${name} does not take a value`)
-  return value === true
+function parseBindings(text: string): Record<string, string> {
+  const value = parseJson(text, 'bindings')
+  if (value === null || typeof value !== 'object' || Array.isArray(value)
+    || Object.values(value).some(item => typeof item !== 'string' || item === '')) {
+    throw usage('bindings must be a JSON object of role-to-Surface strings')
+  }
+  return value as Record<string, string>
 }
 
 function usage(message: string): WorkSurfaceError {
   return new WorkSurfaceError('invalid-working-copy', `${message}; run 'ws --help'`)
 }
 
-function renderSuccess(command: Command, result: unknown): void {
-  if (command.json) {
-    process.stdout.write(`${JSON.stringify(result)}\n`)
-    return
-  }
-  if (command.method === 'show' && isRecord(result) && typeof result.surfaceDocument === 'string') {
-    process.stdout.write(result.surfaceDocument)
-    if (!result.surfaceDocument.endsWith('\n')) process.stdout.write('\n')
-    return
-  }
-  process.stdout.write(`${JSON.stringify(result)}\n`)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-function exitCode(error: WorkSurfaceError): number {
-  switch (error.code) {
-    case 'not-found': return 10
-    case 'revision-conflict': return 11
-    case 'dangling-reference':
-    case 'invalid-id':
-    case 'invalid-markdown-envelope':
-    case 'invalid-reference':
-    case 'invalid-working-copy':
-    case 'block-header-mismatch':
-    case 'physical-delete-forbidden':
-    case 'target-not-empty': return 12
-    case 'idempotency-key-conflict': return 13
-    case 'unauthorized': return 14
-    default: return 15
-  }
-}
-
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
-  process.exitCode = await main()
-}
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) process.exitCode = await main()

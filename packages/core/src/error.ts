@@ -1,23 +1,17 @@
 /** Stable WorkSurface failures used by CLI JSON and exit-code mapping. */
 export type WorkSurfaceErrorCode =
   | 'already-exists'
-  | 'block-header-mismatch'
+  | 'already-exists-conflict'
   | 'canonical-corrupt'
   | 'cancelled'
-  | 'dangling-reference'
   | 'effect-failed'
-  | 'idempotency-key-conflict'
   | 'invalid-id'
-  | 'invalid-markdown-envelope'
-  | 'invalid-reference'
+  | 'invalid-definition'
   | 'invalid-working-copy'
   | 'not-found'
-  | 'physical-delete-forbidden'
   | 'revision-conflict'
-  | 'session-binding-conflict'
   | 'target-not-empty'
   | 'unauthorized'
-  | 'unsupported-profile'
 
 /** Error with a stable code and lossless JSON-safe details. */
 export class WorkSurfaceError extends Error {
@@ -34,8 +28,7 @@ export class WorkSurfaceError extends Error {
    * Executable next step for this failure.
    *
    * A bare code tells a caller what went wrong but not what to do, and the
-   * caller here is usually an Orchestrator script or a child Agent that has to
-   * choose a next action without a human. See {@link RECOVERY}.
+   * caller can choose a next action. See {@link RECOVERY}.
    */
   get alternative(): string {
     return RECOVERY[this.code]
@@ -61,24 +54,18 @@ export class WorkSurfaceError extends Error {
  * caller with nothing to try next.
  */
 export const RECOVERY: Record<WorkSurfaceErrorCode, string> = {
-  'already-exists': 'use the existing Surface, or delegate a distinct Surface id with `ws agent run --from <template>`',
-  'block-header-mismatch': 'run `ws show <surface>` and re-emit the block with its header exactly as returned',
-  'canonical-corrupt': 'stop writing and check the WorkSurface root; canonical state must be repaired before any further effect',
-  cancelled: 'the caller cancelled this attempt; retry the command with the same --key once the caller is ready',
-  'dangling-reference': 'run `ws show <surface>` to list live references, then point the block at one that resolves',
-  'effect-failed': 'check the reported details, then retry the command with the same --key',
-  'idempotency-key-conflict': 'the same --key was used for a different effect; pass --retry to resume the original, or use a new --key',
-  'invalid-id': 'use a Surface id already shown by `ws show`, or provide a valid id when delegating with `ws agent run --from <template>`',
-  'invalid-markdown-envelope': 'run `ws help init` for the envelope format, then re-emit the working copy',
-  'invalid-reference': 'run `ws show <surface>` and copy the reference verbatim from its output',
-  'invalid-working-copy': 'run `ws checkout <surface> <target>` again and edit that fresh copy',
-  'not-found': 'run `ws show <surface>` to confirm the target exists at the revision you expect',
-  'physical-delete-forbidden': 'supersede the block with a new revision instead of deleting it',
-  'revision-conflict': 'run `ws show <surface>` for the current revision, rebase your edit on it, then commit with --base set to that revision',
-  'session-binding-conflict': 'use the Session already bound to this Surface, or delegate a distinct Surface with `ws agent run --from <template>`',
+  'already-exists': 'reuse the existing identity or choose a distinct domain id',
+  'already-exists-conflict': 'read the existing event, choose a new operation key, or retry with identical canonical content',
+  'canonical-corrupt': 'stop mutation and repair the affected event stream or immutable object before retrying',
+  cancelled: 'retry the same operation when the caller is ready',
+  'effect-failed': 'check the reported details and retry the event operation',
+  'invalid-id': 'use a valid Surface, Orchestration, Registration, Session reference, event, or revision id',
+  'invalid-definition': 'check the reported Definition field and register the validated Definition again',
+  'invalid-working-copy': 'check the request or checkout a fresh artifact revision before retrying',
+  'not-found': 'replay the Surface or inspect the orchestration to confirm the referenced fact exists',
+  'revision-conflict': 'read the current published revision, rebase the artifact, then commit against that revision',
   'target-not-empty': 'choose an empty target path, or remove the existing contents before checking out',
-  unauthorized: 'stay inside the attempt workspace and under the Surface named by WS_ROOT_SURFACE; use `ws checkout` to obtain a writable path',
-  'unsupported-profile': 'run `ws show --projection` without --profile, or pass a profile declared in the plugin configuration',
+  unauthorized: 'use the authenticated WorkSurface Service and only declared handler roles',
 }
 
 /**

@@ -1,36 +1,5 @@
 # @pf-worksurface/core
 
-English | [中文](README.zh.md)
+Core 拥有标准 `surface.md` 模板与校验、Event envelope、Orchestrate Definition AST、不可变 revision store、append-only file event store、subscription/activation fold，以及 possible/actual flow 投影。依赖语义保留在精确 Definition 中，投影不是依赖模型。Core 不依赖 DSH 执行循环，也不存在 Work Session、binding 或 Relation store。
 
-`@pf-worksurface/core` owns the file-native WorkSurface domain: immutable content-addressed revisions, one append-only Work Session per flat Surface, immutable Orchestrator definitions, validated working-copy commits, direct-reference Projections, and replayable effect records. It has no dependency on the DeepSeek Harness Agent loop.
-
-## File contract
-
-A Surface is a directory containing `surface.md` and `blocks/<block-id>.md`. Runtime-owned YAML front matter binds each document to its Surface and Block identity; editable Markdown remains ordinary UTF-8 text. References use `[[block:<surface-id>/<block-id>]]`.
-
-Creating a Surface instantiates runtime-owned identities into a template. Committing validates the entire working copy, rejects dangling references and metadata/path mismatches, forbids physical Block deletion, and compares the caller's base revision with the current Session-folded head. Every accepted snapshot is stored under its SHA-256 revision before a Work Session event publishes it; `HEAD.json` is only a repairable projection.
-
-Every `canonical/surfaces/<surface-id>` directory also contains `session/header.json`, a materialized Session `HEAD.json`, contiguous immutable events, and—once attached—one write-once `binding.json`. Child Surfaces remain siblings on disk. `graphSnapshot()` recursively follows bindings aligned with the DSH Session tree; a file-first Surface without a binding is a provisional recovery anchor, not yet a graph member. New binding records use v2; missing-version records are legacy v1 and are never guessed into a continuable execution. `archiveUnboundSurfaces()` moves expired unbound leaves intact to `canonical/orphans` without deleting their revisions. See [`../../docs/work-session-storage.md`](../../docs/work-session-storage.md).
-
-## Public API
-
-`WorkSurfaceStore` provides `newSurface`, `checkout`, `commit`, `readHead`, `readSnapshot`, `readBlock`, `validateOutputRefs`, `history`, `readWorkSession`, `defineOrchestrator`, and `readOrchestratorDefinition`. `store.sessions` exposes typed idempotent event append and replay. Mutating calls require an attempt id and stable idempotency key. Reusing a key with the same request returns the recorded result; reusing it with different parameters fails with `idempotency-key-conflict`.
-
-`ProjectionCompiler.compile` preserves the complete `surface.md`, collects complete directly referenced Block files in order, and pins every Block revision. Files that do not fit the configured approximate budget are omitted as whole files instead of being truncated. `compilePinned` rebuilds the same file Projection from explicit revision pins.
-
-`WorkSurfaceError` carries a stable `code` and JSON-safe `details`. Callers should branch on the code rather than message text.
-
-## Model Experience
-
-Indirectly, through `@pf-worksurface/dsh`, which inserts a compiled file Projection into each delegated child Agent's persona.
-
-#### KV Cache effect
-
-No direct effect; the consuming plugin owns request assembly and cache-prefix behavior.
-
-## Known Limitations and Deferred Work
-
-- **Direct references only** — Projection collection does not recursively collect references found inside Block bodies.
-- **Approximate token budgeting** — the compiler reserves four characters per requested token instead of invoking a model-specific tokenizer.
-- **Single-host filesystem coordination** — atomic files and recoverable locks protect concurrent local processes; distributed writers require a different publication backend.
-- **Logical deletion only** — callers may change status metadata, but a commit cannot physically remove an existing Block.
+`RevisionStore` 保存不可变 bytes 与含路径、类型、可执行位、大小和哈希的 manifest；哪个 revision 当前 published 由 Surface event stream 决定。它提供人工 pin 和带年龄保护的 mark-and-sweep：调用方从 Event/Registration 事实发现可达 Revision，年轻对象不会与并发 snapshot 竞争。`FileEventStore` 为每个 Surface/Registration subject 提供幂等 append、冲突检测、重放与 live wakeup。

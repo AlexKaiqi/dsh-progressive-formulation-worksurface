@@ -1,0 +1,25 @@
+version: 1
+title: Release review
+
+surfaces:
+  build-artifacts:
+    title: Build artifacts
+    titleLocked: true
+    group: build
+
+orchestrations:
+  ws-orch-review:
+    title: Two-person review
+    subscriptions:
+      accepted-join:
+        title: Both reviews accepted
+
+interpretations:
+  - event: review.accepted
+    display: verified
+
+layout:
+  groups:
+    - id: build
+      title: Build
+      surfaces: [build-artifacts]

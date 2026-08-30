@@ -1,10 +1,10 @@
 /** WorkSurface CLI client and local IPC protocol. */
 
 export { WorkSurfaceHostClient } from './client.ts'
-export { executeDirect } from './direct.ts'
+export { WORKSURFACE_RPC_METHODS } from './protocol.ts'
 export type {
   WorkSurfaceRpcError,
   WorkSurfaceRpcMethod,
-  WorkSurfaceRpcRequest,
+  WorkSurfaceRpcCall,
   WorkSurfaceRpcResponse,
 } from './protocol.ts'
