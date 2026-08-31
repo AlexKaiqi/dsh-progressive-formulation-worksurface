@@ -1,28 +1,31 @@
 # WorkSurface 文档索引
 
-## 权威设计
+## 当前设计真源
 
-当前权威设计由三个互相约束的载体组成：
+1. [实现交互图](interactive/worksurface-system.html)：物理组件、持久化对象与运行路径；可编辑源为 [`worksurface-implementation.architecture.json`](interactive/worksurface-implementation.architecture.json)。
+2. [完整系统设计](worksurface-complete-design.md)：只定义能映射到当前类型、存储、fold、恢复或测试的概念，并把未实现方向单独列出。
+3. [实现索引](architecture.md)：组件、状态和关键流程到源码位置的映射。
+4. [机器协议与不变量](invariants-and-acceptance.md)：`spec/`、`WS-01` 至 `WS-23` 和测试证据。
 
-1. [可交互系统设计图](interactive/worksurface-system.html)：概念、边界和关系的第一审查入口；可编辑源为 [`worksurface-system.workflow.json`](interactive/worksurface-system.workflow.json)。
-2. [完整系统设计](worksurface-complete-design.md)：精确定义 `Surface / Episode` 主轴、Orchestrate Source → Definition IR → Instance 编译边界、Event / Effect 推进机制、DSH 承载边界、恢复和核心不变量。
-3. [UI 设计](ui-design.md)：原生 `conversation.view`、拓扑、视觉编码、证据侧栏、UI View Spec、重放和降级。
+交互图用于检查整体关系，完整系统设计给出严格语义，源码、schema 和测试证明物理实现。三者不一致时，不能用抽象描述掩盖差异：先判定代码现状，再明确选择修代码还是把文档标记为提案。
 
-交互图负责概念与关系索引，完整系统设计负责精确语义，UI 只能定义投影与交互。新增一级概念、边界或关键关系时，必须在同一变更中同步图规格、生成 HTML 和完整系统设计；出现冲突时不能选择性忽略，必须修复漂移。
+## 专题文档
 
-## 实现与验证资料
+- [UI 设计](ui-design.md)：当前 `WorkSurfaceViewDefinition`、Surface 生命周期投影和 DSH/WorkSurface 证据分层。
+- [模型上下文](context-management.zh.md)：当前 Revision、Session facts、provider occurrence、Context Plan 和 render audit；英文版见 [Fact-backed model context](context-management.md)。
+- [`spec/`](../spec/)：Event、Definition、Binding、Context 和 Registration 的机器 schema。
+- [`examples/`](../examples/)：当前协议示例，不扩张领域模型。
 
-- [实现索引](architecture.md)：将目标设计映射到现有代码，并明确尚未迁移的旧概念；不另行定义架构。
-- [验证指南](invariants-and-acceptance.md)：区分“当前实现兼容性门禁”与“目标设计迁移验收”。
-- [模型上下文](context-management.zh.md)：从 DSH Session、Surface materializations、EventRefs 与 provider 输出构建 Context Projection；英文版见 [Fact-backed model context](context-management.md)。
-- [`spec/`](../spec/)：当前实现使用的 Event、Definition、Binding、Context schema、兼容性模板和机器可读不变量注册表。
-- [`examples/`](../examples/)：符合当前实现协议的示例；不应被解释为 Surface 通用内容模型。
+## 设计准入
 
-目标设计已经先行更新，当前 `spec/`、实现与测试仍含 Revision-centric、强制 `surface.md`、JSON Definition 和公开 Registration 等旧分层。测试通过只证明当前实现自洽，不表示已经完成目标语义。迁移时应原子更新 schema、registry、代码、测试和示例。
+新的一级概念只有同时回答身份、类型/schema、持久化、事件边界、fold/replay、故障恢复和测试，才能进入“当前设计”。只有名称和叙述的内容必须标为提案。
 
-## 历史材料
+因此，当前文档明确不把以下内容当成已实现事实：
 
-- `work-session-storage.md`：基于旧 Work Session 命名，内容已经并入完整系统设计。
-- `worksurface-ui-design-revised.md`：历史 UI 草案，未同步当前 Surface / Episode 模型和正确 DSH 层级。
+- `Episode`；
+- YAML compiler；
+- 独立于 `OrchestrationDefinition v1` 的 Definition IR；
+- 一个统一的 `WorkSurface Runtime` 领域实体；
+- 通用的 `SurfaceId + adapter + locator + boundary` 地址协议。
 
-Git 历史仍可用于追溯，但这些材料不再是当前规范。
+Git 历史中的旧草案可以用于追溯，但不是当前规范。

@@ -1,40 +1,53 @@
 # Fact-backed model context
 
-A Surface is an addressable, continuously maintained, structured work context—not a predefined set of files. The input for one model call is built by Context Projection:
+This document describes the current implementation in `packages/dsh/src/context/`. It does not define a generic Surface addressing theory.
+
+## Authoritative inputs
+
+`WorkSurfaceContextRuntime` builds model input from:
 
 ```text
-DSH Session Log
-+ Surface Materializations
-+ WorkSurface EventRefs
-+ Provider Outputs
-        ↓
-Context Snapshot / Context Plan
-        ↓
-Model Adapter
+DSH Session events / session.surface
++ immutable Revision manifest for the bound Surface
++ settled provider occurrence sections
+        ↓ buildContextPlan
+ContextPlan
+        ↓ ModelContextAdapter.render
+RenderedContext + RenderManifest
 ```
 
-DSH `session.surface` remains the sole owner of conversation history; WorkSurface does not duplicate transcripts. The first DSH adapter resolves the bound Surface, then providers determine which context that Surface exposes for the current problem. File trees, database rows, external artifacts, and event ranges are provider/materialization types. The general protocol does not require `surface.md` or fixed sections.
+DSH owns conversation history. Surface files are resolved through `RevisionStore`; inline provider text is first persisted under `runtimeRoot/context/blobs/<sha256>.txt` and then referenced by Session facts.
 
-Every candidate item has a logical address: `SurfaceId + adapter + locator [+ boundary]`. A locator may identify a file fragment, part of a structured object, an event range, or an element inside an external artifact. A working address without a boundary follows continuously maintained current content. Replay, cross-Surface references, and event causality require an address pinned to a Revision, EventRef, Session event boundary, or external version.
+## Implemented references
 
-Maintenance continues between model calls. The model edits authorized Materializations with ordinary tools, and later Turn/Step Context Projections select from the latest allowed state. A Surface is therefore a durable, model-accessible work representation, not a prompt that must be injected in full on every Step.
+`ContextContentRef` currently supports exactly:
 
-These advances are organized as Episodes. An Episode contains or references the context boundary, model steps, tool calls, Surface changes, results, and evidence for one bounded advance. Later Episodes continue from the latest allowed state of the same Surface. An Episode neither copies the DSH transcript nor presumes a one-to-one mapping to a Turn or Step.
+- `worksurface-file`: `surfaceId + revision + path + contentHash + size`;
+- `session-event`: `sessionId + seq + contentHash`;
+- `blob`: `id + contentHash`.
 
-Custom Events emitted during an Episode may carry small values inline in their payload or carry content refs to files, Surface fragments, blobs, or external artifacts. Context Projection resolves those refs through adapters. Refs used for replay, cross-Surface transfer, or acceptance evidence must pin a boundary; working refs may only read current content.
+There is no generic `adapter + locator + boundary` protocol, file-fragment reference, database locator, or external-artifact adapter yet.
 
-Every input is pinned to a reconstructible boundary: file materializations use immutable Revisions, DSH history uses a stable Session event boundary, WorkSurface facts use EventRefs, and external providers use a verifiable version or content digest. A Revision is therefore a snapshot for a file materialization, not the complete content fact of a Surface.
+## Surface revision projection
 
-The Context Plan classifies every candidate item:
+`publishRevision()` reads an immutable Surface Revision, creates one `worksurface-file` reference per file, and appends a `worksurface/context-revision` fact to the bound Session. `foldWorkSurfaceContext()` reconstructs the current Revision and manifest from those facts.
 
-- `required`: must enter the current call; overflow fails explicitly;
-- `included`: actually entered the model input;
-- `omitted`: discovered but excluded by budget or policy, and must not be described as consumed by the model.
+In the current ContextPlan, `surface.md` is `required` with `never` omission. Other Surface files default to `high` priority and `whole-item` omission.
 
-Providers for one occurrence may run concurrently and settle in stable `(order, providerId)` order. Recoverable output is persisted as a content-addressed object or stable external reference before the Context Snapshot refers to it. Recovery reuses settled facts instead of repeating unknown side effects.
+## Provider occurrences
 
-After request acceptance, the render audit records only the Context Plan, included/omitted/required identities, token estimate, model route, and content hash—not prompt or provider bytes. Related WorkSurface context events remain downstream-ignorable so a Harness without the plugin can retain and skip them while an installed plugin reconstructs the projection.
+Providers run for registered `analysis`, `acceptance`, `recovery`, or `maintenance` occurrences. Session facts record creation, each provider settlement, consumption, and end. Providers are stably ordered by `(order, providerId)` and currently invoked sequentially. Required-provider failure prevents continuation.
 
-The WorkSurface advancement-control layer injects only a few stable entry points and location pointers. Trusted implementation code fills internal SessionId, Turn, InstanceId, ActivationId, causality, and capability fields. This does not require DSH to expose an identically named Runtime. The model continues to use Bash, Zsh, Python, Node, and ordinary file operations on projected content.
+Supported lifetimes are `request`, `phase`, `until-revision-change`, `until-event`, and `session`.
 
-Compaction, tool-result pruning, and the `Session → Turn → Step → Tool Call` lifecycle remain DSH responsibilities. WorkSurface does not create a second conversation-maintenance mechanism.
+## Planning and rendering
+
+`buildContextPlan()` derives conversation items from `session.surface.nodes`, Surface file items from the latest context Revision, and injection/recovery items from active occurrences. Every item records its content ref, source fact seqs, priority, omission policy, lifetime, and optional token estimate. `planId` is a digest of the canonical plan.
+
+The default adapter includes every `required` or `never` item first and fails if those exceed the budget. It then admits whole items in `high → normal → low` order. `RenderManifest` records included and omitted item IDs, token estimate, model target, and a content hash—not the original content.
+
+## DSH boundary
+
+WorkSurface context extension events are registered as downstream-ignorable DSH Session event types. Compaction, pruning, and the `Session → Turn → Step → Tool Call` lifecycle remain DSH responsibilities.
+
+There is no implemented `Episode` in context management. ContextPlan, provider occurrence, Turn, and Step must not be renamed or summarized as one.

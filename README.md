@@ -1,28 +1,40 @@
 # WorkSurface
 
-WorkSurface 是 DSH 之上的**工作上下文推进层**。领域主轴先收敛为两个概念：
+WorkSurface v1 是建立在 DSH 之上的文件化、事件驱动协调层。本文只描述当前代码已经实现的对象和边界。
 
-- **Surface**：可寻址、持续维护的结构化工作上下文。具体包含什么由当前问题决定；目录、文件、外部对象和对话都只是它可能引用的 materialization。模型可定位并维护局部，但每个 Step 只投影当前所需内容。
-- **Episode**：一个 Surface 上一次有边界的推进。一个 Surface 有一系列有序 Episode；每个 Episode 包含或引用本次推进中的模型步骤、工具调用、Surface 修改、结果与证据。
+当前 Surface 没有独立聚合对象。`SurfaceId` 是贯穿以下物理事实的关联键：
 
-Event、Orchestrate 和 WorkSurface Runtime 是围绕这条主轴工作的推进机制：Episode 推进中可以产生自定义 Event；payload 可直接携带信息，也可携带文件等内容引用；Orchestrate 依赖 Event 形成推进决策；WorkSurface Runtime 负责控制 Surface / Episode 如何继续。
+- `work/surfaces/<surface-id>/`：模型持续维护的作者工作目录；当前 Revision 协议要求包含 `surface.md`；
+- `v4/events/surfaces/<surface-id>.jsonl`：该 Surface 的 WorkSurface Event stream；
+- `v4/surface-sessions/<surface-id>/binding.json`：Surface 与唯一 DSH Session 的固定绑定；
+- `v4/revisions/`：发布后的不可变目录快照。
 
-Orchestrate 的 YAML 与 Code 都只是作者 Source，必须经过 compile / adapt 形成同一种不可变 Definition IR；Instance 再用 DefinitionRef 绑定实际 Surface。推进控制层只接受 `Definition + Instance + Event[]`，并只产生标准 `Effect[]`，不会直接解释 YAML 或作者代码。
+Surface 的实际模型与工具执行由绑定的 DSH Session 承载。DSH 语义保持原样：Session 是完整的 append-only 交互历史；一个 Turn 包含零到多个 Step；一个 Step 是一次模型调用及该调用请求的工具执行。WorkSurface 不另建执行历史。
 
-WorkSurface Runtime 是本文对“推进控制器”的暂用名，不是 DSH 术语，也不假设 DSH 存在同名抽象。当前实现只是通过 adapter 借用 DSH Session 承载实际模型与工具执行。
+当前 Orchestration 路径是：
 
-首个 DSH adapter 暂时采用一个 Surface 绑定一个 DSH Session，由该 Session 承载 Episode 的实际执行与权威日志；这是实现策略，不是 Surface 或 Episode 的定义。Episode 不预设与 DSH Turn 或 Step 一一对应。Session、Turn、Step、Tool Call 仍严格沿用 DSH 原义。
+```text
+definition.json + registration.json
+          ↓ admission / snapshot
+exact OrchestrationDefinition + Registration stream + Surface streams
+          ↓ replay / reconcile
+Activation → durable Operation → emit 或 followup → settlement
+```
 
-模型继续使用 Bash、Zsh、Python、Node 和普通文件能力组合复杂工作。WorkSurface 尽量不增加模型工具；推进控制层只注入少量稳定变量和入口，并自动补齐可信身份、因果与权限字段。`surface.md` 可以作为文件型 Surface 的可选 Profile，但不是通用协议要求。
+作者侧目前只有 JSON Definition；没有 YAML compiler，也没有独立 Definition IR。声明式 reaction 与 code handler 都由同一 Engine 调度，但二者尚未收敛成统一 Effect evaluator。
+
+模型继续使用 Bash、Zsh、Python、Node 和普通文件能力。模型侧唯一 WorkSurface 领域命令是 `ws emit`；可信实现补齐事件身份、因果、绑定和 capability。
+
+`Episode` 不是当前概念：仓库中没有 `EpisodeId`、schema、store、边界事件、fold、恢复协议或测试，因此不能用于解释现有执行历史或 UI 分组。若以后引入，必须先给出可持久化、可重放、可测试且能映射 DSH/WorkSurface 事实的协议。
 
 详见：
 
-- [可交互系统设计图](docs/interactive/worksurface-system.html)：从五个审查视图探索 Surface / Episode、Orchestrate 编译边界、事件驱动推进与执行承载边界
-- [完整系统设计](docs/worksurface-complete-design.md)：定位、边界、核心概念、关系、DSH 语义、恢复和不变量
-- [UI 设计](docs/ui-design.md)：上述事实与语义的可删除投影
-- [模型上下文](docs/context-management.zh.md)：开放 Surface 如何投影为一次模型调用的上下文
-- [实现索引](docs/architecture.md)：目标设计与当前代码的对应关系及迁移差距
-- [文档索引](docs/README.md)：规范、实现和验证入口
+- [实现交互图](docs/interactive/worksurface-system.html)：物理组件、持久化结构和实际执行链
+- [完整系统设计](docs/worksurface-complete-design.md)：当前定位、严格概念定义、流程和未实现项
+- [实现索引](docs/architecture.md)：概念到源码与存储的映射
+- [UI 设计](docs/ui-design.md)：基于当前事实的可删除投影
+- [模型上下文](docs/context-management.zh.md)：当前 Context Runtime 的事实模型
+- [验证指南](docs/invariants-and-acceptance.md)：机器不变量、测试证据和新概念准入门槛
 
 ```sh
 source ~/.nvm/nvm.sh

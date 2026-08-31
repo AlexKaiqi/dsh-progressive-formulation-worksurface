@@ -44,7 +44,7 @@ def static_checks() -> None:
         fail("interactive design receipt is not a clean 9/9 Showcase validation")
 
     design_source = json.loads(
-        (INTERACTIVE_DESIGN / "worksurface-system.workflow.json").read_text()
+        (INTERACTIVE_DESIGN / receipt["source"]).read_text()
     )
     design_nodes = design_source.get("components", design_source.get("nodes", []))
     used_kinds = {component["type"] for component in design_nodes}

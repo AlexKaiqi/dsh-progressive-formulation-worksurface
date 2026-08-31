@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "diagramType": "workflow",
-  "source": "worksurface-system.workflow.json",
+  "diagramType": "architecture",
+  "source": "worksurface-implementation.architecture.json",
   "artifact": "worksurface-system.html",
-  "specificationSha256": "42106ac9de95fb19176f765e394a60fb854cfed0b89518d3b4859d2af5b49808",
-  "artifactSha256": "cbb72003c085a5ec0216b0a3095740c00bf05377e4b60a36a1a107ad52b9380e",
+  "specificationSha256": "eabf5834c14a155ab4d974f118190135b1d98c6d8cc503e1ee534f2e793e4c4c",
+  "artifactSha256": "271e839fadfb199553812496dfd9203fe882ca844db3cee77784aa775390a79b",
   "validation": {
     "profile": "showcase",
     "checksPassed": 9,

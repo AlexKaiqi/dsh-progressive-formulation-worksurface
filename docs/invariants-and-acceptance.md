@@ -1,8 +1,6 @@
-# WorkSurface 验证指南
+# WorkSurface 验证与概念准入
 
-> 本文是验证入口，不重复定义设计。目标不变量来自[完整系统设计](worksurface-complete-design.md)，UI 约束来自 [UI 设计](ui-design.md)。
-
-## 当前实现兼容性门禁
+## 1. 当前实现门禁
 
 ```sh
 source ~/.nvm/nvm.sh
@@ -10,72 +8,71 @@ nvm use 24.17.0
 pnpm check
 ```
 
-`pnpm check` 当前验证交互图规格与生成 HTML 的摘要、9/9 Showcase receipt，以及旧分层实现自身的一致性：Event、JSON Definition、文件化 Registration、Revision-centric Context schema、强制 Surface 模板、`spec/invariants.json`、包边界、TypeScript、单元测试、eval suite、Host RPC 与 CLI protocol。
+`pnpm check` 校验：交互图 source/artifact receipt、JSON schemas、`WS-01` 至 `WS-23` 注册表、包边界、TypeScript、单元测试、Host RPC 与生成协议。
 
-这些检查仍然有价值，但通过只表示当前实现兼容，不表示已经满足新的完整设计。
+当前机器协议包括：
 
-## 当前机器协议
-
-| 文件 | 当前作用 | 目标迁移 |
-| --- | --- | --- |
-| `spec/invariants.json` | 旧 `WS-01` 至 `WS-23` 实现注册表 | 原子替换为完整设计中的目标不变量与 enforcement/test |
-| `spec/event.schema.json` | WorkSurface Event envelope 与 EventRef | 增加 DSH Session EventRef adapter，不复制 DSH event |
-| `spec/definition.schema.json` | 当前同时描述作者 JSON、持久 Definition 与 Engine IR | 拆成 Source adapter contract、不可变 Definition IR 与 evaluator/Effect contract |
-| `spec/binding.schema.json` | Surface 与 DSH Session 的一对一 Binding | 保留为首个 DSH adapter 策略 |
-| `spec/authoring-registration.schema.json` | 文件化 Registration | 收敛为 Orchestrate Instance 的一种装配记录 |
-| `spec/context.schema.json` | Revision-centric Session context | 扩展为 Materialization/EventRef/provider Context Projection |
-| `spec/surface-template.md` | 当前强制 Surface 契约 | 降为可选 Surface Profile/template fixture |
-| `packages/dsh/spec/host-rpc.json` | Host transport 方法与版本 | 保持 transport，不升级为领域模型 |
-
-## 目标迁移验收
-
-完成概念迁移至少必须新增以下可执行门禁：
-
-1. 没有 `surface.md` 的 Surface 可以合法存在并被上下文 provider 投影。
-2. 文件 fragment、结构化对象局部、事件范围和外部 artifact 元素都能通过 adapter locator 定位；冻结引用必须携带可重放 boundary。
-3. 一个 Turn/Step 维护的 Surface 内容能在后续 Context Projection 中按同一逻辑地址读取；omitted 内容不会丢失。
-4. Revision 只证明文件 Materialization snapshot，不被当作全部 Surface 内容事实。
-5. WorkSurface 能稳定引用 DSH `turn/*`、`step/*`、`tool/*` 事件而不复制它们。
-6. YAML 与 Code Source 都只能通过 compile / adapt 产生规范、不可变 Definition IR；推进控制入口拒绝直接消费 Source。
-7. `turn/end`、`step/end`、Tool Call 成功和上下文发布均不会产生 `surface.completed`。
-8. Session、Turn、Step、Tool Call 的 UI、恢复和日志映射与 DSH 定义一致。
-9. Context Plan 明确区分 `included`、`omitted`、`required`，并拒绝把 omitted 描述为已消费。
-10. Runtime 自动补齐可信 Session/Turn/Instance/Activation/causality/capability 字段，模型不需要记忆内部 ID。
-11. 删除 topology、Context Plan cache、UI projection 与 live state 后可以从权威事实重建。
-12. 一个 Surface 可以拥有多个有序 Episode，沉淀 Episode 不改变 SurfaceId。
-13. Episode 能稳定引用实际 DSH Step、Tool Call 与 Surface 修改，且不会复制 transcript。
-14. Episode 边界由显式协议决定，不能通过 `turn/end`、`step/end` 或工具成功隐式推断。
-15. Episode 推进中可以产生自定义 Event，Orchestrate 能按事件名与 payload 可靠匹配，例如 `research.completed`。
-16. Event payload 同时支持 inline JSON 与 content ref；用于重放、跨 Surface 传递或验收证据的 ref 必须固定 boundary。
-17. Orchestrate 只依赖已经可靠接纳的 Event 形成推进决策；Event 重放得到相同 Activation / Effect。
-18. WorkSurface Runtime 的测试只覆盖 Surface / Episode 推进控制，并通过 adapter 验证 DSH 调用；不得要求或伪造 DSH 的同名 Runtime 抽象。
-19. Definition 固定 SourceRef、compiler/adapter id 与版本、内容摘要和 evaluator artifact ref；作者目录变化不会改变既有 Instance 的运行语义。
-20. 声明式 evaluator 与 Code evaluator 对相同的 `Definition + Instance + Event[]` 冻结输入都只能返回标准 `Effect[]`，并受相同 capability、幂等和恢复约束。
-21. Code evaluator 不能直接写 Instance/Runtime 私有状态或产生未记录副作用；同一固定输入和 evaluator 版本重放得到相同 Effect 结果。
-
-## 当前可靠性证据
-
-下列机制与目标设计兼容，可以作为迁移基础：
-
-| 故障边界 | 当前证明位置 |
+| 文件 | 当前物理作用 |
 | --- | --- |
-| 同 EventId 重试、同 id 异内容冲突、跨实例锁内决策 | `packages/core/tests/file-event-store.spec.ts` |
-| 文件 snapshot/materialize、异常目录与不可变对象 | `packages/core/tests/revision-store.spec.ts` |
-| Surface/Session Binding、authoring WIP 与 publication CAS | `packages/dsh/tests/session-surface.spec.ts` |
-| Host 重启选择性恢复中断 Session 与持久 `next-turn` | `packages/dsh/tests/session-admission.spec.ts`、`packages/dsh/tests/session-admission-agent-loop.spec.ts` |
-| Operation record、target append、settlement 分段恢复 | `packages/dsh/tests/engine.spec.ts` |
-| live wakeup 丢失、重复、乱序后 replay 收敛 | `packages/dsh/tests/engine.spec.ts` |
-| handler operation key、固定 Definition revision 与目标授权 | `packages/dsh/tests/code-handler.spec.ts` |
-| projection 删除后按事件重建 | `packages/core/tests/view-projection.spec.ts`、`packages/web/tests/web.spec.ts` |
+| `spec/event.schema.json` | WorkSurface Event envelope 与 EventRef |
+| `spec/definition.schema.json` | `OrchestrationDefinition v1`；也是当前作者 JSON 和 Engine 消费对象 |
+| `spec/authoring-registration.schema.json` | 文件化 Registration authoring record |
+| `spec/binding.schema.json` | Surface 与 DSH Session 的一对一 Binding |
+| `spec/context.schema.json` | DSH Session facts、Revision files、provider occurrence、Context Plan 与 render manifest |
+| `spec/surface-template.md` | 当前 Surface Revision 强制要求的 `surface.md` 结构 |
+| `spec/invariants.json` | 当前 `WS-01` 至 `WS-23` 的 enforcement/test 索引 |
 
-## 人工集成验收
+## 2. 当前关键不变量
 
-涉及真实 DSH、Cordis Slot 或浏览器布局时：
+以下是机器注册表的结构化摘要，准确清单以 [`spec/invariants.json`](../spec/invariants.json) 为准：
 
-1. 构建并确认 `web` profile 实际链接当前源码包；
+- 一个 Surface 与一个 DSH Session 固定绑定，且在首个 Turn 前完成；Orchestration 和 Registration 保持独立身份。
+- Surface/Definition 内容以不可变 Revision 表示；当前 Surface Revision 必须包含合法 `surface.md`。
+- Event append 对同 ID 同内容幂等、同 ID 异内容冲突；`seq` 只在一个 subject stream 内有序，跨 stream 用 EventRef。
+- Registration 固定 Definition Revision、bindings 和历史边界；Activation 由 Registration、Subscription 和业务 key 决定。
+- Operation 在外部效果前记录、之后结算；重启通过 replay 恢复未结算 Operation。
+- 执行状态来自 DSH Session/Turn，不写成第二套 Surface 执行生命周期。
+- 模型用普通文件工具工作，唯一领域命令是 `ws emit`；Turn capability 在 Turn 结束后失效。
+- UI 和 projection 可删除，并从持久事实重建。
+
+## 3. 可执行证据
+
+| 故障或边界 | 主要测试 |
+| --- | --- |
+| Event 幂等、冲突与并发 append | `packages/core/tests/file-event-store.spec.ts` |
+| Revision snapshot/materialize 与不变性 | `packages/core/tests/revision-store.spec.ts` |
+| Definition、Registration、Activation 派生 | `packages/core/tests/definition-v1.spec.ts` |
+| Surface/Session Binding、WIP、publication CAS | `packages/dsh/tests/session-surface.spec.ts` |
+| Engine replay、Operation 恢复、live wakeup 收敛 | `packages/dsh/tests/engine.spec.ts` |
+| Code handler 固定 Revision、授权与输出协议 | `packages/dsh/tests/code-handler.spec.ts` |
+| DSH Session adapter 与 Turn capability | `packages/dsh/tests/session-adapter.spec.ts` |
+| Context plan、provider occurrence、render audit | `packages/dsh/tests/context-runtime.spec.ts` |
+| View projection 删除后重建 | `packages/core/tests/view-projection.spec.ts`、`packages/web/tests/web.spec.ts` |
+
+## 4. 新概念准入门槛
+
+任何准备进入当前系统模型的新概念，必须在同一个实现变更中交付：
+
+1. 稳定身份及与既有 ID 的关系；
+2. TypeScript 类型和需要持久化时的 schema；
+3. 权威存储位置、写入者和并发规则；
+4. 明确开始/结束或状态转换边界；
+5. 从事实重建的 fold/replay；
+6. 崩溃、重试和幂等行为；
+7. 到 DSH Session Event 或 WorkSurface EventRef/Revision 的引用协议；
+8. 覆盖正常路径、冲突和恢复的测试；
+9. 同步更新实现图与设计文档。
+
+`Episode` 当前不满足任何上述物理要求，禁止把它用于当前领域模型、UI 分组或验收语言。YAML compiler、独立 Definition IR 和统一 Effect evaluator 同样只能作为演进提案，不能写成既有边界。
+
+## 5. 人工集成验收
+
+涉及真实 DSH 或浏览器布局时：
+
+1. 构建并确认 `web` profile 链接当前源码包；
 2. Host 变更后重启 DSH，Client-only 变更后强刷浏览器；
-3. 检查 Surface 选择、循环拓扑、条件证据、暗色主题和窄屏布局；
-4. 删除临时锚点与 projection 后刷新，确认 replay 收敛；
-5. 分别观察 Session、Turn、Step、Tool Call、上下文发布和显式 `surface.completed`，确认 UI 没有折叠成一条状态。
+3. 分别检查 WorkSurface Event/Activation/Operation 与 DSH Turn/Step/Tool Call，不把层级折叠；
+4. 删除 projection 或刷新页面，确认 replay 收敛；
+5. 检查暗色主题、窄屏、条件证据和失败恢复。
 
-真实 profile 不可用时，可以运行 `node packages/web/evals/browser-harness.mjs` 做布局、键盘和侧栏验收；测试壳不替代真实 DSH 集成。
+真实 profile 不可用时，可运行 `node packages/web/evals/browser-harness.mjs` 做 UI 验收；测试壳不替代真实 DSH 集成。
