@@ -2,332 +2,152 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "WorkSurface：模型契约到 Runtime 推进",
+    "title": "WorkSurface：定位与系统边界",
     "locale": "zh-CN",
     "quality_profile": "showcase",
-    "viewBox": [1380, 930],
+    "viewBox": [1300, 650],
     "repository": {
       "url": "https://github.com/AlexKaiqi/dsh-progressive-formulation-worksurface",
-      "revision": "2ae4a1e1f7368d35e77536d0497d5d64d05505f5"
-    },
-    "views": [
-      {
-        "id": "surface-turn",
-        "label": "Surface 如何被推进",
-        "focus": ["surface", "session", "turn_context", "model", "ws_emit", "event_stream"],
-        "note": "Surface 是持续维护的工作上下文；DSH Session/Turn 是当前承载，模型维护文件并产生业务事件。"
-      },
-      {
-        "id": "authoring-contract",
-        "label": "模型写什么",
-        "focus": ["model", "definition_json", "event_contract", "code_binding", "code_handler", "effects_file"],
-        "note": "模型声明 when、code.env 和 effects，再写直接引用变量的普通代码；无需读取 matches。"
-      },
-      {
-        "id": "runtime-work",
-        "label": "Runtime 代办什么",
-        "focus": ["event_stream", "orchestrate", "activation_operation", "runtime_injection", "managed_operation", "delivery"],
-        "note": "Runtime 选择 Event、解析 pointer、校验类型并注入值；随后整批校验 effects，建立幂等 Operation。"
-      },
-      {
-        "id": "code-loop",
-        "label": "Code 推进闭环",
-        "focus": ["activation_operation", "runtime_injection", "code_handler", "effects_file", "managed_operation", "event_stream", "delivery", "target_session"],
-        "note": "Activation 输入变成直接变量；code 只产出 effect；emit 回到事件流，followup 投递目标 Surface。"
-      }
-    ]
+      "revision": "c3d0adee1d55dc4428c5c61ecf4ad4f7ec45cf7c"
+    }
   },
   "components": [
     {
-      "id": "surface",
+      "id": "session_a",
+      "type": "external",
+      "label": "DSH Session / Turn",
+      "sublabel": "当前执行承载",
+      "pos": [40, 80],
+      "size": [200, 72],
+      "sources": [
+        { "path": "packages/dsh/src/session-adapter.ts", "line": 75, "label": "Turn bridge" }
+      ]
+    },
+    {
+      "id": "model_a",
+      "type": "frontend",
+      "label": "模型",
+      "sublabel": "在 Turn 中推进工作",
+      "pos": [300, 80],
+      "size": [190, 72],
+      "sources": [
+        { "path": "packages/dsh/src/model/session-instructions.ts", "line": 11, "label": "Visible instructions" }
+      ]
+    },
+    {
+      "id": "surface_a",
       "type": "database",
-      "label": "Surface",
+      "label": "Surface A",
       "sublabel": "可寻址、持续维护的工作上下文",
-      "tag": "当前：目录 + Revision + Event stream",
-      "pos": [30, 60],
-      "size": [210, 74],
+      "tag": "文件 + Revision + Event stream",
+      "pos": [40, 280],
+      "size": [220, 82],
       "sources": [
         { "path": "packages/dsh/src/session-surface.ts", "line": 49, "label": "Session context" },
         { "path": "docs/worksurface-complete-design.md", "line": 77, "label": "Surface definition" }
       ]
     },
     {
-      "id": "session",
-      "type": "external",
-      "label": "DSH Session / Turn",
-      "sublabel": "推进 Surface 的当前执行承载",
-      "tag": "Turn → Step → Tool Call",
-      "pos": [290, 60],
-      "size": [210, 74],
-      "sources": [
-        { "path": "packages/dsh/src/session-adapter.ts", "line": 75, "label": "Turn bridge" }
-      ]
-    },
-    {
-      "id": "turn_context",
-      "type": "security",
-      "label": "Turn Environment",
-      "sublabel": "Surface 位置、Revision 与模型指令",
-      "tag": "给交互模型；不是 code 输入协议",
-      "pos": [550, 60],
-      "size": [220, 74],
-      "sources": [
-        { "path": "packages/dsh/src/session-adapter.ts", "line": 135, "label": "Turn env injection" },
-        { "path": "spec/context.schema.json", "line": 1, "label": "Turn context" }
-      ]
-    },
-    {
-      "id": "model",
-      "type": "frontend",
-      "label": "模型",
-      "sublabel": "维护 Surface；声明规则；生成 code",
-      "tag": "只学习 WorkSurface 专用契约",
-      "pos": [810, 60],
-      "size": [220, 74],
-      "sources": [
-        { "path": "packages/dsh/src/model/session-instructions.ts", "line": 11, "label": "Visible instructions" },
-        { "path": "docs/orchestration-code-contract.md", "line": 184, "label": "Minimal model context" }
-      ]
-    },
-    {
-      "id": "definition_json",
-      "type": "frontend",
-      "label": "Definition v2",
-      "sublabel": "when + code.env + effects",
-      "tag": "JSON Schema 约束；模型直接 author",
-      "pos": [1070, 60],
-      "size": [245, 74],
-      "sources": [
-        { "path": "spec/design/definition-v2.schema.json", "line": 123, "label": "Code reaction schema" }
-      ]
-    },
-    {
-      "id": "ws_emit",
-      "type": "backend",
-      "label": "ws emit",
-      "sublabel": "Turn-scoped 业务 Event append",
-      "tag": "交互模型的领域命令",
-      "pos": [290, 220],
-      "size": [210, 74],
-      "sources": [
-        { "path": "packages/cli/src/bin.ts", "line": 31, "label": "CLI entry" },
-        { "path": "packages/dsh/src/session-surface.ts", "line": 299, "label": "Managed append" }
-      ]
-    },
-    {
-      "id": "fixed_definition",
-      "type": "database",
-      "label": "Definition Revision + Registration",
-      "sublabel": "固定 Definition 与 role bindings",
-      "tag": "当前已实现；v2 待 Runtime 接入",
-      "pos": [550, 220],
-      "size": [220, 78],
-      "sources": [
-        { "path": "packages/core/src/definition-store.ts", "line": 1, "label": "Immutable Definition" },
-        { "path": "spec/authoring-registration.schema.json", "line": 1, "label": "Bindings" }
-      ]
-    },
-    {
-      "id": "event_contract",
-      "type": "security",
-      "label": "Business Event Contract",
-      "sublabel": "name + payload JSON Schema",
-      "tag": "目标协议；写入、binding、effect 共用",
-      "pos": [810, 220],
-      "size": [220, 78],
-      "sources": [
-        { "path": "spec/design/event-contract.schema.json", "line": 1, "label": "Event Contract" }
-      ]
-    },
-    {
-      "id": "code_binding",
-      "type": "security",
-      "label": "code.env Binding",
-      "sublabel": "变量名 ← role/event + pointer + format",
-      "tag": "模型可见的输入契约",
-      "pos": [1070, 220],
-      "size": [245, 78],
-      "sources": [
-        { "path": "spec/design/orchestrate-code-binding.schema.json", "line": 1, "label": "Binding Schema" },
-        { "path": "docs/orchestration-code-contract.md", "line": 52, "label": "Binding semantics" }
-      ]
-    },
-    {
-      "id": "event_stream",
+      "id": "events_a",
       "type": "messagebus",
-      "label": "Surface Event Stream",
-      "sublabel": "append-only Event envelope + EventRef",
-      "tag": "推进事实",
-      "pos": [30, 420],
-      "size": [210, 78],
+      "label": "Surface Events",
+      "sublabel": "推进过程中产生的业务事实",
+      "pos": [310, 285],
+      "size": [190, 74],
       "sources": [
         { "path": "spec/event.schema.json", "line": 1, "label": "Event envelope" },
-        { "path": "packages/core/src/file-event-store.ts", "line": 1, "label": "JSONL store" }
+        { "path": "packages/core/src/file-event-store.ts", "line": 1, "label": "Event store" }
       ]
     },
     {
       "id": "orchestrate",
       "type": "backend",
       "label": "Orchestrate",
-      "sublabel": "replay + match；决定何时推进",
-      "tag": "Definition 驱动",
-      "pos": [290, 420],
-      "size": [210, 78],
+      "sublabel": "跨 Surface 的事件驱动推进",
+      "tag": "何时 · 影响谁 · 如何影响",
+      "pos": [570, 280],
+      "size": [210, 82],
       "sources": [
-        { "path": "packages/core/src/orchestration.ts", "line": 30, "label": "deriveActivations" },
-        { "path": "packages/dsh/src/engine.ts", "line": 150, "label": "reconcile" }
+        { "path": "packages/core/src/orchestration.ts", "line": 30, "label": "Activation derivation" },
+        { "path": "packages/dsh/src/engine.ts", "line": 150, "label": "Runtime reconcile" }
       ]
     },
     {
-      "id": "activation_operation",
-      "type": "database",
-      "label": "Activation",
-      "sublabel": "business key + source EventRefs",
-      "tag": "一次 code 执行的确定输入",
-      "pos": [550, 420],
-      "size": [220, 78],
-      "sources": [
-        { "path": "packages/core/src/event-model.ts", "line": 154, "label": "Activation type" }
-      ]
-    },
-    {
-      "id": "runtime_injection",
-      "type": "backend",
-      "label": "Runtime Input Resolver",
-      "sublabel": "选 Event → pointer → 校验 → 注入值",
-      "tag": "目标实现；机械工作不交给模型",
-      "pos": [810, 420],
-      "size": [220, 78],
-      "sources": [
-        { "path": "spec/design/orchestrate-code-binding.schema.json", "line": 59, "label": "Selectable sources" },
-        { "path": "docs/orchestration-code-contract.md", "line": 97, "label": "Resolution order" }
-      ]
-    },
-    {
-      "id": "code_handler",
-      "type": "frontend",
-      "label": "普通 code",
-      "sublabel": "直接引用 TASK_ID / QUESTION / …",
-      "tag": "Bash · zsh · Python · Node",
-      "pos": [1070, 420],
-      "size": [245, 78],
-      "sources": [
-        { "path": "examples/orchestrate-code/delegate.py", "line": 1, "label": "Executable example" },
-        { "path": "examples/orchestrate-code/patterns.definition-v2.json", "line": 1, "label": "Pattern definitions" }
-      ]
-    },
-    {
-      "id": "effects_file",
-      "type": "messagebus",
-      "label": "WS_EFFECTS_FILE",
-      "sublabel": "emit | followup JSONL batch",
-      "tag": "代码只描述想产生的 effect",
-      "pos": [1070, 600],
-      "size": [245, 78],
-      "sources": [
-        { "path": "spec/design/orchestrate-effect.schema.json", "line": 1, "label": "Effect Schema" }
-      ]
-    },
-    {
-      "id": "managed_operation",
-      "type": "database",
-      "label": "Managed Operation",
-      "sublabel": "批量校验；record → effect → settle",
-      "tag": "identity = ActivationId + operationKey",
-      "pos": [810, 600],
-      "size": [220, 78],
-      "sources": [
-        { "path": "packages/dsh/src/engine.ts", "line": 240, "label": "Managed operation" },
-        { "path": "docs/orchestration-code-contract.md", "line": 174, "label": "Batch reliability" }
-      ]
-    },
-    {
-      "id": "delivery",
+      "id": "reliable_effect",
       "type": "security",
-      "label": "Activation Delivery Context",
-      "sublabel": "instruction + inputs + allowed outputs",
-      "tag": "Runtime 从固定 Definition 生成",
-      "pos": [550, 710],
-      "size": [220, 78],
+      "label": "Activation + Operation",
+      "sublabel": "固定输入与可靠效果",
+      "tag": "record → effect → settle",
+      "pos": [820, 280],
+      "size": [190, 82],
       "sources": [
-        { "path": "spec/design/delivery-context.schema.json", "line": 1, "label": "Delivery Schema" },
-        { "path": "packages/dsh/src/session-adapter.ts", "line": 43, "label": "Current string delivery" }
+        { "path": "packages/core/src/event-model.ts", "line": 154, "label": "Activation" },
+        { "path": "packages/dsh/src/engine.ts", "line": 240, "label": "Managed Operation" }
       ]
     },
     {
-      "id": "target_session",
+      "id": "session_b",
       "type": "external",
-      "label": "目标 Surface Session",
-      "sublabel": "下一 Turn 继续推进 Surface",
-      "tag": "followup 目标",
-      "pos": [290, 710],
-      "size": [210, 78],
+      "label": "DSH Session / Turn",
+      "sublabel": "目标 Surface 的执行承载",
+      "pos": [1040, 80],
+      "size": [200, 72],
       "sources": [
-        { "path": "packages/dsh/src/session-adapter.ts", "line": 43, "label": "Session route" }
+        { "path": "packages/dsh/src/session-adapter.ts", "line": 43, "label": "Followup route" }
+      ]
+    },
+    {
+      "id": "surface_b",
+      "type": "database",
+      "label": "Surface B",
+      "sublabel": "另一个持续维护的工作上下文",
+      "pos": [1050, 280],
+      "size": [180, 82],
+      "sources": [
+        { "path": "packages/dsh/src/session-surface.ts", "line": 49, "label": "Session context" }
       ]
     }
   ],
   "boundaries": [
     {
       "kind": "region",
-      "label": "Surface 内推进",
-      "wraps": ["surface", "session", "turn_context", "model"]
+      "label": "Surface A 内部推进",
+      "wraps": ["session_a", "model_a", "surface_a", "events_a"]
     },
     {
       "kind": "region",
-      "label": "Orchestrate Runtime",
-      "wraps": ["event_stream", "orchestrate", "activation_operation", "runtime_injection", "code_handler", "effects_file", "managed_operation"]
+      "label": "Surface B 内部推进",
+      "wraps": ["session_b", "surface_b"]
     }
   ],
   "connections": [
-    { "id": "surface-session", "from": "surface", "to": "session", "label": "1:1 current binding", "variant": "emphasis", "fromSide": "right", "toSide": "left", "labelAt": [265, 160] },
-    { "id": "session-turn", "from": "session", "to": "turn_context", "label": "starts Turn", "fromSide": "right", "toSide": "left", "labelAt": [525, 160] },
-    { "id": "turn-model", "from": "turn_context", "to": "model", "label": "Surface facts + instructions", "variant": "security", "fromSide": "right", "toSide": "left", "labelAt": [690, 160] },
-    { "id": "model-surface", "from": "model", "to": "surface", "label": "maintain structured files", "variant": "dashed", "fromSide": "top", "toSide": "top", "labelAt": [520, 25] },
-    { "id": "model-definition", "from": "model", "to": "definition_json", "label": "author JSON", "variant": "emphasis", "fromSide": "right", "toSide": "left", "labelAt": [1050, 160] },
-    { "id": "model-emit", "from": "model", "to": "ws_emit", "label": "business event", "variant": "emphasis", "fromSide": "left", "toSide": "top", "via": [[790, 97], [790, 190], [395, 190]], "labelAt": [590, 205] },
-    { "id": "event-contract-definition", "from": "event_contract", "to": "definition_json", "label": "payload vocabulary", "variant": "security", "fromSide": "top", "toSide": "bottom", "via": [[920, 170], [1192.5, 170]], "labelAt": [1055, 155] },
-    { "id": "definition-binding", "from": "definition_json", "to": "code_binding", "label": "declares direct inputs", "variant": "security", "fromSide": "bottom", "toSide": "top", "labelAt": [1240, 195] },
-    { "id": "emit-stream", "from": "ws_emit", "to": "event_stream", "label": "append Event", "variant": "emphasis", "fromSide": "bottom", "toSide": "top" },
-    { "id": "stream-orchestrate", "from": "event_stream", "to": "orchestrate", "label": "replay / match", "variant": "emphasis", "fromSide": "right", "toSide": "left", "labelAt": [265, 520] },
-    { "id": "fixed-orchestrate", "from": "fixed_definition", "to": "orchestrate", "label": "when + bindings", "fromSide": "bottom", "toSide": "top" },
-    { "id": "orchestrate-activation", "from": "orchestrate", "to": "activation_operation", "label": "derive once per key", "variant": "emphasis", "fromSide": "right", "toSide": "left", "labelAt": [525, 520] },
-    { "id": "activation-resolver", "from": "activation_operation", "to": "runtime_injection", "label": "source EventRefs", "variant": "emphasis", "fromSide": "right", "toSide": "left", "labelAt": [790, 520] },
-    { "id": "binding-resolver", "from": "code_binding", "to": "runtime_injection", "label": "selector + pointer + format", "variant": "security", "fromSide": "bottom", "toSide": "top" },
-    { "id": "resolver-code", "from": "runtime_injection", "to": "code_handler", "label": "direct env values", "variant": "emphasis", "fromSide": "right", "toSide": "left", "labelAt": [1050, 520] },
-    { "id": "code-effects", "from": "code_handler", "to": "effects_file", "label": "append JSONL", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "labelAt": [1240, 550] },
-    { "id": "effects-operation", "from": "effects_file", "to": "managed_operation", "label": "Definition capability + batch validation", "variant": "security", "fromSide": "left", "toSide": "right", "labelAt": [1050, 580] },
-    { "id": "activation-operation-id", "from": "activation_operation", "to": "managed_operation", "label": "ActivationId", "fromSide": "bottom", "toSide": "top", "labelAt": [675, 570] },
-    { "id": "operation-emit", "from": "managed_operation", "to": "event_stream", "label": "emit → append + causes", "variant": "dashed", "fromSide": "left", "toSide": "bottom", "labelAt": [410, 575] },
-    { "id": "operation-delivery", "from": "managed_operation", "to": "delivery", "label": "followup → build context", "variant": "security", "fromSide": "bottom", "toSide": "right" },
-    { "id": "delivery-target", "from": "delivery", "to": "target_session", "label": "per Operation delivery", "variant": "security", "fromSide": "left", "toSide": "right", "labelAt": [525, 810] }
+    { "id": "surface-session-a", "from": "surface_a", "to": "session_a", "label": "当前 1:1 承载", "fromSide": "top", "toSide": "bottom" },
+    { "id": "session-model-a", "from": "session_a", "to": "model_a", "label": "Turn / Step", "variant": "emphasis" },
+    { "id": "model-maintains-a", "from": "model_a", "to": "surface_a", "label": "持续维护结构化内容", "variant": "emphasis" },
+    { "id": "model-events-a", "from": "model_a", "to": "events_a", "label": "产生 Event", "fromSide": "bottom", "toSide": "top" },
+    { "id": "events-orchestrate", "from": "events_a", "to": "orchestrate", "label": "触发推进", "variant": "emphasis", "labelAt": [530, 380] },
+    { "id": "orchestrate-effect", "from": "orchestrate", "to": "reliable_effect", "label": "形成可靠执行", "variant": "security", "labelAt": [805, 380] },
+    { "id": "effect-session-b", "from": "reliable_effect", "to": "session_b", "label": "followup", "variant": "emphasis", "fromSide": "top", "toSide": "left" },
+    { "id": "session-surface-b", "from": "session_b", "to": "surface_b", "label": "继续推进", "fromSide": "bottom", "toSide": "top", "labelAt": [1140, 180] },
+    { "id": "effect-surface-b", "from": "reliable_effect", "to": "surface_b", "label": "emit Event", "variant": "dashed", "labelAt": [1030, 380] }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "模型真正需要理解",
+      "title": "Surface 的边界",
       "items": [
-        "相关 Event Contracts 与 when",
-        "code.env 变量名、format 与六个固定 WS_* 变量",
-        "允许的 effects 与一个相近代码样例"
+        "Surface 是推进所依赖、模型可见、持续维护的结构化工作上下文",
+        "DSH Session/Turn 是当前执行承载，不是 Surface 本体",
+        "工具调用与模型 Step 属于执行过程，不额外引入 Episode 概念"
       ]
     },
     {
-      "dot": "rose",
-      "title": "Runtime 必须代办",
+      "dot": "violet",
+      "title": "Orchestrate 的边界",
       "items": [
-        "Event 选择、pointer 取值、类型校验与环境注入",
-        "大值定点物化；不让 code 遍历完整上下文",
-        "effect 全批校验、Operation 幂等与 role → Surface 路由"
-      ]
-    },
-    {
-      "dot": "amber",
-      "title": "当前实现 ≠ 目标契约",
-      "items": [
-        "当前：DSH_CONTEXT_FILE + WS_HANDLER_OUTPUT，code 自行读 matches",
-        "目标：声明 inputs → Runtime 直接注入值 → code 只写 effects",
-        "DSH_CONTEXT_FILE 仅在显式 context=file 时作为高级逃生口"
+        "Orchestrate 不住在某个 Surface 内；它消费 Event 并控制 Surface 之间的推进关系",
+        "Definition 描述 when / who / how；Runtime 形成 Activation 并可靠执行 Operation",
+        "authoring 契约与 Runtime 时序分别在独立图中分析"
       ]
     }
   ]

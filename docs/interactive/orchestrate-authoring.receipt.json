@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "diagramType": "architecture",
-  "source": "worksurface-system.architecture.json",
-  "artifact": "worksurface-system.html",
-  "specificationSha256": "d541a46083fafa26be21102edf457fa7e097eeb0f1f89e46db8ace560669822c",
-  "specificationBytes": 5904,
-  "artifactSha256": "9a725311425931fb249bf2a3c352e18e4e09561be4cf7bad4a520085b1f5e9ca",
-  "artifactBytes": 719156,
+  "source": "orchestrate-authoring.architecture.json",
+  "artifact": "orchestrate-authoring.html",
+  "specificationSha256": "10abb23441a1eb8bb5b460734e477e4788f4318c77f67bb64a48037313277916",
+  "specificationBytes": 5178,
+  "artifactSha256": "b006ddbf87fad5da9a4b6c1a55125a3faa691886a0c8bb91f6051ba32c6940df",
+  "artifactBytes": 715917,
   "validation": {
     "profile": "showcase",
     "checksPassed": 9,

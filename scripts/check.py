@@ -19,59 +19,66 @@ def fail(message: str) -> None:
 
 
 def static_checks() -> None:
-    receipt_path = INTERACTIVE_DESIGN / "worksurface-system.receipt.json"
-    receipt = json.loads(receipt_path.read_text())
-    for receipt_key, path_key in (
-        ("specificationSha256", "source"),
-        ("artifactSha256", "artifact"),
-    ):
-        artifact_path = INTERACTIVE_DESIGN / receipt[path_key]
-        actual_digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
-        if actual_digest != receipt[receipt_key]:
-            fail(
-                f"interactive design {artifact_path.name} does not match "
-                f"{receipt_path.name}; regenerate and validate the diagram"
-            )
-    validation = receipt.get("validation", {})
-    if (
-        validation.get("profile") != "showcase"
-        or validation.get("checksPassed") != 9
-        or validation.get("checkCount") != 9
-        or validation.get("errors") != 0
-        or validation.get("warnings") != 0
-    ):
-        fail("interactive design receipt is not a clean 9/9 showcase validation")
-
-    source = json.loads((INTERACTIVE_DESIGN / receipt["source"]).read_text())
-    artifact = (INTERACTIVE_DESIGN / receipt["artifact"]).read_text()
-    if source.get("diagram_type") != "architecture" or source.get("meta", {}).get("quality_profile") != "showcase":
-        fail("interactive design source is not a showcase Archify architecture")
-    component_ids = {component.get("id") for component in source.get("components", [])}
-    required_components = {
-        "surface", "session", "turn_context", "model", "definition_json",
-        "event_contract", "fixed_definition", "ws_emit", "event_stream",
-        "orchestrate", "activation_operation", "code_binding", "runtime_injection",
-        "code_handler", "effects_file", "managed_operation", "delivery", "target_session",
+    diagram_expectations = {
+        "worksurface-system.receipt.json": (
+            "architecture",
+            "components",
+            {"surface_a", "session_a", "model_a", "events_a", "orchestrate", "reliable_effect", "session_b", "surface_b"},
+        ),
+        "orchestrate-authoring.receipt.json": (
+            "architecture",
+            "components",
+            {"model", "event_contract", "definition", "when", "env_binding", "effect_capabilities", "ordinary_code", "effects"},
+        ),
+        "orchestrate-runtime.receipt.json": (
+            "sequence",
+            "participants",
+            {"events", "definition", "orchestrate", "resolver", "code", "gate", "operations", "target"},
+        ),
     }
-    missing_components = sorted(required_components - component_ids)
-    if missing_components:
-        fail("interactive design lacks required system concepts: " + ", ".join(missing_components))
-    component_vocabulary = "\n".join(
-        str(component.get(field, ""))
-        for component in source.get("components", [])
-        for field in ("id", "label", "sublabel", "tag")
-    )
-    if "YAML" in component_vocabulary:
-        fail("interactive design reintroduces the rejected YAML pattern authoring model")
-    cards = "\n".join(
-        str(item)
-        for card in source.get("cards", [])
-        for item in card.get("items", [])
-    )
-    if "code.env" not in component_vocabulary + cards or "直接" not in component_vocabulary + cards:
-        fail("interactive design does not show direct Runtime environment injection")
-    if "<svg" not in artifact or "WorkSurface" not in artifact:
-        fail("interactive design artifact is not a rendered WorkSurface diagram")
+    sources = {}
+    for receipt_name, (diagram_type, node_collection, required_ids) in diagram_expectations.items():
+        receipt_path = INTERACTIVE_DESIGN / receipt_name
+        receipt = json.loads(receipt_path.read_text())
+        for receipt_key, path_key in (
+            ("specificationSha256", "source"),
+            ("artifactSha256", "artifact"),
+        ):
+            artifact_path = INTERACTIVE_DESIGN / receipt[path_key]
+            actual_digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+            if actual_digest != receipt[receipt_key]:
+                fail(
+                    f"interactive design {artifact_path.name} does not match "
+                    f"{receipt_path.name}; regenerate and validate the diagram"
+                )
+        validation = receipt.get("validation", {})
+        if (
+            validation.get("profile") != "showcase"
+            or validation.get("checksPassed") != 9
+            or validation.get("checkCount") != 9
+            or validation.get("errors") != 0
+            or validation.get("warnings") != 0
+        ):
+            fail(f"{receipt_name} is not a clean 9/9 showcase validation")
+
+        source = json.loads((INTERACTIVE_DESIGN / receipt["source"]).read_text())
+        artifact = (INTERACTIVE_DESIGN / receipt["artifact"]).read_text()
+        if source.get("diagram_type") != diagram_type or source.get("meta", {}).get("quality_profile") != "showcase":
+            fail(f"{receipt['source']} is not a showcase Archify {diagram_type}")
+        node_ids = {node.get("id") for node in source.get(node_collection, [])}
+        missing = sorted(required_ids - node_ids)
+        if missing:
+            fail(f"{receipt['source']} lacks required concepts: " + ", ".join(missing))
+        if "<svg" not in artifact:
+            fail(f"{receipt['artifact']} is not a rendered Archify diagram")
+        sources[receipt_name] = source
+
+    authoring_text = json.dumps(sources["orchestrate-authoring.receipt.json"], ensure_ascii=False)
+    if "code.env" not in authoring_text or "直接" not in authoring_text:
+        fail("authoring diagram does not show direct code environment bindings")
+    overview_text = json.dumps(sources["worksurface-system.receipt.json"], ensure_ascii=False)
+    if "code.env" in overview_text or "Input Resolver" in overview_text:
+        fail("positioning diagram leaks authoring or Runtime execution details")
     for schema in (
         "event.schema.json", "definition.schema.json", "context.schema.json",
         "binding.schema.json", "authoring-registration.schema.json",
