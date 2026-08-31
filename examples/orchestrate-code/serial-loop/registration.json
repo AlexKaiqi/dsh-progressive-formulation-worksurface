@@ -9,7 +9,8 @@
   "events": {
     "refinement.requested": {
       "file": "contracts/refinement.requested.json",
-      "consumeFrom": ["coordinator"]
+      "consumeFrom": ["coordinator"],
+      "surfaceOutputFrom": ["coordinator"]
     },
     "iteration.completed": {
       "file": "contracts/iteration.completed.json",

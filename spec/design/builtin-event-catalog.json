@@ -4,6 +4,7 @@
   "events": {
     "dsh.tool.completed": {
       "description": "The DSH Session recorded a tool/result; the adapter paired it with tool/call by callId and exposed only completion metadata.",
+      "exposure": "orchestrate-input",
       "subjects": ["dsh-session"],
       "producers": ["dsh-adapter"],
       "payloadSchema": {
@@ -23,6 +24,7 @@
     },
     "surface.session.bound": {
       "description": "A Surface was fixed to one DSH Session before its first Turn.",
+      "exposure": "runtime-only",
       "subjects": ["surface"],
       "producers": ["runtime"],
       "payloadSchema": {
@@ -45,6 +47,7 @@
     },
     "surface.revision.published": {
       "description": "A candidate Surface Revision became the published head by compare-and-swap.",
+      "exposure": "runtime-only",
       "subjects": ["surface"],
       "producers": ["runtime"],
       "payloadSchema": {
@@ -68,6 +71,7 @@
     },
     "surface.publish.conflicted": {
       "description": "A candidate Surface Revision was not published because the head no longer matched its expected Revision.",
+      "exposure": "runtime-only",
       "subjects": ["surface"],
       "producers": ["runtime"],
       "payloadSchema": {

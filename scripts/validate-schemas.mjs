@@ -130,11 +130,12 @@ async function validateBuiltinEventCatalog() {
   const validateContract = targetValidators.get('runtime-event-contract')
   for (const [name, event] of Object.entries(catalog.events)) {
     compilePayload(`built-in Event ${name}`, event.payloadSchema)
+    const { exposure: _exposure, ...contractSource } = event
     const contract = {
       version: 1,
       scope: { authority: 'wsa_builtin_validation', kind: 'builtin', id: catalog.scopeId },
       name,
-      ...event,
+      ...contractSource,
     }
     if (!validateContract(contract)) {
       throw new Error(`built-in Event ${name} cannot materialize as a Runtime Contract: ${targetAjv.errorsText(validateContract.errors)}`)
@@ -237,9 +238,27 @@ async function validateTurnBrief(runtimeBinding) {
     throw new Error(`turn-brief.review.json violates surface-turn-brief.schema.json: ${targetAjv.errorsText(validate.errors)}`)
   }
   for (const output of brief.outputs) {
-    if (!output.commandTemplate.startsWith(`ws emit ${output.name} `)) {
+    const [command, verb, name, payloadFlag, payloadText] = output.command.argv
+    if (command !== 'ws' || verb !== 'emit' || name !== output.name || payloadFlag !== '--payload') {
       throw new Error(`Turn Brief command does not exactly name ${output.name}`)
     }
+    let payload
+    try { payload = JSON.parse(payloadText) }
+    catch { throw new Error(`Turn Brief command for ${output.name} does not contain JSON payload`) }
+    if (payload === null || Array.isArray(payload) || typeof payload !== 'object') {
+      throw new Error(`Turn Brief command for ${output.name} does not contain an object payload`)
+    }
+  }
+  for (const [label, invalid] of [
+    ['escaping Surface entry path', { ...brief, surface: { ...brief.surface, entryPaths: ['../secret'] } }],
+    ['escaping input detail path', { ...brief, inputs: [{ ...brief.inputs[0], detailPath: '$DSH_SURFACE_DIR/../secret' }] }],
+    ['escaping output Schema path', { ...brief, outputs: [{ ...brief.outputs[0], schemaPath: '$DSH_WORKSURFACE_VIEW_DIR/contracts/%2e%2e/secret.json' }] }],
+    ['shell tail after emit argv', {
+      ...brief,
+      outputs: [{ ...brief.outputs[0], command: { argv: [...brief.outputs[0].command.argv, '&&', 'unexpected'] } }],
+    }],
+  ]) {
+    if (validate(invalid)) throw new Error(`surface-turn-brief.schema.json accepts ${label}`)
   }
   validateTurnBriefBinding(brief, runtimeBinding)
   const ghost = {
@@ -247,7 +266,7 @@ async function validateTurnBrief(runtimeBinding) {
     outputs: [{
       ...brief.outputs[0],
       name: 'ghost.completed',
-      commandTemplate: "ws emit ghost.completed --payload '{}'",
+      command: { argv: ['ws', 'emit', 'ghost.completed', '--payload', '{}'] },
     }],
   }
   assertFailure(() => validateTurnBriefBinding(ghost, runtimeBinding), 'Turn Brief accepts an unbound Event output')
@@ -274,6 +293,10 @@ async function validateDelegate(runtimeBinding, builtinCatalog) {
   if (!validateRegistration(builtinRegistration)) {
     throw new Error(`Registration cannot reference a built-in Event: ${targetAjv.errorsText(validateRegistration.errors)}`)
   }
+  await assertAsyncFailure(
+    () => loadRegistrationRoutes(builtinRegistration, sourceUrl, builtinCatalog),
+    'Registration exposes a Runtime-only built-in Event to Orchestrate code',
+  )
   const dshRegistration = {
     ...registration,
     events: {
@@ -297,6 +320,23 @@ async function validateDelegate(runtimeBinding, builtinCatalog) {
   if (validateRegistration(invalidCopiedBuiltin)) {
     throw new Error('Registration can ambiguously select both built-in and file Contract sources')
   }
+  const unproducibleRegistration = {
+    ...registration,
+    events: {
+      ...registration.events,
+      'research.requested': {
+        file: registration.events['research.requested'].file,
+        consumeFrom: registration.events['research.requested'].consumeFrom,
+      },
+    },
+  }
+  if (!validateRegistration(unproducibleRegistration)) {
+    throw new Error('Negative producer-capability Registration must remain structurally valid')
+  }
+  await assertAsyncFailure(
+    () => loadRegistrationRoutes(unproducibleRegistration, sourceUrl, builtinCatalog),
+    'Registration accepts a local consumed Event with no authorized producer',
+  )
   for (const path of [
     'https://example.invalid/orchestrate.py',
     'file:///etc/passwd',
@@ -729,6 +769,13 @@ async function loadRegistrationRoutes(registration, sourceUrl, builtinCatalog) {
     const catalogEvent = route.builtin === true ? builtins.get(name) : undefined
     if (route.builtin === true && catalogEvent === undefined) throw new Error(`Registration references unknown built-in Event ${name}`)
     if (route.builtin !== true && builtins.has(name)) throw new Error(`Registration shadows built-in Event ${name} with a file Contract`)
+    if (catalogEvent !== undefined && route.consumeFrom !== undefined && catalogEvent.exposure !== 'orchestrate-input') {
+      throw new Error(`built-in Event ${name} is Runtime-only and has no model-visible input projection`)
+    }
+    if (catalogEvent === undefined && route.consumeFrom !== undefined
+      && route.emitOn === undefined && route.surfaceOutputFrom === undefined) {
+      throw new Error(`Registration-local Event ${name} is consumed but has no authorized producer`)
+    }
     const declaration = catalogEvent === undefined
       ? JSON.parse(await readFile(new URL(route.file, sourceUrl), 'utf8'))
       : { name, description: catalogEvent.description, payloadSchema: catalogEvent.payloadSchema }
@@ -741,7 +788,7 @@ async function loadRegistrationRoutes(registration, sourceUrl, builtinCatalog) {
       throw new Error(`built-in Event ${name} does not authorize the surface-session producer`)
     }
     compilePayload(sourceLabel, declaration.payloadSchema)
-    routes.set(name, { route, declaration })
+    routes.set(name, { route, declaration, builtin: catalogEvent })
   }
   return routes
 }
@@ -912,6 +959,10 @@ function validateInputs(inputs, triggerInputSeq, handles, routes) {
     }
     const validatePayload = compilePayload(input.event.name, contract.declaration.payloadSchema)
     if (!validatePayload(input.event.payload)) throw new Error(`Input payload violates ${input.event.name}`)
+    if (contract.builtin !== undefined) {
+      if (contract.builtin.exposure !== 'orchestrate-input') throw new Error(`Input exposes Runtime-only built-in Event ${input.event.name}`)
+      assertModelVisible(input, `built-in input ${input.event.name}`)
+    }
   }
   if (!seen.has(triggerInputSeq)) throw new Error('triggerInputSeq does not exist in the Input Ledger')
 }

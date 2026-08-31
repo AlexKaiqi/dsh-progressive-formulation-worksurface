@@ -8,7 +8,7 @@
   "contracts": {
     "refinement.requested": {
       "file": "contracts/refinement.requested.json",
-      "capabilities": ["consume"]
+      "capabilities": ["consume", "surface-output"]
     },
     "iteration.completed": {
       "file": "contracts/iteration.completed.json",

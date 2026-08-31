@@ -8,7 +8,7 @@
   "contracts": {
     "research.requested": {
       "file": "contracts/research.requested.json",
-      "capabilities": ["consume"]
+      "capabilities": ["consume", "surface-output"]
     },
     "research.completed": {
       "file": "contracts/research.completed.json",

@@ -17,6 +17,8 @@ Orchestrate 描述已存在 Surface 之间的推进关系：收到什么事实�
 5. code 修改已绑定 Surface 的 staging 副本，并用 [`orchestrate-result.schema.json`](../spec/design/orchestrate-result.schema.json) 请求 Event append 或推进；
 6. Runtime 校验、记录、提交全部 Surface Revision，最后才追加 Event 和推进 Session。
 
+局部 Contract 若由 code 消费，Registration 还必须给它至少一个实际 producer capability；规范样例中的初始 `*.requested` Event 都由 coordinator 的 `surfaceOutputFrom` 产生。Runtime lifecycle built-in 默认不进入 code input，只有 catalog 明确标记为 `orchestrate-input` 的安全 projection 可以被消费。
+
 Registration 是关系的静态装配和路由，不是行为 DSL。精确业务条件、信息转换、fan-out、join 和 loop 都是普通代码。
 
 ## `when / who / how`

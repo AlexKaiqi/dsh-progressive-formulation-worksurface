@@ -14,7 +14,7 @@
     "research.requested": {
       "scope": { "kind": "registration", "id": "delegate-research" },
       "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "capabilities": ["consume"]
+      "capabilities": ["consume", "surface-output"]
     },
     "research.completed": {
       "scope": { "kind": "registration", "id": "delegate-research" },

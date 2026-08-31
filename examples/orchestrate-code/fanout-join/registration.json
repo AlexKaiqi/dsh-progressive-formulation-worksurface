@@ -10,7 +10,8 @@
   "events": {
     "exploration.requested": {
       "file": "contracts/exploration.requested.json",
-      "consumeFrom": ["coordinator"]
+      "consumeFrom": ["coordinator"],
+      "surfaceOutputFrom": ["coordinator"]
     },
     "exploration.completed": {
       "file": "contracts/exploration.completed.json",

@@ -31,7 +31,7 @@
           "required": ["discovery", "purpose"],
           "properties": {
             "discovery": { "const": "PATH" },
-            "purpose": { "const": "Submit Runtime-authorized WorkSurface events; exact commands come from the Turn Brief." }
+            "purpose": { "const": "Submit Runtime-authorized WorkSurface events; exact argv comes from the Turn Brief." }
           }
         }
       }

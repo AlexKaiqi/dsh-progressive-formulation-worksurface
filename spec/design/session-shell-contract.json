@@ -26,7 +26,7 @@
   "commands": {
     "ws": {
       "discovery": "PATH",
-      "purpose": "Submit Runtime-authorized WorkSurface events; exact commands come from the Turn Brief."
+      "purpose": "Submit Runtime-authorized WorkSurface events; exact argv comes from the Turn Brief."
     }
   }
 }

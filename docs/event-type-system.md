@@ -27,7 +27,7 @@ Runtime 将该名字解析为：
 
 ## Contract 的来源与生命周期
 
-预定义 Event 只保留跨工作流都稳定的系统事实。名字、producer、subject 与 payload Schema 的唯一来源是 [`builtin-event-catalog.json`](../spec/design/builtin-event-catalog.json)，其结构由 [`builtin-event-catalog.schema.json`](../spec/design/builtin-event-catalog.schema.json) 约束。Registration 通过 `builtin: true` 引用它们，不复制声明。其余 Event 由 Registration 中的 Contract 文件局部声明。“临时”表示只服务当前任务、作用域和生产权限有限，不表示可以在一次 run 中临时改变 Registration。
+预定义 Event 只保留跨工作流都稳定的系统事实。名字、producer、subject、payload Schema 与模型暴露级别的唯一来源是 [`builtin-event-catalog.json`](../spec/design/builtin-event-catalog.json)，其结构由 [`builtin-event-catalog.schema.json`](../spec/design/builtin-event-catalog.schema.json) 约束。Registration 通过 `builtin: true` 引用它们，不复制声明。只有标记为 `orchestrate-input` 的 built-in 可以通过 `consumeFrom` 进入模型编写的 code；`runtime-only` payload 可能含 Session、Revision 等私有身份，在另行定义并验证安全 projection 前不得物化为 `inputs.jsonl`。其余 Event 由 Registration 中的 Contract 文件局部声明。“临时”表示只服务当前任务、作用域和生产权限有限，不表示可以在一次 run 中临时改变 Registration。
 
 模型只维护业务名、说明和 payload JSON Schema。Runtime 在 Registration 准入时补齐 authority、scope、subject、producer，规范化后计算 digest，并持久化不可变 Contract snapshot。Schema 改变产生新 digest，不修改旧 Contract；只要 Event 仍引用旧 digest，旧 snapshot 就必须可读。run 期间只能引用已注册的局部名字；新增或修改 Contract 必须形成新的 Registration。
 
@@ -40,6 +40,8 @@ Registration 的三种 route 同时定义解析范围和生产权限：
 | `surfaceOutputFrom` | 哪个 Surface Session 可产生该事实 | `surface-output` |
 
 三种 capability 不能互相替代。Registration 结构以 [`orchestrate-registration.schema.json`](../spec/design/orchestrate-registration.schema.json) 为准。
+
+Registration-local Contract 的身份属于当前 Registration，因此一个带 `consumeFrom` 的局部 Event 还必须在同一 Registration 中至少有 `emitOn` 或 `surfaceOutputFrom` producer capability；否则该 scope 内不存在能够产生它的主体。跨 Registration 共享事实不能靠同名文件 Contract 冒充，必须使用明确的共享 scope 协议。
 
 ## Event 的持久化与消费
 

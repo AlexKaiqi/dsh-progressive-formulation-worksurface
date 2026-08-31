@@ -9,7 +9,8 @@
   "events": {
     "research.requested": {
       "file": "contracts/research.requested.json",
-      "consumeFrom": ["coordinator"]
+      "consumeFrom": ["coordinator"],
+      "surfaceOutputFrom": ["coordinator"]
     },
     "research.completed": {
       "file": "contracts/research.completed.json",

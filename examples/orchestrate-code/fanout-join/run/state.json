@@ -9,7 +9,7 @@
   "contracts": {
     "exploration.requested": {
       "file": "contracts/exploration.requested.json",
-      "capabilities": ["consume"]
+      "capabilities": ["consume", "surface-output"]
     },
     "exploration.completed": {
       "file": "contracts/exploration.completed.json",

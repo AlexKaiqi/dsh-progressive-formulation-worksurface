@@ -18,7 +18,7 @@
         "entryPaths": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "type": "string", "minLength": 1 }
+          "items": { "$ref": "runtime-authority.schema.json#/$defs/relativePath" }
         }
       }
     },
@@ -42,7 +42,7 @@
         "properties": {
           "label": { "type": "string", "minLength": 1 },
           "summary": { "type": "string", "minLength": 1 },
-          "detailPath": { "type": "string", "minLength": 1 }
+          "detailPath": { "$ref": "#/$defs/rootedFilePath" }
         }
       }
     },
@@ -52,13 +52,43 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["name", "when", "payloadSummary", "schemaPath", "commandTemplate"],
+        "required": ["name", "when", "payloadSummary", "schemaPath", "command"],
         "properties": {
           "name": { "$ref": "runtime-event-contract.schema.json#/$defs/eventName" },
           "when": { "type": "string", "minLength": 1 },
           "payloadSummary": { "type": "string", "minLength": 1 },
-          "schemaPath": { "type": "string", "minLength": 1 },
-          "commandTemplate": { "type": "string", "pattern": "^ws emit [a-z]" }
+          "schemaPath": { "$ref": "#/$defs/viewFilePath" },
+          "command": { "$ref": "#/$defs/emitCommand" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "rootedFilePath": {
+      "type": "string",
+      "pattern": "^\\$(?:DSH_SURFACE_DIR|DSH_WORKSURFACE_VIEW_DIR)/(?!\\.\\.?(?:/|$))(?!.*\/\\.\\.?(?:/|$))(?!.*\\\\)(?!.*[?#%\\u0000\\r\\n]).+$"
+    },
+    "viewFilePath": {
+      "type": "string",
+      "pattern": "^\\$DSH_WORKSURFACE_VIEW_DIR/(?!\\.\\.?(?:/|$))(?!.*\/\\.\\.?(?:/|$))(?!.*\\\\)(?!.*[?#%\\u0000\\r\\n]).+$"
+    },
+    "emitCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["argv"],
+      "properties": {
+        "argv": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "prefixItems": [
+            { "const": "ws" },
+            { "const": "emit" },
+            { "$ref": "runtime-event-contract.schema.json#/$defs/eventName" },
+            { "const": "--payload" },
+            { "type": "string", "minLength": 2 }
+          ],
+          "items": false
         }
       }
     }

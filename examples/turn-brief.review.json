@@ -24,7 +24,9 @@
       "when": "The independent review is written and its result reference is stable.",
       "payloadSummary": "{ caseId: string, resultRef: string }",
       "schemaPath": "$DSH_WORKSURFACE_VIEW_DIR/contracts/review.completed.json",
-      "commandTemplate": "ws emit review.completed --payload '{\"caseId\":\"case-7\",\"resultRef\":\"review.md\"}'"
+      "command": {
+        "argv": ["ws", "emit", "review.completed", "--payload", "{\"caseId\":\"case-7\",\"resultRef\":\"review.md\"}"]
+      }
     }
   ]
 }

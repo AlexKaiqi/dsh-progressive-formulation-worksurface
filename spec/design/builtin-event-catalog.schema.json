@@ -20,9 +20,13 @@
     "contractSource": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["description", "subjects", "producers", "payloadSchema"],
+      "required": ["description", "exposure", "subjects", "producers", "payloadSchema"],
       "properties": {
         "description": { "type": "string", "minLength": 1 },
+        "exposure": {
+          "enum": ["runtime-only", "orchestrate-input"],
+          "$comment": "Only orchestrate-input built-ins may be routed through consumeFrom into model-authored code. Runtime-only payloads may contain private identities and require an explicit safe projection before that can change."
+        },
         "subjects": {
           "type": "array",
           "minItems": 1,
