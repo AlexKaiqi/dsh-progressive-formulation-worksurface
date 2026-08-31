@@ -171,7 +171,6 @@
     <div class="ws-controls" aria-label="设计视角">
       <button class="btn btn-ghost" type="button" data-lens="all" aria-pressed="true">整体</button>
       <button class="btn btn-ghost" type="button" data-lens="surface" aria-pressed="false">Surface</button>
-      <button class="btn btn-ghost" type="button" data-lens="episode" aria-pressed="false">Episode</button>
       <button class="btn btn-ghost" type="button" data-lens="orchestrate" aria-pressed="false">Orchestrate</button>
     </div>
   </div>
@@ -197,7 +196,6 @@
   const details = {
     all: ['整体关系', 'Surface 是持续维护的工作上下文；DSH Session 承载推进；事件把事实交给 Orchestrate，再以可靠操作继续推进同一 Surface。'],
     surface: ['Surface', '物理形态是可寻址 WIP 文件、不可变 Revision 与 Event 流；模型看到的是推进所需的当前投影，且由 1:1 DSH Session Binding 承载。'],
-    episode: ['Episode · 尚未定义', '当前代码没有 Episode 实体。必须先决定身份、边界事实、DSH seq 引用、输入输出 Revision/EventRef、存储、折叠恢复与测试，才能成为正式概念。'],
     orchestrate: ['Orchestrate', 'Definition 与 Registration 读取 Surface 事件历史形成 Activation；先持久化 Operation，再执行 emit / followup，并把结果结算回事件流。']
   };
 
@@ -227,7 +225,7 @@
   const group = (lens, content) => `<g class="ws-node" data-concept="${lens}">${content}</g>`;
 
   function desktop(width) {
-    const height = 575;
+    const height = 550;
     svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
     svg.style.height = `${height}px`;
     const scale = width / 1100;
@@ -276,14 +274,6 @@
         ${status(execX - nodeW / 2 + 18, 310, 'ok', '1:1 Session Binding')}
       `)}
 
-      ${group('episode', `
-        <path d="M ${execX - nodeW / 2} 365 H ${execX + nodeW / 2} V 455 H ${execX - nodeW / 2} Z" class="ws-shape ws-purple-shape"/>
-        ${text(execX, 392, 'EPISODE ?', 'ws-kicker', 'middle')}
-        ${text(execX, 419, '尚无严格物理定义', 'ws-label', 'middle')}
-        ${text(execX, 440, '不能从 Step / Turn 猜测边界', 'ws-sub', 'middle')}
-        ${status(execX - nodeW / 2 + 18, 474, 'pending', '待定义，不是当前实体')}
-      `)}
-
       ${group('surface', `
         <rect x="${eventX - nodeW / 2}" y="214" width="${nodeW}" height="112" rx="18" class="ws-shape"/>
         ${text(eventX, 242, 'WORKSURFACE EVENT', 'ws-kicker', 'middle')}
@@ -320,7 +310,7 @@
   }
 
   function mobile(width) {
-    const height = 1030;
+    const height = 900;
     svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
     svg.style.height = `${height}px`;
     const cx = width / 2;
@@ -332,9 +322,8 @@
       <desc id="ws-diagram-desc">Surface 通过 DSH Session 推进并产生事件；Orchestrate 依据统一 Definition 与事件历史形成可靠操作，再回到同一 Surface。</desc>
       <path class="ws-edge ws-edge-primary" marker-end="url(#ws-arrow-primary)" d="M ${edgeX} 215 V 257"/>
       <path class="ws-edge" marker-end="url(#ws-arrow)" d="M ${edgeX} 397 V 439"/>
-      <path class="ws-edge ws-edge-control" marker-end="url(#ws-arrow-blue)" d="M ${edgeX} 534 V 576"/>
-      <path class="ws-edge ws-edge-control" marker-end="url(#ws-arrow-blue)" d="M ${edgeX} 707 V 749"/>
-      <path class="ws-edge ws-edge-control" marker-end="url(#ws-arrow-blue)" d="M ${cx + cardW * 0.34} 835 C ${width - 2} 835, ${width - 2} 150, ${cx + cardW * 0.34} 150"/>
+      <path class="ws-edge ws-edge-control" marker-end="url(#ws-arrow-blue)" d="M ${edgeX} 570 V 612"/>
+      <path class="ws-edge ws-edge-control" marker-end="url(#ws-arrow-blue)" d="M ${cx + cardW * 0.34} 698 C ${width - 2} 698, ${width - 2} 150, ${cx + cardW * 0.34} 150"/>
 
       ${group('surface', `
         <rect x="${cardX}" y="38" width="${cardW}" height="177" rx="26" class="ws-surface-shell"/>
@@ -354,38 +343,31 @@
         ${status(cardX + 20, 377, 'ok', '1:1 Session Binding')}
       `)}
 
-      ${group('episode', `
-        <rect x="${cardX}" y="439" width="${cardW}" height="95" rx="18" class="ws-shape ws-purple-shape"/>
-        ${text(cx, 469, 'EPISODE ? · 尚无严格物理定义', 'ws-label', 'middle')}
-        ${text(cx, 493, '不能从 Step / Turn 猜测边界', 'ws-sub', 'middle')}
-        ${status(cardX + 20, 521, 'pending', '待定义，不是当前实体')}
-      `)}
-
       ${group('surface', `
-        <rect x="${cardX}" y="576" width="${cardW}" height="131" rx="20" class="ws-shape"/>
-        ${text(cx, 606, 'WORKSURFACE EVENT · 推进事实', 'ws-label', 'middle')}
-        ${text(cx, 631, 'name · payload · causes · meta', 'ws-sub', 'middle')}
-        ${text(cx, 654, '事件已实现；通用内容 ref 待定', 'ws-sub', 'middle')}
-        ${status(cardX + 20, 690, 'partial', '交给 Orchestrate 判断')}
+        <rect x="${cardX}" y="439" width="${cardW}" height="131" rx="20" class="ws-shape"/>
+        ${text(cx, 469, 'WORKSURFACE EVENT · 推进事实', 'ws-label', 'middle')}
+        ${text(cx, 494, 'name · payload · causes · meta', 'ws-sub', 'middle')}
+        ${text(cx, 517, '事件已实现；通用内容 ref 待定', 'ws-sub', 'middle')}
+        ${status(cardX + 20, 553, 'partial', '交给 Orchestrate 判断')}
       `)}
 
       ${group('orchestrate', `
-        <rect x="${cardX}" y="749" width="${cardW}" height="120" rx="20" class="ws-shape ws-blue-shape"/>
-        ${text(cx, 779, 'ORCHESTRATE · 事件驱动推进', 'ws-label', 'middle')}
-        ${text(cx, 805, 'Definition + Registration + Event history', 'ws-sub', 'middle')}
-        ${text(cx, 829, '→ Activation → durable Operation', 'ws-sub', 'middle')}
-        ${status(cardX + 20, 854, 'ok', 'emit / followup 回到同一 Surface')}
+        <rect x="${cardX}" y="612" width="${cardW}" height="120" rx="20" class="ws-shape ws-blue-shape"/>
+        ${text(cx, 642, 'ORCHESTRATE · 事件驱动推进', 'ws-label', 'middle')}
+        ${text(cx, 668, 'Definition + Registration + Event history', 'ws-sub', 'middle')}
+        ${text(cx, 692, '→ Activation → durable Operation', 'ws-sub', 'middle')}
+        ${status(cardX + 20, 717, 'ok', 'emit / followup 回到同一 Surface')}
       `)}
 
       ${group('orchestrate', `
-        <rect x="${cardX}" y="911" width="${cardW * 0.46}" height="66" rx="16" class="ws-shape"/>
-        ${text(cardX + cardW * 0.23, 938, 'YAML Pattern', 'ws-label', 'middle')}
-        ${text(cardX + cardW * 0.23, 958, '常见模式', 'ws-sub', 'middle')}
-        <rect x="${cardX + cardW * 0.54}" y="911" width="${cardW * 0.46}" height="66" rx="16" class="ws-shape"/>
-        ${text(cardX + cardW * 0.77, 938, 'Code Builder', 'ws-label', 'middle')}
-        ${text(cardX + cardW * 0.77, 958, '复杂作者逻辑', 'ws-sub', 'middle')}
-        <path class="ws-edge ws-edge-control" marker-end="url(#ws-arrow-blue)" d="M ${cx} 977 V 991"/>
-        ${text(cx, 1016, '共同收敛到 Canonical Definition · 目标设计', 'ws-sub', 'middle')}
+        <rect x="${cardX}" y="774" width="${cardW * 0.46}" height="66" rx="16" class="ws-shape"/>
+        ${text(cardX + cardW * 0.23, 801, 'YAML Pattern', 'ws-label', 'middle')}
+        ${text(cardX + cardW * 0.23, 821, '常见模式', 'ws-sub', 'middle')}
+        <rect x="${cardX + cardW * 0.54}" y="774" width="${cardW * 0.46}" height="66" rx="16" class="ws-shape"/>
+        ${text(cardX + cardW * 0.77, 801, 'Code Builder', 'ws-label', 'middle')}
+        ${text(cardX + cardW * 0.77, 821, '复杂作者逻辑', 'ws-sub', 'middle')}
+        <path class="ws-edge ws-edge-control" marker-end="url(#ws-arrow-blue)" d="M ${cx} 840 V 854"/>
+        ${text(cx, 879, '共同收敛到 Canonical Definition · 目标设计', 'ws-sub', 'middle')}
       `)}
     `;
   }
@@ -393,7 +375,7 @@
   function applyLens() {
     svg.querySelectorAll('[data-concept]').forEach((node) => {
       const concept = node.getAttribute('data-concept');
-      const visible = activeLens === 'all' || concept === activeLens || (activeLens === 'surface' && concept === 'episode');
+      const visible = activeLens === 'all' || concept === activeLens;
       node.classList.toggle('is-dimmed', !visible);
     });
   }

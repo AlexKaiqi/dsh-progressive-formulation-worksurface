@@ -70,5 +70,3 @@ Lifetime 支持 `request`、`phase`、`until-revision-change`、`until-event` �
 ## 6. DSH 边界
 
 WorkSurface context extension events 被注册为 DSH Session event types，并标记为 downstream-ignorable。压缩、prune 以及 `Session → Turn → Step → Tool Call` 生命周期仍由 DSH 负责。
-
-当前上下文实现没有 `Episode`。ContextPlan、provider occurrence、Turn 和 Step 都不能改名或概括为 Episode；若未来需要这种边界，必须独立实现身份、持久化、DSH seq 引用、恢复和 fold。

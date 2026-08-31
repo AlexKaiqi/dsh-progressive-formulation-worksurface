@@ -59,7 +59,6 @@ WorkSurface 当前只通过 adapter 消费 Turn 边界并发送 followup。它�
 
 | 演进项 | 缺少的物理实现 |
 | --- | --- |
-| Episode | ID、schema、store、边界事件、DSH/WorkSurface 引用、fold、恢复、测试全部缺失 |
 | 通用 Surface Address | adapter/locator/boundary 类型与解析器缺失 |
 | YAML Source compiler | Source schema、compiler、provenance、版本策略缺失 |
 | 独立 Definition IR | 当前 `definition.json` 直接就是 `OrchestrationDefinition v1` |

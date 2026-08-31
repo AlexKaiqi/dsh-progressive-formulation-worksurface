@@ -3,8 +3,8 @@
   "diagramType": "custom-responsive-svg",
   "source": "worksurface-system.fragment.html",
   "artifact": "worksurface-system.html",
-  "specificationSha256": "2d9cd577b75b6f42dc26ab2768044bb692a66f45226f0700e87323665308568b",
-  "artifactSha256": "2d9cd577b75b6f42dc26ab2768044bb692a66f45226f0700e87323665308568b",
+  "specificationSha256": "c2141cb6eb42f99cfe02737a464a4016a74dc4d7b94e754b8ec10b9e59f1cc93",
+  "artifactSha256": "c2141cb6eb42f99cfe02737a464a4016a74dc4d7b94e754b8ec10b9e59f1cc93",
   "validation": {
     "profile": "responsive-svg",
     "checksPassed": 6,

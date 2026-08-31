@@ -63,7 +63,7 @@ pnpm check
 8. 覆盖正常路径、冲突和恢复的测试；
 9. 同步更新实现图与设计文档。
 
-`Episode` 当前不满足任何上述物理要求，禁止把它用于当前领域模型、UI 分组或验收语言。YAML compiler、独立 Definition IR 和统一 Effect evaluator 同样只能作为演进提案，不能写成既有边界。
+YAML compiler、独立 Definition IR 和统一 Effect evaluator 只能作为演进提案，不能写成既有边界。
 
 ## 5. 人工集成验收
 

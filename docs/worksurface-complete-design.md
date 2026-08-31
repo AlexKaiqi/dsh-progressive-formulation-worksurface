@@ -24,7 +24,7 @@
 Surface
   ↓ Context Projection
 绑定的 DSH Session（Turn → Step → Tool Call）
-  ↓ 推进边界仍待定义
+  ↓ 推进中产生业务事实
 业务 Event
   ↓ replay / match
 Orchestrate Activation
@@ -41,25 +41,10 @@ emit / followup
 | Surface | 可寻址、推进过程中持续维护且模型可见的工作上下文 | 领域定位明确；v1 仅由文件 WIP、Revision、Event stream、Binding 和 DSH Session 组合承载 |
 | Context Projection | 决定一次模型调用实际看到 Surface 的哪些内容 | 已实现 Revision files、Session facts 和 provider occurrence；通用局部地址协议未实现 |
 | DSH execution | 提供 Session、Turn、Step 与 Tool Call 的权威执行日志 | 已实现并由 DSH 所有 |
-| Episode | 若保留该名称，应表示 Surface 内一个可持久、可引用、可恢复的推进边界 | 尚未定义；当前不得使用 |
 | WorkSurface Event | 推进过程中产生、可被 Orchestrate 消费的业务事实 | Event envelope、EventRef、stream 已实现；通用 content ref payload 协议未实现 |
 | Orchestrate | 根据固定 Definition、Registration 和 Event history 决定后续影响 | replay、Activation、Operation、emit/followup 已实现 |
 
-### A.1 Episode 是设计问题，不是占位答案
-
-设计确认前，`Episode` 节点只表示以下问题必须被回答，不能表示已经有了定义：
-
-1. 身份是否是 `EpisodeId`，它如何从 Surface 和推进请求派生；
-2. 哪个持久事实开始 Episode，哪个事实结束或中止它；
-3. 它引用 DSH Session 的哪些 seq 区间，能否跨多个 Turn/Step；
-4. 它固定哪些输入 Revision、ContextPlan、WorkSurface EventRefs 和输出 Revision；
-5. 权威记录存入 Surface stream、独立 stream，还是另一种 store；
-6. 开放 Episode 在崩溃后如何 fold 和恢复；
-7. Orchestrate 消费的是 Episode 本身、Episode 产生的 Event，还是两者中的一种。
-
-这些决定没有完成前，系统只使用已经存在的 DSH 执行事实和 WorkSurface Event/Activation/Operation。
-
-### A.2 Orchestrate 的统一实现边界
+### A.1 Orchestrate 的统一实现边界
 
 目标作者层允许多个 source 形式，但它们不能进入推进控制器：
 
@@ -76,7 +61,7 @@ code builder ─┘                              ↓
 
 这个目标边界已经确定；当前只完成右半段。现在 `definition.json` 直接就是 `OrchestrationDefinition v1`，YAML compiler、code builder adapter 和 provenance 仍未实现。Code handler 是 Definition 固定的运行 artifact，不等同于作者层的 code builder。
 
-### A.3 控制职责而非虚构 Runtime 实体
+### A.2 控制职责而非虚构 Runtime 实体
 
 推进控制的逻辑边界是：固定 Definition 与 Registration，重放 Event，派生 Activation，以持久 Operation 执行 effect。当前由多个实现组件承担，设计图称其为“事件推进控制”，而不是再发明一个有独立身份的 `Runtime` 领域对象。
 
@@ -405,32 +390,7 @@ Engine 按 RegistrationId 串行 reconcile。运行内存中的 `running` map �
 
 因此当前声明式 reaction 与 Code handler 并不共享完整 Effect 集合：声明式支持 emit/followup，Code 只支持 emit。这是明确的实现差距。
 
-## 6. Episode：当前不存在
-
-当前仓库没有以下任何东西：
-
-- `EpisodeId`；
-- Episode 类型或 schema；
-- Episode stream 或持久记录；
-- Episode 开始、结束和恢复协议；
-- Episode 到 DSH Event seq、WorkSurface EventRef 或 Revision 的映射；
-- Episode fold 或测试。
-
-因此，Episode 不能作为当前系统概念，也不能在 UI 中用来分组执行历史。上一版设计文档对 Episode 的定义没有代码依据，现已撤回。
-
-如果以后仍要引入 Episode，必须先完成一份可实现协议，至少确定：
-
-1. 稳定身份和所属 Surface；
-2. 谁创建、何时开始、什么事实结束；
-3. 引用 DSH Session Log 的精确 seq 边界，而不是复制 transcript；
-4. 引用哪些 WorkSurface EventRefs 与输入/输出 Revisions；
-5. 崩溃时开放 Episode 如何恢复；
-6. 与 Turn/Step 的关系是否允许一对多、多对一或部分区间；
-7. schema、store、fold、迁移和测试。
-
-在这些问题进入代码前，只能展示 DSH Turn/Step/Tool 事实和 WorkSurface Activation/Operation，不能用 Episode 填补两者之间的空白。
-
-## 7. Runtime：实现装配，不是领域对象
+## 6. Runtime：实现装配，不是领域对象
 
 当前不存在名为 “WorkSurface Runtime” 的统一类或持久身份。推进职责由以下组件共同完成：
 
@@ -442,7 +402,7 @@ Engine 按 RegistrationId 串行 reconcile。运行内存中的 `running` map �
 
 “Runtime”可以作为这组组件的泛称，但不能被画成一个有独立状态和 API 的实体。
 
-## 8. YAML / Definition IR：演进项
+## 7. YAML / Definition IR：演进项
 
 当前物理事实是：作者直接写 `definition.json`，其内容就是 `OrchestrationDefinition v1`；Definition Revision 同时固定 JSON 和 handler 文件。
 
@@ -456,18 +416,17 @@ author source --compile/adapt--> canonical OrchestrationDefinition
 
 但 compiler、SourceRef、provenance schema 和独立 IR 目前都不存在。它们只能列入迁移计划，不能描述成当前运行链。
 
-## 9. 当前限制与下一步设计入口
+## 8. 当前限制与下一步设计入口
 
 | 限制 | 当前证据 | 进入设计前需要的物理协议 |
 | --- | --- | --- |
-| Episode 不存在 | 全仓无类型/schema/store | 先定义身份、边界、引用、fold、恢复、测试 |
 | 仅文件级 Surface 局部寻址 | `SurfaceId` + relative path | 通用 Address 类型、adapter、working/frozen boundary |
 | 无 YAML compiler | 只读取 `definition.json` | Source schema、compiler、provenance、版本策略 |
 | Code handler 只能 emit | `CodeHandlerEmit[]` | 若允许 followup，统一输出 contract 与授权 |
 | WorkSurface 不消费 DSH EventRef | 只在 Event meta 保存 sessionId/turn | 稳定 DSH session-event reference adapter |
 | Context 仍以 Revision 为核心 | `SurfaceSessionContext` | 对文件、事件和外部内容的统一 projection/ref |
 
-## 10. 设计与代码同步规则
+## 9. 设计与代码同步规则
 
 新增一级概念必须在同一个变更中至少提供：
 

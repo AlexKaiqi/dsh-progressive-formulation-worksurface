@@ -54,13 +54,13 @@ def static_checks() -> None:
         '<svg role="img"',
         'new ResizeObserver(draw)',
         'data-lens="surface"',
-        'EPISODE ?',
+        'DSH SESSION',
+        'WORKSURFACE EVENT',
         'Canonical Definition',
     )
     missing_markers = [marker for marker in required_markers if marker not in source]
     if missing_markers:
         fail("interactive design lacks required system-design markers: " + ", ".join(missing_markers))
-
     for schema in ("event.schema.json", "definition.schema.json", "context.schema.json", "binding.schema.json", "authoring-registration.schema.json"):
         json.loads((SPEC / schema).read_text())
     template = (SPEC / "surface-template.md").read_text()

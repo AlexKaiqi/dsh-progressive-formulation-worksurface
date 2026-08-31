@@ -20,9 +20,8 @@
 
 新的一级概念只有同时回答身份、类型/schema、持久化、事件边界、fold/replay、故障恢复和测试，才能进入“当前设计”。只有名称和叙述的内容必须标为提案。
 
-因此，当前文档明确不把以下内容当成已实现事实：
+因此，当前文档明确不把以下演进方向当成已实现事实：
 
-- `Episode`；
 - YAML compiler；
 - 独立于 `OrchestrationDefinition v1` 的 Definition IR；
 - 一个统一的 `WorkSurface Runtime` 领域实体；

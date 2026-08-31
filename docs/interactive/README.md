@@ -6,12 +6,11 @@
 - [`worksurface-system.html`](worksurface-system.html) 是自包含交互图；
 - [`worksurface-system.receipt.json`](worksurface-system.receipt.json) 固定 source/artifact 摘要、响应式校验结果和目视检查范围。
 
-主图表达可追溯到物理实现的设计，不画源码组件。四个审查视角分别回答：
+主图表达可追溯到物理实现的设计，不画源码组件。三个审查视角分别回答：
 
 1. Surface 如何持续维护并进入模型上下文；
-2. Episode 还缺哪些严格定义，为什么现在不能使用；
-3. 推进产生的 Event 如何驱动 Orchestrate；
-4. YAML / code builder 如何收敛到统一 Definition 边界。
+2. 推进产生的 Event 如何驱动 Orchestrate；
+3. YAML / code builder 如何收敛到统一 Definition 边界。
 
 源码、schema、store 和测试映射放在[实现索引](../architecture.md)与[完整设计](../worksurface-complete-design.md)中，不占据主画布。
 

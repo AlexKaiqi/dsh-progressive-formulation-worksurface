@@ -25,8 +25,6 @@ WorkSurface Surface streams
 - Binding 只描述 Surface 到 DSH Session 的固定映射；
 - `WorkSurfaceViewDefinition` 只描述标题、分组、解释和布局提示。
 
-`Episode` 不存在实现，UI 不能据此分组、标记边界或推断状态。
-
 ## 2. 产品位置与导航
 
 正式 UI 是 DSH 原生 `conversation.view`，与对话和执行轨迹处于同一个 Session view ring。它不复制 transcript，也不保存另一套 Session 映射。

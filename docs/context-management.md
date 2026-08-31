@@ -49,5 +49,3 @@ The default adapter includes every `required` or `never` item first and fails if
 ## DSH boundary
 
 WorkSurface context extension events are registered as downstream-ignorable DSH Session event types. Compaction, pruning, and the `Session → Turn → Step → Tool Call` lifecycle remain DSH responsibilities.
-
-There is no implemented `Episode` in context management. ContextPlan, provider occurrence, Turn, and Step must not be renamed or summarized as one.
