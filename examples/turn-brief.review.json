@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "surface": {
+    "handle": "$DSH_SURFACE_ID",
+    "directory": "$DSH_SURFACE_DIR",
+    "entryPaths": ["surface.md", "inbox/reviews.jsonl"]
+  },
+  "runtimeView": "$DSH_WORKSURFACE_VIEW_DIR",
+  "instruction": "Review case-7 independently and maintain the findings in review.md.",
+  "trigger": {
+    "name": "review.requested",
+    "summary": "The coordinator requested an independent design review for case-7."
+  },
+  "inputs": [
+    {
+      "label": "review request",
+      "summary": "Question and case identity are in the first inbox record.",
+      "detailPath": "$DSH_SURFACE_DIR/inbox/reviews.jsonl"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "review.completed",
+      "when": "The independent review is written and its result reference is stable.",
+      "payloadSummary": "{ caseId: string, resultRef: string }",
+      "schemaPath": "$DSH_WORKSURFACE_VIEW_DIR/contracts/review.completed.json",
+      "commandTemplate": "ws emit review.completed --payload '{\"caseId\":\"case-7\",\"resultRef\":\"review.md\"}'"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "injection": "each-model-shell-execution",
+  "variables": {
+    "DSH_WORKSURFACE_ROOT": {
+      "valueType": "absolute-directory-path",
+      "consumers": ["model-shell", "child-process"],
+      "purpose": "Locate Surface and Orchestrate authoring directories."
+    },
+    "DSH_SURFACE_ID": {
+      "valueType": "local-surface-handle",
+      "consumers": ["model-shell", "ws"],
+      "purpose": "Identify the one Surface bound to the current DSH Session."
+    },
+    "DSH_SURFACE_DIR": {
+      "valueType": "absolute-directory-path",
+      "consumers": ["model-shell", "child-process"],
+      "purpose": "Read and maintain the current Surface files."
+    },
+    "DSH_WORKSURFACE_VIEW_DIR": {
+      "valueType": "absolute-directory-path",
+      "consumers": ["model-shell", "child-process"],
+      "purpose": "Read turn-brief.json plus the current Turn's filtered input details and Event Contracts."
+    }
+  },
+  "commands": {
+    "ws": {
+      "discovery": "PATH",
+      "purpose": "Submit Runtime-authorized WorkSurface events; exact commands come from the Turn Brief."
+    }
+  }
+}

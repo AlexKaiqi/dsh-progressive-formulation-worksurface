@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "triggerInputSeq": 0,
+  "surfaces": {
+    "coordinator": "surfaces/coordinator",
+    "explorer_a": "surfaces/explorer_a",
+    "explorer_b": "surfaces/explorer_b"
+  },
+  "contracts": {
+    "exploration.requested": {
+      "file": "contracts/exploration.requested.json",
+      "capabilities": ["consume"]
+    },
+    "exploration.completed": {
+      "file": "contracts/exploration.completed.json",
+      "capabilities": ["consume", "surface-output"]
+    }
+  },
+  "files": {
+    "inputs": "inputs.jsonl",
+    "result": "result.json"
+  }
+}

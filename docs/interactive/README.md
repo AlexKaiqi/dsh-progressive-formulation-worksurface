@@ -1,29 +1,24 @@
 # WorkSurface 可交互系统设计
 
-该目录把系统设计图作为一等设计载体。不同问题使用不同图，不再把领域边界、
-authoring 契约和执行时序塞进同一张画布：
+该目录只保留对理解产品概念有价值、且不冒充机器协议的图：
 
-| 图 | 只回答的问题 | Source | 交互 HTML |
+| 图 | 只回答的问题 | 维护方式 | 交互 HTML |
 |---|---|---|---|
-| 定位与系统边界 | Surface、DSH Session 与 Orchestrate 分别是什么 | [`worksurface-system.architecture.json`](worksurface-system.architecture.json) | [`worksurface-system.html`](worksurface-system.html) |
-| 模型 authoring | 模型需要声明什么、code 能直接依赖什么 | [`orchestrate-authoring.architecture.json`](orchestrate-authoring.architecture.json) | [`orchestrate-authoring.html`](orchestrate-authoring.html) |
-| Runtime 时序 | Event 到直接变量、effects 和 Operation 如何串起来 | [`orchestrate-runtime.sequence.json`](orchestrate-runtime.sequence.json) | [`orchestrate-runtime.html`](orchestrate-runtime.html) |
+| WorkSurface 概念图 | 复杂目标怎样成为可持续、可验收、按依赖协作的工作单元 | 自包含 HTML/CSS | [`worksurface-system.html`](worksurface-system.html) |
+WorkSurface 概念图直接维护自包含 HTML/CSS，并由 `pnpm check` 检查必要概念和模板语义泄漏。
 
-每张图都有同名 receipt，固定 source/artifact 摘要、9/9 showcase 校验结果，以及视觉
-检查是否实际执行。
-
-主图只表达定位与边界。具体协议由 authoring 图解释；一次执行的先后关系由 Runtime
-时序图解释。源码、Schema、store 和测试映射放在[实现索引](../architecture.md)、
-[完整设计](../worksurface-complete-design.md)和[code 契约](../orchestration-code-contract.md)中。
+主图只表达产品价值与三个核心概念的关系。Runtime 执行边界由 JSON Schema、可执行样例和测试定义，不再用容易过期的时序图重复协议。源码、Schema、
+store 和测试映射放在[实现索引](../architecture.md)和[当前实现基线](../worksurface-complete-design.md)中；
+目标状态只以[设计基线](../design-baseline.md)为准；[code 契约](../orchestration-code-contract.md)由 Registration、run-state、input-record、result Schema 和可执行样例约束。
 
 ## 治理规则
 
-1. 每张图必须只有一个明确问题；需要切换解释层次时新增图，不用 focus 隐藏拥挤关系。
+1. 每张图必须只有一个明确问题；协议能由 Schema/测试准确表达时不重复画图。
 2. 图中节点必须是领域概念、协议边界或运行关系，不得用源码类名替代系统设计。
 3. 每个概念必须标出实现状态；没有物理协议的内容必须显示为待决问题。
-4. JSON source 通过 Archify `validate --quality showcase` 后才能原子生成 HTML；发布 HTML 不手工编辑。
+4. 图的表达方式服从问题：时序图可以从结构化 source 生成；领域工作流可以直接维护 HTML/SVG，不强套系统架构节点类型。
 5. 图不保存运行状态、事件计数、Activation 结果或 UI 临时布局。
-6. 交互图必须保留明暗主题、搜索与导出；无法执行视觉检查时必须明确记录 skipped。
+6. 交互能力只保留对理解有用的部分；概念图可以是静态叙事，不为功能清单堆叠控件。
 7. 图必须区分当前实现与目标协议，不把 Schema 已定义写成 Runtime 已支持。
 
-更新 source 后重新 validate/deliver、更新 receipt，再运行 `pnpm check`。
+更新图后先做视觉检查，再运行 `pnpm check`。

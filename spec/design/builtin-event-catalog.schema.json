@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/builtin-event-catalog.schema.json",
+  "title": "Built-in Event Contract Catalog",
+  "$comment": "Authority-independent source for built-in Event Contracts. Runtime adds its authority and the fixed builtin scope during admission; this catalog is the source of names, subjects, producers, and payload semantics.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "scopeId", "events"],
+  "properties": {
+    "version": { "const": 1 },
+    "scopeId": { "const": "worksurface" },
+    "events": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "runtime-event-contract.schema.json#/$defs/eventName" },
+      "additionalProperties": { "$ref": "#/$defs/contractSource" }
+    }
+  },
+  "$defs": {
+    "contractSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "subjects", "producers", "payloadSchema"],
+      "properties": {
+        "description": { "type": "string", "minLength": 1 },
+        "subjects": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["surface", "dsh-session"] }
+        },
+        "producers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["surface-session", "orchestrate", "runtime", "dsh-adapter"] }
+        },
+        "payloadSchema": { "$ref": "runtime-event-contract.schema.json#/$defs/payloadSchema" }
+      }
+    }
+  }
+}

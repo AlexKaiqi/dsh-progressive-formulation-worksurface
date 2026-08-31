@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "authority": "wsa_workspace_a",
+  "registrationId": "delegate-research",
+  "inputSeq": 0,
+  "event": {
+    "source": "worksurface",
+    "subject": {
+      "authority": "wsa_workspace_a",
+      "kind": "surface",
+      "id": "case-7"
+    },
+    "seq": 6,
+    "id": "event-research-requested-6"
+  },
+  "acceptedAt": "2026-08-31T00:00:01.000Z"
+}

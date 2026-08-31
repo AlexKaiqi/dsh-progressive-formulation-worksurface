@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "authority": "wsa_workspace_a",
+  "registrationId": "delegate-research",
+  "runId": "run-3",
+  "orchestrateRevision": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "triggerInputSeq": 0,
+  "causes": [
+    {
+      "source": "worksurface",
+      "subject": { "authority": "wsa_workspace_a", "kind": "surface", "id": "case-7" },
+      "seq": 6,
+      "id": "event-research-requested-6"
+    }
+  ],
+  "surfaces": {
+    "coordinator": {
+      "surfaceId": "case-7",
+      "baseRevision": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "candidateRevision": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "researcher": {
+      "surfaceId": "case-7-research",
+      "baseRevision": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "candidateRevision": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    }
+  },
+  "events": [],
+  "advance": [
+    {
+      "surface": "researcher",
+      "instruction": "Read blocks/delegation.md, complete the research, write results/research.md, then publish research.completed.",
+      "outputs": [
+        {
+          "scope": { "authority": "wsa_workspace_a", "kind": "registration", "id": "delegate-research" },
+          "name": "research.completed",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "causes": [
+        {
+          "source": "worksurface",
+          "subject": { "authority": "wsa_workspace_a", "kind": "surface", "id": "case-7" },
+          "seq": 6,
+          "id": "event-research-requested-6"
+        }
+      ],
+      "operationKey": "run-3/advance/0"
+    }
+  ],
+  "recordedAt": "2026-08-31T00:00:02.000Z"
+}

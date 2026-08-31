@@ -1,0 +1,15 @@
+{
+  "name": "research.completed",
+  "description": "The bound researcher Surface has completed the delegated research.",
+  "payloadSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["taskId", "resultPath", "summary"],
+    "properties": {
+      "taskId": { "type": "string", "minLength": 1 },
+      "resultPath": { "type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$)).+$" },
+      "summary": { "type": "string", "minLength": 1 }
+    }
+  }
+}

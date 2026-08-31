@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/session-shell-contract.schema.json",
+  "title": "Model-visible WorkSurface Session Shell Contract",
+  "$comment": "Exact stable symbols available to model-authored shell and inherited child processes. Runtime-private CLI transport is deliberately absent.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "injection", "variables", "commands"],
+  "properties": {
+    "version": { "const": 1 },
+    "injection": { "const": "each-model-shell-execution" },
+    "variables": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["DSH_WORKSURFACE_ROOT", "DSH_SURFACE_ID", "DSH_SURFACE_DIR", "DSH_WORKSURFACE_VIEW_DIR"],
+      "properties": {
+        "DSH_WORKSURFACE_ROOT": { "$ref": "#/$defs/pathVariable" },
+        "DSH_SURFACE_ID": { "$ref": "#/$defs/idVariable" },
+        "DSH_SURFACE_DIR": { "$ref": "#/$defs/pathVariable" },
+        "DSH_WORKSURFACE_VIEW_DIR": { "$ref": "#/$defs/pathVariable" }
+      }
+    },
+    "commands": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ws"],
+      "properties": {
+        "ws": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["discovery", "purpose"],
+          "properties": {
+            "discovery": { "const": "PATH" },
+            "purpose": { "const": "Submit Runtime-authorized WorkSurface events; exact commands come from the Turn Brief." }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "pathVariable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valueType", "consumers", "purpose"],
+      "properties": {
+        "valueType": { "const": "absolute-directory-path" },
+        "consumers": { "const": ["model-shell", "child-process"] },
+        "purpose": { "type": "string", "minLength": 1 }
+      }
+    },
+    "idVariable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valueType", "consumers", "purpose"],
+      "properties": {
+        "valueType": { "const": "local-surface-handle" },
+        "consumers": { "const": ["model-shell", "ws"] },
+        "purpose": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

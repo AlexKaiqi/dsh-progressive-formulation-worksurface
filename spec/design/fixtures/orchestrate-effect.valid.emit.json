@@ -1,7 +1,0 @@
-{
-  "kind": "emit",
-  "role": "coordinator",
-  "operationKey": "publish-result",
-  "event": "research.completed",
-  "payload": { "taskId": "task-7", "resultFile": "research/findings.md" }
-}

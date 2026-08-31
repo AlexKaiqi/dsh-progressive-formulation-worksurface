@@ -1,0 +1,15 @@
+{
+  "name": "exploration.completed",
+  "description": "One registered explorer completed its independent exploration.",
+  "payloadSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["taskId", "resultPath", "summary"],
+    "properties": {
+      "taskId": { "type": "string", "minLength": 1 },
+      "resultPath": { "type": "string", "minLength": 1 },
+      "summary": { "type": "string", "minLength": 1 }
+    }
+  }
+}

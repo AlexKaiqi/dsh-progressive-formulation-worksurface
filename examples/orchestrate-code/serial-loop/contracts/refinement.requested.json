@@ -1,0 +1,15 @@
+{
+  "name": "refinement.requested",
+  "description": "The coordinator requested iterative refinement of one source file.",
+  "payloadSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["taskId", "sourcePath", "initialFocus"],
+    "properties": {
+      "taskId": { "type": "string", "minLength": 1 },
+      "sourcePath": { "type": "string", "minLength": 1 },
+      "initialFocus": { "type": "string", "minLength": 1 }
+    }
+  }
+}

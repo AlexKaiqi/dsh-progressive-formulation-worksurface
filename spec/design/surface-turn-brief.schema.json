@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/surface-turn-brief.schema.json",
+  "title": "Surface Turn Brief",
+  "$comment": "The exact Runtime-generated task-specific brief persisted at $DSH_WORKSURFACE_VIEW_DIR/turn-brief.json for audit and injected into one Surface model call. It contains semantic decisions and stable locators only, never transport, scope, digest, ledgers, locks, or global history.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "surface", "runtimeView", "instruction", "inputs", "outputs"],
+  "properties": {
+    "version": { "const": 1 },
+    "surface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["handle", "directory", "entryPaths"],
+      "properties": {
+        "handle": { "const": "$DSH_SURFACE_ID" },
+        "directory": { "const": "$DSH_SURFACE_DIR" },
+        "entryPaths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "runtimeView": { "const": "$DSH_WORKSURFACE_VIEW_DIR" },
+    "instruction": { "type": "string", "minLength": 1 },
+    "trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "summary"],
+      "properties": {
+        "name": { "$ref": "runtime-event-contract.schema.json#/$defs/eventName" },
+        "summary": { "type": "string", "minLength": 1 }
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "summary"],
+        "properties": {
+          "label": { "type": "string", "minLength": 1 },
+          "summary": { "type": "string", "minLength": 1 },
+          "detailPath": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "when", "payloadSummary", "schemaPath", "commandTemplate"],
+        "properties": {
+          "name": { "$ref": "runtime-event-contract.schema.json#/$defs/eventName" },
+          "when": { "type": "string", "minLength": 1 },
+          "payloadSummary": { "type": "string", "minLength": 1 },
+          "schemaPath": { "type": "string", "minLength": 1 },
+          "commandTemplate": { "type": "string", "pattern": "^ws emit [a-z]" }
+        }
+      }
+    }
+  }
+}

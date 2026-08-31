@@ -1,0 +1,23 @@
+{
+  "name": "exploration.requested",
+  "description": "The coordinator requested several independent explorations of one source question.",
+  "payloadSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["taskId", "sourcePath", "targets"],
+    "properties": {
+      "taskId": { "type": "string", "minLength": 1 },
+      "sourcePath": { "type": "string", "minLength": 1 },
+      "targets": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["explorer_a", "explorer_b"],
+        "properties": {
+          "explorer_a": { "type": "string", "minLength": 1 },
+          "explorer_b": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

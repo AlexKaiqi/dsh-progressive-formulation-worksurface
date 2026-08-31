@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "registrationId": "serial-loop-refinement",
+  "entrypoint": "orchestrate.py",
+  "bindings": {
+    "coordinator": "case-9",
+    "worker": "case-9-worker"
+  },
+  "events": {
+    "refinement.requested": {
+      "file": "contracts/refinement.requested.json",
+      "consumeFrom": ["coordinator"]
+    },
+    "iteration.completed": {
+      "file": "contracts/iteration.completed.json",
+      "consumeFrom": ["worker"],
+      "surfaceOutputFrom": ["worker"]
+    }
+  }
+}

@@ -8,7 +8,7 @@ nvm use 24.17.0
 pnpm check
 ```
 
-`pnpm check` 校验：交互图 source/artifact receipt、JSON schemas、`WS-01` 至 `WS-23` 注册表、包边界、TypeScript、单元测试、Host RPC 与生成协议。
+`pnpm check` 校验：交互概念图必要内容、JSON Schema、目标协议与可执行样例、`WS-01` 至 `WS-23` 注册表、包边界、TypeScript、单元测试、Host RPC 与生成协议。
 
 当前机器协议包括：
 
@@ -22,16 +22,14 @@ pnpm check
 | `spec/surface-template.md` | 当前 Surface Revision 强制要求的 `surface.md` 结构 |
 | `spec/invariants.json` | 当前 `WS-01` 至 `WS-23` 的 enforcement/test 索引 |
 
-`spec/design/` 另存放尚未进入 Runtime 的目标协议：
+`spec/design/` 只保存尚未进入 Runtime 的目标协议。设计状态由 [`design-baseline.md`](design-baseline.md) 固定，具体定义直接读取：
 
-| 文件 | 固定的目标边界 |
-| --- | --- |
-| `event-contract.schema.json` | 业务事件名称、说明与 payload JSON Schema |
-| `definition-v2.schema.json` | 模型直接 author 的 Definition；显式引用事件契约和 followup 输出，不含 YAML pattern DSL |
-| `delivery-context.schema.json` | 每个 followup Operation 的 Activation、输入 EventRefs/full payload 与允许输出 |
+- namespace 与 Event：[`runtime-authority`](../spec/design/runtime-authority.schema.json)、[`runtime-binding`](../spec/design/runtime-binding.schema.json)、[`runtime-event-contract`](../spec/design/runtime-event-contract.schema.json)、[`runtime-event-envelope`](../spec/design/runtime-event-envelope.schema.json)、[`built-in catalog`](../spec/design/builtin-event-catalog.json) 与 [`event-declaration`](../spec/design/event-declaration.schema.json)；
+- 模型调用：[`session-shell-contract`](../spec/design/session-shell-contract.json) 与 [`surface-turn-brief`](../spec/design/surface-turn-brief.schema.json)；
+- Orchestrate 准入：[`registration source`](../spec/design/orchestrate-registration.schema.json) 与 [`registered record`](../spec/design/orchestrate-registration-record.schema.json)；
+- Orchestrate 运行：[`Input Ledger`](../spec/design/orchestrate-input-ledger-record.schema.json)、[`run-state`](../spec/design/orchestrate-run-state.schema.json)、[`model input`](../spec/design/orchestrate-input-record.schema.json)、[`result`](../spec/design/orchestrate-result.schema.json)、[`recorded batch`](../spec/design/orchestrate-operation-batch.schema.json) 与 [`settlement`](../spec/design/orchestrate-operation-settlement.schema.json)。
 
-这些 schema 和正反 fixtures 同样由 `pnpm check` 校验，但当前 Engine 仍只接收
-`definition.schema.json` v1；设计 schema 通过不代表 Runtime 已实现。
+准确 Schema allowlist 和跨协议校验在 [`scripts/check.py`](../scripts/check.py) 与 [`scripts/validate-schemas.mjs`](../scripts/validate-schemas.mjs)。目标协议通过门禁不代表 Runtime 已实现；当前 Engine 仍只接收 `definition.schema.json` v1。
 
 ## 2. 当前关键不变量
 
@@ -74,7 +72,7 @@ pnpm check
 8. 覆盖正常路径、冲突和恢复的测试；
 9. 同步更新实现图与设计文档。
 
-独立 YAML pattern DSL、独立 Definition IR 和统一 Effect evaluator 不能写成既有边界。任何新的模型 authoring 形式还必须用生成成功率、诊断与修复轮次证明它确实降低模型负担。
+独立 YAML/JSON pattern DSL 和新的行为 Definition IR 不能写成目标边界。目标中的 code-first Registration、staged run view 和 result executor 也不能写成既有实现。任何新的模型 authoring 形式还必须用生成成功率、诊断与修复轮次证明它确实降低模型负担。
 
 ## 5. 人工集成验收
 

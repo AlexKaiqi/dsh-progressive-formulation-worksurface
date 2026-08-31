@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "kind": "orchestrate-run",
+  "authority": "wsa_workspace_a",
+  "execution": {
+    "registrationId": "delegate-research",
+    "runId": "run-3"
+  },
+  "surfaces": {
+    "coordinator": "case-7",
+    "researcher": "case-7-research"
+  },
+  "contracts": {
+    "research.requested": {
+      "scope": { "kind": "registration", "id": "delegate-research" },
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "capabilities": ["consume"]
+    },
+    "research.completed": {
+      "scope": { "kind": "registration", "id": "delegate-research" },
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "capabilities": ["consume", "surface-output"]
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/orchestrate-run-state.schema.json",
+  "title": "Model-visible Orchestrate Run State",
+  "$comment": "A run is created from one admitted Registration. Every listed Surface already exists and is bound by that Registration. Runtime materializes writable staging copies at the listed paths; code may edit their contents but may not add or remove Surface directories.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "triggerInputSeq", "surfaces", "contracts", "files"],
+  "properties": {
+    "version": { "const": 1 },
+    "triggerInputSeq": { "type": "integer", "minimum": 0 },
+    "surfaces": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+      "additionalProperties": { "type": "string", "pattern": "^surfaces/[A-Za-z0-9][A-Za-z0-9._-]*$" }
+    },
+    "contracts": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "runtime-event-contract.schema.json#/$defs/eventName" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "capabilities"],
+        "properties": {
+          "file": { "$ref": "#/$defs/relativePath" },
+          "capabilities": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "enum": ["consume", "orchestrate-emit", "surface-output"] }
+          }
+        }
+      }
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inputs", "result"],
+      "properties": {
+        "inputs": { "const": "inputs.jsonl" },
+        "result": { "const": "result.json" }
+      }
+    }
+  },
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\).+$"
+    }
+  }
+}

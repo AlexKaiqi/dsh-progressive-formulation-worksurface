@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/event-declaration.schema.json",
+  "title": "Model-visible Event Declaration",
+  "$comment": "The semantic Event contract visible to model-authored code. Runtime adds authority, scope, subjects, producers, and digest when admitting it as a durable Event Contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "description", "payloadSchema"],
+  "properties": {
+    "name": { "$ref": "runtime-event-contract.schema.json#/$defs/eventName" },
+    "description": { "type": "string", "minLength": 1 },
+    "payloadSchema": { "$ref": "runtime-event-contract.schema.json#/$defs/payloadSchema" }
+  }
+}

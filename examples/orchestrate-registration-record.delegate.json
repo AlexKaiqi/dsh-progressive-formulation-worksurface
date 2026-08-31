@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "authority": "wsa_workspace_a",
+  "registrationId": "delegate-research",
+  "orchestrateRevision": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "entrypoint": "orchestrate.py",
+  "surfaces": {
+    "coordinator": "case-7",
+    "researcher": "case-7-research"
+  },
+  "routes": {
+    "research.requested": {
+      "scope": { "authority": "wsa_workspace_a", "kind": "registration", "id": "delegate-research" },
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "consumeFrom": ["coordinator"]
+    },
+    "research.completed": {
+      "scope": { "authority": "wsa_workspace_a", "kind": "registration", "id": "delegate-research" },
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "consumeFrom": ["researcher"],
+      "surfaceOutputFrom": ["researcher"]
+    }
+  },
+  "historyBoundary": {
+    "coordinator": { "surfaceEventSeq": 5, "dshEventSeq": 20 },
+    "researcher": { "surfaceEventSeq": 2, "dshEventSeq": 18 }
+  }
+}

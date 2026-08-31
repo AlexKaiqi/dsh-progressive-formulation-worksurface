@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "authority": "wsa_workspace_a",
+  "registrationId": "delegate-research",
+  "runId": "run-3",
+  "surfaceRevisions": {
+    "coordinator": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "researcher": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "events": [],
+  "advance": [
+    {
+      "operationKey": "run-3/advance/0",
+      "surface": "researcher",
+      "sessionId": "session-researcher",
+      "turnId": "turn-1"
+    }
+  ],
+  "settledAt": "2026-08-31T00:00:03.000Z"
+}

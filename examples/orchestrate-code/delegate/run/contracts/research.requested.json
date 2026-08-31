@@ -1,0 +1,14 @@
+{
+  "name": "research.requested",
+  "description": "The coordinator has prepared a research assignment for the bound researcher Surface.",
+  "payloadSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["taskId", "questionPath"],
+    "properties": {
+      "taskId": { "type": "string", "minLength": 1 },
+      "questionPath": { "type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$)).+$" }
+    }
+  }
+}

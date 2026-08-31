@@ -1,0 +1,36 @@
+[
+  {
+    "type": "tool/call",
+    "seq": 18,
+    "time": 1788134400000,
+    "data": {
+      "turn": 1,
+      "step": 2,
+      "callId": "call-7",
+      "name": "bash",
+      "arguments": "{\"command\":\"pnpm test\"}"
+    }
+  },
+  {
+    "type": "tool/result",
+    "seq": 19,
+    "time": 1788134401000,
+    "data": {
+      "turn": 1,
+      "step": 2,
+      "message": {
+        "id": "message-tool-7",
+        "role": "user",
+        "source": { "kind": "tool", "callId": "call-7" },
+        "content": [
+          {
+            "type": "tool-result",
+            "toolCallId": "call-7",
+            "content": [{ "type": "text", "text": "101 tests passed" }]
+          }
+        ]
+      }
+    },
+    "surfaceOp": "append"
+  }
+]

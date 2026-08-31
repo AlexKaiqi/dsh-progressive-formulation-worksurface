@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/runtime-event-contract.schema.json",
+  "title": "Runtime-scoped Event Contract",
+  "$comment": "Canonical contract for a small set of built-ins and for temporary Event Types defined at runtime. Temporary means capability-scoped, not disposable: the contract snapshot remains reachable while any Event references its digest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "scope", "name", "description", "subjects", "producers", "payloadSchema"],
+  "properties": {
+    "version": { "const": 1 },
+    "scope": { "$ref": "#/$defs/scope" },
+    "name": { "$ref": "#/$defs/eventName" },
+    "description": { "type": "string", "minLength": 1 },
+    "subjects": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["surface", "dsh-session"] }
+    },
+    "producers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["surface-session", "orchestrate", "runtime", "dsh-adapter"] }
+    },
+    "payloadSchema": { "$ref": "#/$defs/payloadSchema" }
+  },
+  "$defs": {
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "kind", "id"],
+      "properties": {
+        "authority": { "$ref": "runtime-authority.schema.json#/$defs/authorityId" },
+        "kind": { "enum": ["builtin", "registration"] },
+        "id": { "$ref": "runtime-authority.schema.json#/$defs/localId" }
+      }
+    },
+    "eventName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+$"
+    },
+    "payloadSchema": {
+      "type": "object",
+      "required": ["$schema", "type"],
+      "properties": {
+        "$schema": { "const": "https://json-schema.org/draft/2020-12/schema" },
+        "type": { "const": "object" }
+      }
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

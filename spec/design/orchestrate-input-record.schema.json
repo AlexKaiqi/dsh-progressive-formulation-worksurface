@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/orchestrate-input-record.schema.json",
+  "title": "Model-visible Orchestrate Input Record",
+  "$comment": "One Registration-local input. surface is a handle for an already bound Surface; Runtime-private authority, EventRef, Contract scope/digest, producer, Operation identity, and timestamps are recoverable through inputSeq.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["inputSeq", "surface", "event"],
+  "properties": {
+    "inputSeq": { "type": "integer", "minimum": 0 },
+    "surface": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "payload"],
+      "properties": {
+        "name": { "$ref": "runtime-event-contract.schema.json#/$defs/eventName" },
+        "payload": { "type": "object" }
+      }
+    }
+  }
+}

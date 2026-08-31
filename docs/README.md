@@ -1,32 +1,30 @@
 # WorkSurface 文档索引
 
-## 当前设计真源
+## 阅读顺序
 
-1. [系统设计交互图](interactive/worksurface-system.html)：领域定位、模型 authoring、事件契约、环境注入与推进闭环；可编辑源为 [`worksurface-system.architecture.json`](interactive/worksurface-system.architecture.json)。
-2. [完整系统设计](worksurface-complete-design.md)：只定义能映射到当前类型、存储、fold、恢复或测试的概念，并把未实现方向单独列出。
-3. [实现索引](architecture.md)：组件、状态和关键流程到源码位置的映射。
-4. [机器协议与不变量](invariants-and-acceptance.md)：`spec/`、`WS-01` 至 `WS-23` 和测试证据。
+| 范围 | 真源 | 用途 |
+| --- | --- | --- |
+| 目标边界 | [目标设计基线](design-baseline.md) | 定位、概念、所有权、模型负担和明确排除项 |
+| 目标 Event 语义 | [Event：身份、Contract 与持久事实](event-type-system.md) | namespace、Contract 生命周期、Event 持久化与 capability |
+| 目标 Orchestrate 语义 | [Orchestrate code 契约](orchestration-code-contract.md) | 已存在 Surface 间的 `when / who / how` 与可恢复执行 |
+| 当前 v1 | [当前实现基线](worksurface-complete-design.md) | 已进入类型、存储、fold、恢复和测试的事实 |
+| 当前源码 | [实现索引](architecture.md) | 概念到代码位置的映射 |
+| 验证 | [不变量与验收](invariants-and-acceptance.md) | 机器协议、门禁与测试证据 |
 
-交互图用于检查系统设计，完整系统设计给出严格语义，[实现索引](architecture.md)、源码、schema 和测试证明物理落点。实现证据属于概念详情，不替代主设计图。三者不一致时，先判定代码现状，再明确选择修代码还是把文档标记为提案。
+目标与当前实现不得混写。目标协议已被 Schema 和样例约束，但尚未进入 Runtime；判断“现在能否运行”时只看当前 v1 文档和源码。
 
-## 专题文档
+## 按载体维护
 
-- [UI 设计](ui-design.md)：当前 `WorkSurfaceViewDefinition`、Surface 生命周期投影和 DSH/WorkSurface 证据分层。
-- [模型上下文](context-management.zh.md)：当前 Revision、Session facts、provider occurrence、Context Plan 和 render audit；英文版见 [Fact-backed model context](context-management.md)。
-- [Orchestrate 语义与模型 authoring](orchestration-semantics.md)：委派、串行、fan-out/join、loop 与 race 的实际事件轨迹和能力边界。
-- [`spec/`](../spec/)：Event、Definition、Binding、Context 和 Registration 的机器 schema。
-- [`spec/design/`](../spec/design/)：进入实现前已机器校验的 Event Contract、Definition v2 与 Activation Delivery Context 目标协议；不与当前 v1 混写。
-- [`examples/`](../examples/)：当前协议示例，不扩张领域模型。
+- 语义和不可由类型表达的边界：本目录中的设计文档；
+- 数据结构、枚举和字段约束：[`spec/`](../spec/) 与 [`spec/design/`](../spec/design/) 的 JSON Schema；
+- 行为和 pattern：[`examples/`](../examples/) 的可执行代码；
+- 当前不变量及实现证据：[`spec/invariants.json`](../spec/invariants.json) 与测试；
+- 关系概览：[交互概念图](interactive/worksurface-system.html)，只辅助理解，不定义协议。
 
-## 设计准入
+同一规则只保留一个真源，其他文档只链接。Schema 通过校验不代表 Runtime 已实现；图或 Markdown 中出现一个名称也不建立领域概念。
 
-新的一级概念只有同时回答身份、类型/schema、持久化、事件边界、fold/replay、故障恢复和测试，才能进入“当前设计”。只有名称和叙述的内容必须标为提案。
+## 其他当前专题
 
-因此，当前文档明确不把以下演进方向当成已实现事实：
-
-- 一套独立的 YAML pattern DSL；
-- 独立于 `OrchestrationDefinition v1` 的 Definition IR；
-- 一个统一的 `WorkSurface Runtime` 领域实体；
-- 通用的 `SurfaceId + adapter + locator + boundary` 地址协议。
-
-Git 历史中的旧草案可以用于追溯，但不是当前规范。
+- [模型上下文](context-management.zh.md)：Revision、Session facts、Context Plan 与 render audit；
+- [UI 设计](ui-design.md)：当前 projection、证据层级和交互边界；
+- [交互图维护说明](interactive/README.md)：图的范围和更新纪律。

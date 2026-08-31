@@ -1,0 +1,1 @@
+{"inputSeq":0,"surface":"coordinator","event":{"name":"exploration.requested","payload":{"taskId":"case-8-options","sourcePath":"briefs/question.md","targets":{"explorer_a":"Find the strongest supporting case.","explorer_b":"Find the strongest counterexample."}}}}

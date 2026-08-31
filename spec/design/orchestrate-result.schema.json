@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/orchestrate-result.schema.json",
+  "title": "Orchestrate Run Result",
+  "$comment": "Surface content changes are ordinary file changes in Runtime staging copies and are not re-described here. This file only asks Runtime to append facts or advance already registered Surfaces after validation. Advance creates and binds a DSH Session before the first Turn when needed, otherwise it reuses the existing 1:1 binding.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "events", "advance"],
+  "properties": {
+    "version": { "const": 1 },
+    "causes": { "$ref": "#/$defs/causes" },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" }
+    },
+    "advance": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/advance" }
+    }
+  },
+  "$defs": {
+    "surfaceHandle": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+    "key": { "type": "string", "minLength": 1 },
+    "causes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "integer", "minimum": 0 }
+    },
+    "eventOutput": { "$ref": "runtime-event-contract.schema.json#/$defs/eventName" },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "name", "payload"],
+      "properties": {
+        "surface": { "$ref": "#/$defs/surfaceHandle" },
+        "name": { "$ref": "runtime-event-contract.schema.json#/$defs/eventName" },
+        "payload": { "type": "object" },
+        "causes": { "$ref": "#/$defs/causes" },
+        "key": { "$ref": "#/$defs/key" }
+      }
+    },
+    "advance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "instruction", "outputs"],
+      "properties": {
+        "surface": { "$ref": "#/$defs/surfaceHandle" },
+        "instruction": { "type": "string", "minLength": 1 },
+        "outputs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/eventOutput" }
+        },
+        "causes": { "$ref": "#/$defs/causes" },
+        "key": { "$ref": "#/$defs/key" }
+      }
+    }
+  }
+}

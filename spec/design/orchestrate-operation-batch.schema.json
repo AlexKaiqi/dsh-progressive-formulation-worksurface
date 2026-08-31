@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/orchestrate-operation-batch.schema.json",
+  "title": "Runtime-private Recorded Orchestrate Operation Batch",
+  "$comment": "Immutable recovery record written after the complete staged diff and result validate, and before publishing a Surface head, appending an Event, or advancing a DSH Session. Runtime expands inputSeq and local names into authority-qualified causes and Contract identities before writing this record.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "authority", "registrationId", "runId", "orchestrateRevision", "triggerInputSeq", "causes", "surfaces", "events", "advance", "recordedAt"],
+  "properties": {
+    "version": { "const": 1 },
+    "authority": { "$ref": "runtime-authority.schema.json#/$defs/authorityId" },
+    "registrationId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+    "runId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+    "orchestrateRevision": { "$ref": "runtime-event-contract.schema.json#/$defs/digest" },
+    "triggerInputSeq": { "type": "integer", "minimum": 0 },
+    "causes": { "$ref": "#/$defs/causes" },
+    "surfaces": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+      "additionalProperties": { "$ref": "#/$defs/surfaceRevision" }
+    },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" }
+    },
+    "advance": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/advance" }
+    },
+    "recordedAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "surfaceRevision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surfaceId", "baseRevision", "candidateRevision"],
+      "properties": {
+        "surfaceId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+        "baseRevision": { "$ref": "#/$defs/revision" },
+        "candidateRevision": { "$ref": "#/$defs/revision" }
+      }
+    },
+    "causes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "runtime-event-envelope.schema.json#/$defs/eventRef" }
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "name", "digest"],
+      "properties": {
+        "scope": { "$ref": "runtime-event-contract.schema.json#/$defs/scope" },
+        "name": { "$ref": "runtime-event-contract.schema.json#/$defs/eventName" },
+        "digest": { "$ref": "runtime-event-contract.schema.json#/$defs/digest" }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "contract", "payload", "causes", "operationKey"],
+      "properties": {
+        "surface": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+        "contract": { "$ref": "#/$defs/contract" },
+        "payload": { "type": "object" },
+        "causes": { "$ref": "#/$defs/causes" },
+        "operationKey": { "type": "string", "minLength": 1 }
+      }
+    },
+    "advance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "instruction", "outputs", "causes", "operationKey"],
+      "properties": {
+        "surface": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+        "instruction": { "type": "string", "minLength": 1 },
+        "outputs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/contract" }
+        },
+        "causes": { "$ref": "#/$defs/causes" },
+        "operationKey": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import hashlib
 import pathlib
 import subprocess
 import sys
@@ -19,79 +18,85 @@ def fail(message: str) -> None:
 
 
 def static_checks() -> None:
-    diagram_expectations = {
-        "worksurface-system.receipt.json": (
-            "architecture",
-            "components",
-            {"surface_a", "session_a", "model_a", "events_a", "orchestrate", "reliable_effect", "session_b", "surface_b"},
-        ),
-        "orchestrate-authoring.receipt.json": (
-            "architecture",
-            "components",
-            {"model", "event_contract", "definition", "when", "env_binding", "effect_capabilities", "ordinary_code", "effects"},
-        ),
-        "orchestrate-runtime.receipt.json": (
-            "sequence",
-            "participants",
-            {"events", "definition", "orchestrate", "resolver", "code", "gate", "operations", "target"},
-        ),
+    overview = (INTERACTIVE_DESIGN / "worksurface-system.html").read_text()
+    required_overview_concepts = {
+        "复杂目标", "Surface = 工作单元", "DSH Session = 执行者的历史",
+        "Orchestrate = 工作单元之间的关系", "独立验收", "明确依赖",
+        "资料研究", "数据核验", "报告成稿",
     }
-    sources = {}
-    for receipt_name, (diagram_type, node_collection, required_ids) in diagram_expectations.items():
-        receipt_path = INTERACTIVE_DESIGN / receipt_name
-        receipt = json.loads(receipt_path.read_text())
-        for receipt_key, path_key in (
-            ("specificationSha256", "source"),
-            ("artifactSha256", "artifact"),
-        ):
-            artifact_path = INTERACTIVE_DESIGN / receipt[path_key]
-            actual_digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
-            if actual_digest != receipt[receipt_key]:
-                fail(
-                    f"interactive design {artifact_path.name} does not match "
-                    f"{receipt_path.name}; regenerate and validate the diagram"
-                )
-        validation = receipt.get("validation", {})
-        if (
-            validation.get("profile") != "showcase"
-            or validation.get("checksPassed") != 9
-            or validation.get("checkCount") != 9
-            or validation.get("errors") != 0
-            or validation.get("warnings") != 0
-        ):
-            fail(f"{receipt_name} is not a clean 9/9 showcase validation")
-
-        source = json.loads((INTERACTIVE_DESIGN / receipt["source"]).read_text())
-        artifact = (INTERACTIVE_DESIGN / receipt["artifact"]).read_text()
-        if source.get("diagram_type") != diagram_type or source.get("meta", {}).get("quality_profile") != "showcase":
-            fail(f"{receipt['source']} is not a showcase Archify {diagram_type}")
-        node_ids = {node.get("id") for node in source.get(node_collection, [])}
-        missing = sorted(required_ids - node_ids)
-        if missing:
-            fail(f"{receipt['source']} lacks required concepts: " + ", ".join(missing))
-        if "<svg" not in artifact:
-            fail(f"{receipt['artifact']} is not a rendered Archify diagram")
-        sources[receipt_name] = source
-
-    authoring_text = json.dumps(sources["orchestrate-authoring.receipt.json"], ensure_ascii=False)
-    if "code.env" not in authoring_text or "直接" not in authoring_text:
-        fail("authoring diagram does not show direct code environment bindings")
-    overview_text = json.dumps(sources["worksurface-system.receipt.json"], ensure_ascii=False)
-    if "code.env" in overview_text or "Input Resolver" in overview_text:
-        fail("positioning diagram leaks authoring or Runtime execution details")
+    missing_overview_concepts = sorted(concept for concept in required_overview_concepts if concept not in overview)
+    if missing_overview_concepts:
+        fail("worksurface-system.html lacks required concepts: " + ", ".join(missing_overview_concepts))
+    if "viewer.kind.frontend" in overview or "viewer.kind.database" in overview or "archify" in overview.lower():
+        fail("worksurface-system.html reintroduces unrelated architecture-template semantics")
+    for implementation_detail in ("Replay / Match", "Durable Operation", "record → effect → settle"):
+        if implementation_detail in overview:
+            fail(f"worksurface-system.html leaks Runtime detail into the product concept diagram: {implementation_detail}")
+    if "用户的复杂目标" not in overview or "唯一绑定的 DSH Session" not in overview:
+        fail("worksurface-system.html must explain the product through a concrete user goal and the Surface/Session relation")
+    target_design = "\n".join(
+        (ROOT / "docs" / name).read_text()
+        for name in (
+            "design-baseline.md",
+            "event-type-system.md",
+            "orchestration-code-contract.md",
+        )
+    )
+    for withdrawn_target_token in (
+        "effects.json",
+        "surface.continue",
+        "surface.file.",
+        "review-reconcile.py",
+        "review-runtime/",
+        "orchestration-semantics.md",
+        "context-management.md",
+    ):
+        if withdrawn_target_token in target_design:
+            fail(f"target design reintroduces withdrawn Orchestrate contract {withdrawn_target_token}")
+    for required_target_boundary in (
+        "Orchestrate 不创建",
+        "Surface authoring",
+        "Orchestrate Registration",
+        "consumeFrom",
+        "emitOn",
+        "surfaceOutputFrom",
+        "result.json",
+    ):
+        if required_target_boundary not in target_design:
+            fail(f"target design lacks stable Orchestrate boundary {required_target_boundary}")
     for schema in (
         "event.schema.json", "definition.schema.json", "context.schema.json",
         "binding.schema.json", "authoring-registration.schema.json",
         "code-handler-context.schema.json", "code-handler-emit.schema.json",
     ):
         json.loads((SPEC / schema).read_text())
-    for schema in (
-        "event-contract.schema.json", "orchestrate-code-binding.schema.json",
-        "definition-v2.schema.json", "delivery-context.schema.json",
-        "orchestrate-code-host.schema.json", "orchestrate-code-context.schema.json",
-        "orchestrate-effect.schema.json",
-    ):
+    target_schemas = (
+        "runtime-authority.schema.json",
+        "runtime-binding.schema.json",
+        "runtime-event-contract.schema.json",
+        "runtime-event-envelope.schema.json",
+        "builtin-event-catalog.schema.json",
+        "event-declaration.schema.json",
+        "session-shell-contract.schema.json",
+        "surface-turn-brief.schema.json",
+        "orchestrate-registration.schema.json",
+        "orchestrate-registration-record.schema.json",
+        "orchestrate-input-ledger-record.schema.json",
+        "orchestrate-input-record.schema.json",
+        "orchestrate-run-state.schema.json",
+        "orchestrate-result.schema.json",
+        "orchestrate-operation-batch.schema.json",
+        "orchestrate-operation-settlement.schema.json",
+    )
+    target_design_files = sorted(path.name for path in (SPEC / "design").glob("*.schema.json"))
+    if target_design_files != sorted(target_schemas):
+        fail("spec/design contains a schema outside the current target protocol set")
+    for schema in target_schemas:
         json.loads((SPEC / "design" / schema).read_text())
+        if schema not in target_design:
+            fail(f"target protocol {schema} has no target design link")
+    json.loads((SPEC / "design" / "session-shell-contract.json").read_text())
+    json.loads((SPEC / "design" / "builtin-event-catalog.json").read_text())
     template = (SPEC / "surface-template.md").read_text()
     required = [
         "# Goal", "# Acceptance Criteria", "# Known Facts and Constraints",

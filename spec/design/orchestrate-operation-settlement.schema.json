@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/orchestrate-operation-settlement.schema.json",
+  "title": "Runtime-private Settled Orchestrate Operation Batch",
+  "$comment": "Immutable completion record written only after every candidate Surface Revision is published and every managed Event/advance operation has reached its stable idempotent target.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "authority", "registrationId", "runId", "surfaceRevisions", "events", "advance", "settledAt"],
+  "properties": {
+    "version": { "const": 1 },
+    "authority": { "$ref": "runtime-authority.schema.json#/$defs/authorityId" },
+    "registrationId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+    "runId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+    "surfaceRevisions": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+      "additionalProperties": { "$ref": "#/$defs/revision" }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["operationKey", "event"],
+        "properties": {
+          "operationKey": { "type": "string", "minLength": 1 },
+          "event": { "$ref": "runtime-event-envelope.schema.json#/$defs/eventRef" }
+        }
+      }
+    },
+    "advance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["operationKey", "surface", "sessionId", "turnId"],
+        "properties": {
+          "operationKey": { "type": "string", "minLength": 1 },
+          "surface": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+          "sessionId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+          "turnId": { "$ref": "runtime-authority.schema.json#/$defs/localId" }
+        }
+      }
+    },
+    "settledAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

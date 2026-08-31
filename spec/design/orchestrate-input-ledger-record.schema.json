@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/orchestrate-input-ledger-record.schema.json",
+  "title": "Runtime-private Orchestrate Input Ledger Record",
+  "$comment": "Append-only mapping from one Registration-local inputSeq to the authority-qualified EventRef that was admitted. The model-visible input record is deterministically materialized from this ref, the immutable Registration record, and the referenced Event.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "authority", "registrationId", "inputSeq", "event", "acceptedAt"],
+  "properties": {
+    "version": { "const": 1 },
+    "authority": { "$ref": "runtime-authority.schema.json#/$defs/authorityId" },
+    "registrationId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+    "inputSeq": { "type": "integer", "minimum": 0 },
+    "event": { "$ref": "runtime-event-envelope.schema.json#/$defs/eventRef" },
+    "acceptedAt": { "type": "string", "format": "date-time" }
+  }
+}

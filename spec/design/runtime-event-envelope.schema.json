@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/runtime-event-envelope.schema.json",
+  "title": "Runtime Event Envelope",
+  "$comment": "Normalized durable Event shape. WorkSurface Events live in subject streams; DSH Events retain DSH Session Log authority and are normalized by reference when observed by an Orchestration.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "id", "subject", "seq", "type", "payload", "causes", "producer", "operationKey", "recordedAt"],
+  "properties": {
+    "version": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "subject": { "$ref": "#/$defs/surfaceSubject" },
+    "seq": { "type": "integer", "minimum": 0 },
+    "type": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "name", "contract"],
+      "properties": {
+        "scope": { "$ref": "runtime-event-contract.schema.json#/$defs/scope" },
+        "name": { "$ref": "runtime-event-contract.schema.json#/$defs/eventName" },
+        "contract": { "$ref": "runtime-event-contract.schema.json#/$defs/digest" }
+      }
+    },
+    "payload": { "type": "object" },
+    "causes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/eventRef" }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref"],
+      "properties": {
+        "kind": { "enum": ["surface-session", "orchestrate", "runtime", "dsh-adapter"] },
+        "ref": { "type": "string", "minLength": 1 }
+      }
+    },
+    "operationKey": { "type": "string", "minLength": 1 },
+    "recordedAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "surfaceSubject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "kind", "id"],
+      "properties": {
+        "authority": { "$ref": "runtime-authority.schema.json#/$defs/authorityId" },
+        "kind": { "const": "surface" },
+        "id": { "$ref": "runtime-authority.schema.json#/$defs/localId" }
+      }
+    },
+    "causalSubject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "kind", "id"],
+      "properties": {
+        "authority": { "$ref": "runtime-authority.schema.json#/$defs/authorityId" },
+        "kind": { "enum": ["surface", "dsh-session"] },
+        "id": { "$ref": "runtime-authority.schema.json#/$defs/localId" }
+      }
+    },
+    "eventRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "subject", "seq", "id"],
+      "properties": {
+        "source": { "enum": ["worksurface", "dsh"] },
+        "subject": { "$ref": "#/$defs/causalSubject" },
+        "seq": { "type": "integer", "minimum": 0 },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

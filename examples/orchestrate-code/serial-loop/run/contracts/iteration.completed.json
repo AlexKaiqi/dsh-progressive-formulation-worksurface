@@ -1,0 +1,23 @@
+{
+  "name": "iteration.completed",
+  "description": "The worker completed one refinement iteration and reported whether another is needed.",
+  "payloadSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["taskId", "iteration", "converged", "resultPath"],
+    "properties": {
+      "taskId": { "type": "string", "minLength": 1 },
+      "iteration": { "type": "integer", "minimum": 1 },
+      "converged": { "type": "boolean" },
+      "resultPath": { "type": "string", "minLength": 1 },
+      "nextFocus": { "type": "string", "minLength": 1 }
+    },
+    "allOf": [
+      {
+        "if": { "properties": { "converged": { "const": false } } },
+        "then": { "required": ["nextFocus"], "properties": { "nextFocus": true } }
+      }
+    ]
+  }
+}

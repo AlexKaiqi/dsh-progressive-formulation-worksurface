@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/runtime-binding.schema.json",
+  "title": "Runtime Namespace Binding",
+  "$comment": "Runtime-private resolution context. Stable model handles are interpreted only through this binding; the model and model-authored code never construct qualified identities.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "kind", "authority", "execution", "surfaces", "contracts"],
+  "properties": {
+    "version": { "const": 1 },
+    "kind": { "enum": ["surface-turn", "orchestrate-run"] },
+    "authority": { "$ref": "runtime-authority.schema.json#/$defs/authorityId" },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "surfaceId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+        "sessionId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+        "turnId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+        "registrationId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+        "runId": { "$ref": "runtime-authority.schema.json#/$defs/localId" }
+      }
+    },
+    "surfaces": {
+      "type": "object",
+      "propertyNames": { "type": "string", "minLength": 1 },
+      "additionalProperties": { "$ref": "runtime-authority.schema.json#/$defs/localId" }
+    },
+    "contracts": {
+      "type": "object",
+      "propertyNames": { "$ref": "runtime-event-contract.schema.json#/$defs/eventName" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scope", "digest", "capabilities"],
+        "properties": {
+          "scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "id"],
+            "properties": {
+              "kind": { "enum": ["builtin", "registration"] },
+              "id": { "$ref": "runtime-authority.schema.json#/$defs/localId" }
+            }
+          },
+          "digest": { "$ref": "runtime-event-contract.schema.json#/$defs/digest" },
+          "capabilities": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "enum": ["consume", "orchestrate-emit", "surface-output"] }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "surface-turn" } } },
+      "then": {
+        "properties": {
+          "execution": {
+            "type": "object",
+            "required": ["surfaceId", "sessionId", "turnId"],
+            "properties": {
+              "surfaceId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+              "sessionId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+              "turnId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+              "registrationId": false,
+              "runId": false
+            }
+          },
+          "surfaces": { "type": "object", "maxProperties": 0 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "orchestrate-run" } } },
+      "then": {
+        "properties": {
+          "execution": {
+            "type": "object",
+            "required": ["registrationId", "runId"],
+            "properties": {
+              "registrationId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+              "runId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+              "surfaceId": false,
+              "sessionId": false,
+              "turnId": false
+            }
+          },
+          "surfaces": { "type": "object", "minProperties": 1 },
+          "contracts": { "type": "object", "minProperties": 1 }
+        }
+      }
+    }
+  ]
+}

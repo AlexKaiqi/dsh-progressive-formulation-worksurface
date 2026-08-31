@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/orchestrate-registration-record.schema.json",
+  "title": "Runtime-private Code-first Orchestrate Registration Record",
+  "$comment": "Immutable payload of the first registered fact in a Registration stream. Runtime derives it from an admitted authoring source and exact Orchestrate Revision; replay restores routing and history boundaries without reading mutable authoring files.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "authority", "registrationId", "orchestrateRevision", "entrypoint", "surfaces", "routes", "historyBoundary"],
+  "properties": {
+    "version": { "const": 1 },
+    "authority": { "$ref": "runtime-authority.schema.json#/$defs/authorityId" },
+    "registrationId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+    "orchestrateRevision": { "$ref": "runtime-event-contract.schema.json#/$defs/digest" },
+    "entrypoint": { "$ref": "#/$defs/relativePath" },
+    "surfaces": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+      "additionalProperties": { "$ref": "runtime-authority.schema.json#/$defs/localId" }
+    },
+    "routes": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "runtime-event-contract.schema.json#/$defs/eventName" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scope", "digest"],
+        "properties": {
+          "scope": { "$ref": "runtime-event-contract.schema.json#/$defs/scope" },
+          "digest": { "$ref": "runtime-event-contract.schema.json#/$defs/digest" },
+          "consumeFrom": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "$ref": "runtime-authority.schema.json#/$defs/localId" }
+          },
+          "emitOn": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "$ref": "runtime-authority.schema.json#/$defs/localId" }
+          },
+          "surfaceOutputFrom": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "$ref": "runtime-authority.schema.json#/$defs/localId" }
+          }
+        },
+        "anyOf": [
+          { "required": ["consumeFrom"], "properties": { "consumeFrom": true } },
+          { "required": ["emitOn"], "properties": { "emitOn": true } },
+          { "required": ["surfaceOutputFrom"], "properties": { "surfaceOutputFrom": true } }
+        ]
+      }
+    },
+    "historyBoundary": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["surfaceEventSeq", "dshEventSeq"],
+        "properties": {
+          "surfaceEventSeq": { "type": "integer", "minimum": -1 },
+          "dshEventSeq": { "type": "integer", "minimum": -1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\).+$"
+    }
+  }
+}

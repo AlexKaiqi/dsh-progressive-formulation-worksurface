@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "registrationId": "fanout-exploration",
+  "entrypoint": "orchestrate.py",
+  "bindings": {
+    "coordinator": "case-8",
+    "explorer_a": "case-8-explorer-a",
+    "explorer_b": "case-8-explorer-b"
+  },
+  "events": {
+    "exploration.requested": {
+      "file": "contracts/exploration.requested.json",
+      "consumeFrom": ["coordinator"]
+    },
+    "exploration.completed": {
+      "file": "contracts/exploration.completed.json",
+      "consumeFrom": ["explorer_a", "explorer_b"],
+      "surfaceOutputFrom": ["explorer_a", "explorer_b"]
+    }
+  }
+}

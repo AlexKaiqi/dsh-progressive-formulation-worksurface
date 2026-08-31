@@ -1,6 +1,6 @@
-# WorkSurface v1 系统设计
+# WorkSurface v1 当前实现基线
 
-> 状态：实现约束下的权威设计基线，2026-08-31。本文只把已有类型、持久化记录、重放逻辑和测试约束称为“当前概念”。尚未进入代码的内容必须显式标为“演进项”，不得与当前模型混写。
+> 状态：当前实现参考，2026-08-31；不是目标设计。目标边界、待决项和已撤回方案只以 [`design-baseline.md`](design-baseline.md) 为准。本文只把已有类型、持久化记录、重放逻辑和测试约束称为“当前概念”。
 
 ## 0. 设计纪律
 
@@ -174,6 +174,12 @@ Surface 不是目录、Revision 或 Session 的别名。当前实现通过一组
 物理存储是一条 JSONL 记录。`seq` 只在单一 subject stream 内连续有序；跨 stream 因果必须使用 `EventRef { subject, seq, id }`。
 
 同一个 Event ID 加相同规范内容是幂等重试；同 ID 不同内容是冲突。live watch 只负责唤醒，消费者必须 replay 后再计算。
+
+当前 `name: string` 没有 namespace、契约版本或所有权语义；`surface.*` 和
+`registration.*` 只是命名习惯及少量精确保留名称，不能视为已经建立的命名空间。
+目标边界另见 [`event-type-system.md`](event-type-system.md)：Runtime 在持久 authority 与当前
+执行 Binding 中将 dotted name 解析到 scoped Event Contract，而不是让模型拼接全局 namespace 前缀。目标 envelope、
+Contract、code-first Registration、Orchestrate staged run view 和 result 协议尚未进入当前 EventStore/Engine。
 
 ### 3.3 Revision
 
@@ -401,32 +407,17 @@ Engine 按 RegistrationId 串行 reconcile。运行内存中的 `running` map �
 
 “Runtime”可以作为这组组件的泛称，但不能被画成一个有独立状态和 API 的实体。
 
-## 7. 模型 authoring 形式
-
-当前物理事实是：模型直接写 `definition.json`，其内容就是
-`OrchestrationDefinition v1`；Definition Revision 同时固定 JSON 和 handler 文件。
-
-选择 authoring 形式时，评价对象是模型侧总负担：必须注入的说明、额外语法、生成错误、
-诊断与修复轮次，以及能否表达所需语义。Runtime 是否执行统一 Definition 不构成选择依据。
-
-当前设计选择是：
-
-- 以 `definition.schema.json` 约束的 JSON 作为唯一模型 authoring 协议；
-- 复杂构造可以由模型用普通 Python、TypeScript 或 shell 生成该 JSON；
-- 不提供独立 YAML pattern DSL，也不要求模型学习 builder API；
-- YAML 可以由 UI 临时渲染供人阅读，但不成为持久协议或模型必需上下文。
-
-## 8. 当前限制与下一步设计入口
+## 7. 当前限制与下一步设计入口
 
 | 限制 | 当前证据 | 进入设计前需要的物理协议 |
 | --- | --- | --- |
 | 仅文件级 Surface 局部寻址 | `SurfaceId` + relative path | 通用 Address 类型、adapter、working/frozen boundary |
-| Definition 仍缺少业务事件契约 | `event.schema.json` 的 payload 无约束 | Event Contract、角色可产生事件与 payload schema |
-| Code handler 只能 emit | `CodeHandlerEmit[]` | 若允许 followup，统一输出 contract 与授权 |
+| Event 只有无 scope 的 `name: string` | `event.schema.json` 与 exact string matching | scoped、内容寻址的 Event Contract 与持久 envelope |
+| Code handler 只能 emit | `CodeHandlerEmit[]` | code-first Registration、已绑定 Surface 的 staged run view 与 Event/advance result |
 | WorkSurface 不消费 DSH EventRef | 只在 Event meta 保存 sessionId/turn | 稳定 DSH session-event reference adapter |
 | Context 仍以 Revision 为核心 | `SurfaceSessionContext` | 对文件、事件和外部内容的统一 projection/ref |
 
-## 9. 设计与代码同步规则
+## 8. 设计与代码同步规则
 
 新增一级概念必须在同一个变更中至少提供：
 

@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "scopeId": "worksurface",
+  "events": {
+    "dsh.tool.completed": {
+      "description": "The DSH Session recorded a tool/result; the adapter paired it with tool/call by callId and exposed only completion metadata.",
+      "subjects": ["dsh-session"],
+      "producers": ["dsh-adapter"],
+      "payloadSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["turn", "step", "callId", "toolName", "status"],
+        "properties": {
+          "turn": { "type": "integer", "minimum": 0 },
+          "step": { "type": "integer", "minimum": 0 },
+          "callId": { "type": "string", "minLength": 1 },
+          "toolName": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["succeeded", "failed"] },
+          "errorCode": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "surface.session.bound": {
+      "description": "A Surface was fixed to one DSH Session before its first Turn.",
+      "subjects": ["surface"],
+      "producers": ["runtime"],
+      "payloadSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sessionId", "inputSource", "inputRevision", "expectedRevision"],
+        "properties": {
+          "sessionId": { "type": "string", "minLength": 1 },
+          "inputSource": { "enum": ["published", "authoring", "revision"] },
+          "inputRevision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "expectedRevision": {
+            "anyOf": [
+              { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              { "type": "null" }
+            ]
+          }
+        }
+      }
+    },
+    "surface.revision.published": {
+      "description": "A candidate Surface Revision became the published head by compare-and-swap.",
+      "subjects": ["surface"],
+      "producers": ["runtime"],
+      "payloadSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sessionId", "turn", "expectedRevision", "revision"],
+        "properties": {
+          "sessionId": { "type": "string", "minLength": 1 },
+          "turn": { "type": "integer", "minimum": 0 },
+          "expectedRevision": {
+            "anyOf": [
+              { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              { "type": "null" }
+            ]
+          },
+          "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "summary": { "type": "string" }
+        }
+      }
+    },
+    "surface.publish.conflicted": {
+      "description": "A candidate Surface Revision was not published because the head no longer matched its expected Revision.",
+      "subjects": ["surface"],
+      "producers": ["runtime"],
+      "payloadSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sessionId", "turn", "expectedRevision", "actualRevision", "candidateRevision"],
+        "properties": {
+          "sessionId": { "type": "string", "minLength": 1 },
+          "turn": { "type": "integer", "minimum": 0 },
+          "expectedRevision": {
+            "anyOf": [
+              { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              { "type": "null" }
+            ]
+          },
+          "actualRevision": {
+            "anyOf": [
+              { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              { "type": "null" }
+            ]
+          },
+          "candidateRevision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "summary": { "type": "string" }
+        }
+      }
+    }
+  }
+}

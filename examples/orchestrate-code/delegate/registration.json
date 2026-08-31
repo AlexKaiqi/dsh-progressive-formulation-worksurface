@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "registrationId": "delegate-research",
+  "entrypoint": "orchestrate.py",
+  "bindings": {
+    "coordinator": "case-7",
+    "researcher": "case-7-research"
+  },
+  "events": {
+    "research.requested": {
+      "file": "contracts/research.requested.json",
+      "consumeFrom": ["coordinator"]
+    },
+    "research.completed": {
+      "file": "contracts/research.completed.json",
+      "consumeFrom": ["researcher"],
+      "surfaceOutputFrom": ["researcher"]
+    }
+  }
+}

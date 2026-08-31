@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "triggerInputSeq": 0,
+  "surfaces": {
+    "coordinator": "surfaces/coordinator",
+    "researcher": "surfaces/researcher"
+  },
+  "contracts": {
+    "research.requested": {
+      "file": "contracts/research.requested.json",
+      "capabilities": ["consume"]
+    },
+    "research.completed": {
+      "file": "contracts/research.completed.json",
+      "capabilities": ["consume", "surface-output"]
+    }
+  },
+  "files": {
+    "inputs": "inputs.jsonl",
+    "result": "result.json"
+  }
+}
