@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/code-handler-context.schema.json",
+  "title": "Current WorkSurface Code Handler Context v1",
+  "$comment": "This is the current file written to DSH_CONTEXT_FILE by SubprocessCodeHandlerRunner.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "registration", "activation", "matches", "bindings"],
+  "properties": {
+    "version": { "const": 1 },
+    "registration": { "$ref": "#/$defs/registration" },
+    "activation": { "$ref": "#/$defs/activation" },
+    "matches": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/observedEvent" }
+    },
+    "bindings": { "$ref": "#/$defs/bindings" }
+  },
+  "$defs": {
+    "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$" },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+    "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "subject": { "type": "string", "pattern": "^(surface|registration):[^\\s:][^\\s]*$" },
+    "eventRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "seq", "id"],
+      "properties": {
+        "subject": { "$ref": "#/$defs/subject" },
+        "seq": { "type": "integer", "minimum": 0 },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "bindings": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/id" }
+    },
+    "registration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "orchestrationId", "definitionRevision", "bindings", "historyBoundary", "capabilityPolicy"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "orchestrationId": { "$ref": "#/$defs/id" },
+        "definitionRevision": { "$ref": "#/$defs/revision" },
+        "bindings": { "$ref": "#/$defs/bindings" },
+        "historyBoundary": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "$ref": "#/$defs/name" },
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "capabilityPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["targetRoles"],
+          "properties": {
+            "targetRoles": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/name" } }
+          }
+        }
+      }
+    },
+    "activation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "subscriptionId", "key", "sources"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "subscriptionId": { "$ref": "#/$defs/name" },
+        "key": { "type": "string" },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role", "ref"],
+            "properties": {
+              "role": { "$ref": "#/$defs/name" },
+              "ref": { "$ref": "#/$defs/eventRef" }
+            }
+          }
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "id", "subject", "seq", "name", "payload", "causes", "meta", "recordedAt"],
+      "properties": {
+        "version": { "const": 1 },
+        "id": { "type": "string", "minLength": 1 },
+        "subject": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "id"],
+          "properties": {
+            "kind": { "const": "surface" },
+            "id": { "$ref": "#/$defs/id" }
+          }
+        },
+        "seq": { "type": "integer", "minimum": 0 },
+        "name": { "$ref": "#/$defs/name" },
+        "payload": true,
+        "causes": { "type": "array", "items": { "$ref": "#/$defs/eventRef" } },
+        "meta": { "type": "object" },
+        "recordedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "observedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "event", "afterRegistration"],
+      "properties": {
+        "role": { "$ref": "#/$defs/name" },
+        "event": { "$ref": "#/$defs/event" },
+        "afterRegistration": { "type": "boolean" }
+      }
+    }
+  }
+}

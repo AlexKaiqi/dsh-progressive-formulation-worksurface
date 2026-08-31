@@ -1,0 +1,119 @@
+{
+  "version": 2,
+  "roles": ["coordinator", "researcher", "stage-b", "stage-c", "reviewer-a", "reviewer-b", "worker"],
+  "events": [
+    {
+      "version": 1,
+      "name": "research.requested",
+      "description": "Research is ready for delegation.",
+      "payloadSchema": { "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "additionalProperties": false, "required": ["taskId", "question"], "properties": { "taskId": { "type": "string" }, "question": { "type": "string" } } }
+    },
+    {
+      "version": 1,
+      "name": "research.completed",
+      "description": "Delegated research is complete.",
+      "payloadSchema": { "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "additionalProperties": false, "required": ["taskId", "resultFile"], "properties": { "taskId": { "type": "string" }, "resultFile": { "type": "string" } } }
+    },
+    {
+      "version": 1,
+      "name": "stage.prepared",
+      "description": "Stage B produced an input for Stage C.",
+      "payloadSchema": { "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "additionalProperties": false, "required": ["caseId", "resultRef"], "properties": { "caseId": { "type": "string" }, "resultRef": { "type": "string" } } }
+    },
+    {
+      "version": 1,
+      "name": "stage.completed",
+      "description": "Stage C completed the case.",
+      "payloadSchema": { "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "additionalProperties": false, "required": ["caseId", "resultRef"], "properties": { "caseId": { "type": "string" }, "resultRef": { "type": "string" } } }
+    },
+    {
+      "version": 1,
+      "name": "review.requested",
+      "description": "Independent reviews are requested.",
+      "payloadSchema": { "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "additionalProperties": false, "required": ["caseId", "question"], "properties": { "caseId": { "type": "string" }, "question": { "type": "string" } } }
+    },
+    {
+      "version": 1,
+      "name": "review.completed",
+      "description": "One independent reviewer completed.",
+      "payloadSchema": { "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "additionalProperties": false, "required": ["caseId", "resultRef"], "properties": { "caseId": { "type": "string" }, "resultRef": { "type": "string" } } }
+    },
+    {
+      "version": 1,
+      "name": "review.joined",
+      "description": "Both reviews are joined.",
+      "payloadSchema": { "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "additionalProperties": false, "required": ["caseId", "reviews"], "properties": { "caseId": { "type": "string" }, "reviews": { "type": "array", "minItems": 2, "items": { "type": "string" } } } }
+    },
+    {
+      "version": 1,
+      "name": "iteration.completed",
+      "description": "A loop iteration completed.",
+      "payloadSchema": { "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "additionalProperties": false, "required": ["caseId", "iteration", "iterationKey", "converged"], "properties": { "caseId": { "type": "string" }, "iteration": { "type": "integer", "minimum": 1 }, "iterationKey": { "type": "string" }, "converged": { "type": "boolean" } } }
+    },
+    {
+      "version": 1,
+      "name": "iteration.requested",
+      "description": "The next loop iteration is requested.",
+      "payloadSchema": { "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "additionalProperties": false, "required": ["caseId", "iteration", "iterationKey"], "properties": { "caseId": { "type": "string" }, "iteration": { "type": "integer", "minimum": 1 }, "iterationKey": { "type": "string" } } }
+    },
+    {
+      "version": 1,
+      "name": "workflow.completed",
+      "description": "The iterative workflow converged.",
+      "payloadSchema": { "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "additionalProperties": false, "required": ["caseId", "iterations"], "properties": { "caseId": { "type": "string" }, "iterations": { "type": "integer", "minimum": 1 } } }
+    }
+  ],
+  "subscriptions": [
+    {
+      "id": "delegate-research", "history": "from-registration", "key": "$.payload.taskId",
+      "when": { "role": "coordinator", "event": "research.requested" },
+      "reaction": { "code": { "command": "python3", "path": "examples/orchestrate-code/delegate.py", "env": {
+        "TASK_ID": { "from": { "kind": "event", "role": "coordinator", "event": "research.requested", "pointer": "/payload/taskId" }, "format": "text" },
+        "QUESTION": { "from": { "kind": "event", "role": "coordinator", "event": "research.requested", "pointer": "/payload/question" }, "format": "text" }
+      }, "effects": { "followup": [{ "role": "researcher", "outputs": [{ "event": "research.completed", "required": true }] }] } } }
+    },
+    {
+      "id": "serial-stage-c", "history": "from-registration", "key": "$.payload.caseId",
+      "when": { "role": "stage-b", "event": "stage.prepared" },
+      "reaction": { "code": { "command": "python3", "path": "examples/orchestrate-code/serial.py", "env": {
+        "CASE_ID": { "from": { "kind": "event", "role": "stage-b", "event": "stage.prepared", "pointer": "/payload/caseId" }, "format": "text" },
+        "PREPARED_REF": { "from": { "kind": "event", "role": "stage-b", "event": "stage.prepared", "pointer": "/payload/resultRef" }, "format": "text" }
+      }, "effects": { "followup": [{ "role": "stage-c", "outputs": [{ "event": "stage.completed", "required": true }] }] } } }
+    },
+    {
+      "id": "fanout-review", "history": "from-registration", "key": "$.payload.caseId",
+      "when": { "role": "coordinator", "event": "review.requested" },
+      "reaction": { "code": { "command": "python3", "path": "examples/orchestrate-code/fanout.py", "env": {
+        "CASE_ID": { "from": { "kind": "event", "role": "coordinator", "event": "review.requested", "pointer": "/payload/caseId" }, "format": "text" },
+        "QUESTION": { "from": { "kind": "event", "role": "coordinator", "event": "review.requested", "pointer": "/payload/question" }, "format": "text" }
+      }, "effects": { "followup": [
+        { "role": "reviewer-a", "outputs": [{ "event": "review.completed", "required": true }] },
+        { "role": "reviewer-b", "outputs": [{ "event": "review.completed", "required": true }] }
+      ] } } }
+    },
+    {
+      "id": "join-review", "history": "from-registration", "key": "$.payload.caseId",
+      "when": { "all": [
+        { "role": "reviewer-a", "event": "review.completed" },
+        { "role": "reviewer-b", "event": "review.completed" }
+      ] },
+      "reaction": { "code": { "command": "python3", "path": "examples/orchestrate-code/join.py", "env": {
+        "CASE_ID": { "from": { "kind": "event", "role": "reviewer-a", "event": "review.completed", "pointer": "/payload/caseId" }, "format": "text" },
+        "REVIEW_A_REF": { "from": { "kind": "event", "role": "reviewer-a", "event": "review.completed", "pointer": "/payload/resultRef" }, "format": "text" },
+        "REVIEW_B_REF": { "from": { "kind": "event", "role": "reviewer-b", "event": "review.completed", "pointer": "/payload/resultRef" }, "format": "text" }
+      }, "effects": { "emit": [{ "role": "coordinator", "event": "review.joined" }] } } }
+    },
+    {
+      "id": "advance-loop", "history": "from-registration", "key": "$.payload.iterationKey",
+      "when": { "role": "worker", "event": "iteration.completed" },
+      "reaction": { "code": { "command": "python3", "path": "examples/orchestrate-code/loop.py", "env": {
+        "CASE_ID": { "from": { "kind": "event", "role": "worker", "event": "iteration.completed", "pointer": "/payload/caseId" }, "format": "text" },
+        "ITERATION": { "from": { "kind": "event", "role": "worker", "event": "iteration.completed", "pointer": "/payload/iteration" }, "format": "integer" },
+        "CONVERGED": { "from": { "kind": "event", "role": "worker", "event": "iteration.completed", "pointer": "/payload/converged" }, "format": "boolean" }
+      }, "effects": { "emit": [
+        { "role": "worker", "event": "iteration.requested" },
+        { "role": "coordinator", "event": "workflow.completed" }
+      ] } } }
+    }
+  ]
+}

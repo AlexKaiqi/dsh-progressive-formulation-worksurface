@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/orchestrate-effect.schema.json",
+  "title": "WorkSurface Orchestrate Code Effect v1",
+  "$comment": "Target JSONL record written to WS_EFFECTS_FILE. The Runtime validates the complete batch and capabilities before recording or executing any Operation.",
+  "oneOf": [
+    { "$ref": "#/$defs/emit" },
+    { "$ref": "#/$defs/followup" }
+  ],
+  "$defs": {
+    "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$" },
+    "base": {
+      "type": "object",
+      "required": ["kind", "role", "operationKey"],
+      "properties": {
+        "kind": { "type": "string" },
+        "role": { "$ref": "#/$defs/name" },
+        "operationKey": { "type": "string", "minLength": 1 }
+      }
+    },
+    "emit": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "role", "operationKey", "event", "payload"],
+          "properties": {
+            "kind": { "const": "emit" },
+            "role": { "$ref": "#/$defs/name" },
+            "operationKey": { "type": "string", "minLength": 1 },
+            "event": { "$ref": "#/$defs/name" },
+            "payload": true
+          }
+        }
+      ]
+    },
+    "followup": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "role", "operationKey", "instruction"],
+          "properties": {
+            "kind": { "const": "followup" },
+            "role": { "$ref": "#/$defs/name" },
+            "operationKey": { "type": "string", "minLength": 1 },
+            "instruction": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    }
+  }
+}

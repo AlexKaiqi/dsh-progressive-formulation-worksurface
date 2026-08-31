@@ -1,0 +1,6 @@
+{
+  "surface": "surface-b",
+  "operationKey": "publish-result",
+  "name": "research.completed",
+  "payload": { "taskId": "task-7", "resultFile": "research/findings.md" }
+}

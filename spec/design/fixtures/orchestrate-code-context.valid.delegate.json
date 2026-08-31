@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "registration": {
+    "id": "reg-research",
+    "definitionRevision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "bindings": { "coordinator": "surface-a", "researcher": "surface-b" }
+  },
+  "activation": {
+    "id": "act_7",
+    "subscriptionId": "delegate-research",
+    "key": "\"task-7\"",
+    "sources": [
+      { "role": "coordinator", "ref": { "subject": "surface:surface-a", "seq": 0, "id": "evt_7" } }
+    ]
+  },
+  "matches": [
+    {
+      "role": "coordinator",
+      "ref": { "subject": "surface:surface-a", "seq": 0, "id": "evt_7" },
+      "event": {
+        "name": "research.requested",
+        "payload": { "taskId": "task-7", "question": "Define the host contract." },
+        "causes": [],
+        "meta": {},
+        "recordedAt": "2026-08-31T00:00:00.000Z"
+      }
+    }
+  ],
+  "eventContracts": [
+    {
+      "version": 1,
+      "name": "research.completed",
+      "description": "The assigned research is complete.",
+      "payloadSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["taskId", "resultFile"],
+        "properties": {
+          "taskId": { "type": "string" },
+          "resultFile": { "type": "string" }
+        }
+      }
+    }
+  ],
+  "capabilities": {
+    "emit": [],
+    "followup": [
+      { "role": "researcher", "events": ["research.completed"] }
+    ]
+  }
+}

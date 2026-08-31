@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "registration": {
+    "id": "reg-research",
+    "orchestrationId": "research-flow",
+    "definitionRevision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "bindings": { "coordinator": "surface-a", "researcher": "surface-b" },
+    "historyBoundary": { "coordinator": 0, "researcher": 0 },
+    "capabilityPolicy": { "targetRoles": ["researcher"] }
+  },
+  "activation": {
+    "id": "act_7",
+    "subscriptionId": "delegate-research",
+    "key": "\"task-7\"",
+    "sources": [
+      {
+        "role": "coordinator",
+        "ref": { "subject": "surface:surface-a", "seq": 0, "id": "evt_7" }
+      }
+    ]
+  },
+  "matches": [
+    {
+      "role": "coordinator",
+      "afterRegistration": true,
+      "event": {
+        "version": 1,
+        "id": "evt_7",
+        "subject": { "kind": "surface", "id": "surface-a" },
+        "seq": 0,
+        "name": "research.requested",
+        "payload": { "taskId": "task-7", "question": "Define the host contract." },
+        "causes": [],
+        "meta": {},
+        "recordedAt": "2026-08-31T00:00:00.000Z"
+      }
+    }
+  ],
+  "bindings": { "coordinator": "surface-a", "researcher": "surface-b" }
+}

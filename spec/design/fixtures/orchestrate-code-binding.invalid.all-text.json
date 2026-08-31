@@ -1,0 +1,4 @@
+{
+  "from": { "kind": "event", "role": "reviewer", "event": "review.completed", "pointer": "/payload/result", "select": "all" },
+  "format": "text"
+}

@@ -1,0 +1,4 @@
+{
+  "from": { "kind": "event", "role": "coordinator", "event": "research.requested", "pointer": "/payload/taskId" },
+  "format": "text"
+}

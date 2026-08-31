@@ -1,0 +1,37 @@
+{
+  "version": 2,
+  "roles": ["coordinator"],
+  "events": [
+    {
+      "version": 1,
+      "name": "task.requested",
+      "description": "A task is requested.",
+      "payloadSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["taskId"],
+        "properties": { "taskId": { "type": "string" } }
+      }
+    }
+  ],
+  "subscriptions": [
+    {
+      "id": "invalid-reserved-env",
+      "history": "from-registration",
+      "when": { "role": "coordinator", "event": "task.requested" },
+      "reaction": {
+        "code": {
+          "command": "python3",
+          "path": "handler.py",
+          "env": {
+            "WS_TASK_ID": {
+              "from": { "kind": "event", "role": "coordinator", "event": "task.requested", "pointer": "/payload/taskId" },
+              "format": "text"
+            }
+          },
+          "effects": { "emit": [{ "role": "coordinator", "event": "task.requested" }] }
+        }
+      }
+    }
+  ]
+}

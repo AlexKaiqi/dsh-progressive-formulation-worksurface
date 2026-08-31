@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/code-handler-emit.schema.json",
+  "title": "Current WorkSurface Code Handler Emit Record v1",
+  "$comment": "Each non-empty line in WS_HANDLER_OUTPUT is one record of this shape. The current handler protocol cannot produce followup effects.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["surface", "operationKey", "name", "payload"],
+  "properties": {
+    "surface": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+    "operationKey": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$" },
+    "payload": true
+  }
+}

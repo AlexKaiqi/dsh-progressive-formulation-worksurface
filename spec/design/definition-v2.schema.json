@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://worksurface.local/spec/design/definition-v2.schema.json",
   "title": "WorkSurface Orchestration Definition v2",
-  "$comment": "Target model-authoring protocol. It adds business Event Contracts and structured outputs for followup delivery, without introducing pattern shorthand or YAML-only semantics.",
+  "$comment": "Target model-authoring protocol. Code reactions declare direct environment inputs; Runtime performs Event selection, JSON Pointer resolution, validation and injection before starting ordinary Bash, Python, Node or zsh code.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "roles", "events", "subscriptions"],
@@ -81,7 +81,7 @@
         }
       }
     },
-    "handlerOutput": {
+    "emitCapability": {
       "type": "object",
       "additionalProperties": false,
       "required": ["role", "event"],
@@ -90,23 +90,58 @@
         "event": { "$ref": "#/$defs/name" }
       }
     },
-    "handler": {
+    "followupCapability": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["command", "path", "reads", "outputs"],
+      "required": ["role", "outputs"],
+      "properties": {
+        "role": { "$ref": "#/$defs/name" },
+        "outputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/output" }
+        }
+      }
+    },
+    "effectCapabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "emit": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/emitCapability" }
+        },
+        "followup": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/followupCapability" }
+        }
+      }
+    },
+    "code": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "path", "effects"],
       "properties": {
         "command": { "enum": ["bash", "zsh", "python3", "node"] },
         "path": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?/)(?!.*\\\\)(?!.*//).+$" },
         "args": { "type": "array", "items": { "type": "string" } },
-        "reads": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/name" } },
-        "outputs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/handlerOutput" } }
+        "env": {
+          "type": "object",
+          "propertyNames": { "pattern": "^(?!(?:WS|DSH)_)[A-Z][A-Z0-9_]*$" },
+          "additionalProperties": { "$ref": "orchestrate-code-binding.schema.json" }
+        },
+        "context": { "enum": ["none", "file"], "default": "none" },
+        "effects": { "$ref": "#/$defs/effectCapabilities" }
       }
     },
     "reaction": {
       "oneOf": [
         { "type": "object", "additionalProperties": false, "required": ["emit"], "properties": { "emit": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/emit" } } } },
         { "type": "object", "additionalProperties": false, "required": ["followup"], "properties": { "followup": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/followup" } } } },
-        { "type": "object", "additionalProperties": false, "required": ["handler"], "properties": { "handler": { "$ref": "#/$defs/handler" } } }
+        { "type": "object", "additionalProperties": false, "required": ["code"], "properties": { "code": { "$ref": "#/$defs/code" } } }
       ]
     },
     "subscription": {

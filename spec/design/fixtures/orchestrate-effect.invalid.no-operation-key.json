@@ -1,0 +1,6 @@
+{
+  "kind": "emit",
+  "role": "coordinator",
+  "event": "research.completed",
+  "payload": {}
+}

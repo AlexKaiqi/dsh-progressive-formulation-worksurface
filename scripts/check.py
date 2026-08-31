@@ -64,8 +64,19 @@ def static_checks() -> None:
         fail("interactive design reintroduces the rejected YAML pattern authoring model")
     if "<svg" not in artifact or "WorkSurface" not in artifact:
         fail("interactive design artifact is not a rendered WorkSurface diagram")
-    for schema in ("event.schema.json", "definition.schema.json", "context.schema.json", "binding.schema.json", "authoring-registration.schema.json"):
+    for schema in (
+        "event.schema.json", "definition.schema.json", "context.schema.json",
+        "binding.schema.json", "authoring-registration.schema.json",
+        "code-handler-context.schema.json", "code-handler-emit.schema.json",
+    ):
         json.loads((SPEC / schema).read_text())
+    for schema in (
+        "event-contract.schema.json", "orchestrate-code-binding.schema.json",
+        "definition-v2.schema.json", "delivery-context.schema.json",
+        "orchestrate-code-host.schema.json", "orchestrate-code-context.schema.json",
+        "orchestrate-effect.schema.json",
+    ):
+        json.loads((SPEC / "design" / schema).read_text())
     template = (SPEC / "surface-template.md").read_text()
     required = [
         "# Goal", "# Acceptance Criteria", "# Known Facts and Constraints",

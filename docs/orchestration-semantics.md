@@ -148,3 +148,8 @@ Event → Activation → Operation 组合表达的持久语义：
 2. Activation 的结构化 Delivery Context；
 3. 当前角色允许产生的事件及 payload Schema；
 4. `ws emit` 与固定 Definition/Delivery 的校验关系。
+
+Code reaction 的目标输入、环境注入、effect 与可运行 pattern 样例见
+[`orchestration-code-contract.md`](orchestration-code-contract.md)。其中
+`DSH_CONTEXT_FILE` 只是显式 opt-in 的完整上下文兜底；普通 code 由 Runtime 直接注入
+Definition 声明的具名变量。

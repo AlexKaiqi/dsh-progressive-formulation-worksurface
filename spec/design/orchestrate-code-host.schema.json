@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/orchestrate-code-host.schema.json",
+  "title": "WorkSurface Orchestrate Code Host Contract v1",
+  "$comment": "Target Runtime manifest. Direct process environment values are the primary model-facing interface. DSH_CONTEXT_FILE is opt-in fallback only, never the ordinary input path.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "commands", "environment", "filesystem", "io", "limits", "reliability"],
+  "properties": {
+    "version": { "const": 1 },
+    "commands": { "type": "array", "const": ["bash", "zsh", "python3", "node"] },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["standard", "declared", "fallback"],
+      "properties": {
+        "standard": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["WS_ACTIVATION_ID", "WS_ACTIVATION_KEY", "WS_REGISTRATION_ID", "WS_DEFINITION_REVISION", "WS_SUBSCRIPTION_ID", "WS_EFFECTS_FILE"],
+          "properties": {
+            "WS_ACTIVATION_ID": { "$ref": "#/$defs/readVariable" },
+            "WS_ACTIVATION_KEY": { "$ref": "#/$defs/readVariable" },
+            "WS_REGISTRATION_ID": { "$ref": "#/$defs/readVariable" },
+            "WS_DEFINITION_REVISION": { "$ref": "#/$defs/readVariable" },
+            "WS_SUBSCRIPTION_ID": { "$ref": "#/$defs/readVariable" },
+            "WS_EFFECTS_FILE": { "$ref": "#/$defs/effectsVariable" }
+          }
+        },
+        "declared": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["definitionField", "schema", "namePattern", "reservedPrefixes", "resolution"],
+          "properties": {
+            "definitionField": { "const": "subscription.reaction.code.env" },
+            "schema": { "const": "orchestrate-code-binding.schema.json" },
+            "namePattern": { "const": "^[A-Z][A-Z0-9_]*$" },
+            "reservedPrefixes": { "const": ["WS_", "DSH_"] },
+            "resolution": { "const": "runtime-before-process-start" }
+          }
+        },
+        "fallback": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["variable", "availableWhen", "schema", "purpose"],
+          "properties": {
+            "variable": { "const": "DSH_CONTEXT_FILE" },
+            "availableWhen": { "const": "subscription.reaction.code.context=file" },
+            "schema": { "const": "orchestrate-code-context.schema.json" },
+            "purpose": { "const": "advanced-full-context-only" }
+          }
+        }
+      }
+    },
+    "filesystem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cwd", "definition", "materializedInputs"],
+      "properties": {
+        "cwd": { "const": "definition-revision-root" },
+        "definition": { "const": "read-only" },
+        "materializedInputs": { "const": "read-only-private-files" }
+      }
+    },
+    "io": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stdin", "stdout", "stderr", "effects"],
+      "properties": {
+        "stdin": { "const": "closed" },
+        "stdout": { "const": "logs-only" },
+        "stderr": { "const": "logs-only" },
+        "effects": { "const": "jsonl-at-WS_EFFECTS_FILE" }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timeoutMs", "maxLogBytes", "maxEffectsBytes", "maxDirectVariableBytes", "maxDirectEnvironmentBytes"],
+      "properties": {
+        "timeoutMs": { "type": "integer", "minimum": 1 },
+        "maxLogBytes": { "type": "integer", "minimum": 1 },
+        "maxEffectsBytes": { "type": "integer", "minimum": 1 },
+        "maxDirectVariableBytes": { "type": "integer", "minimum": 1 },
+        "maxDirectEnvironmentBytes": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "reliability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resolveInputsBeforeStart", "validateBatchBeforeEffects", "operationIdentity", "nonZeroExit"],
+      "properties": {
+        "resolveInputsBeforeStart": { "const": true },
+        "validateBatchBeforeEffects": { "const": true },
+        "operationIdentity": { "const": ["activation.id", "effect.operationKey"] },
+        "nonZeroExit": { "const": "no-effects" }
+      }
+    }
+  },
+  "$defs": {
+    "readVariable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["access", "value"],
+      "properties": {
+        "access": { "const": "read" },
+        "value": { "type": "string", "minLength": 1 }
+      }
+    },
+    "effectsVariable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["access", "schema"],
+      "properties": {
+        "access": { "const": "append-jsonl" },
+        "schema": { "const": "orchestrate-effect.schema.json" }
+      }
+    }
+  }
+}

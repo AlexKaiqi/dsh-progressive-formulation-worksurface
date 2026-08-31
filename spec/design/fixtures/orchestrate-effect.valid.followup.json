@@ -1,0 +1,6 @@
+{
+  "kind": "followup",
+  "role": "researcher",
+  "operationKey": "assign-research",
+  "instruction": "Complete the requested research."
+}

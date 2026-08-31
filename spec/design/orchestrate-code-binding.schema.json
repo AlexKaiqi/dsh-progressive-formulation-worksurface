@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/orchestrate-code-binding.schema.json",
+  "title": "WorkSurface Orchestrate Code Input Binding v1",
+  "$comment": "Target model-authoring contract. A binding names one environment variable; Runtime selects Activation input Event(s), resolves the JSON Pointer, validates and serializes the value before starting code.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["from", "format"],
+  "properties": {
+    "from": { "$ref": "#/$defs/source" },
+    "format": {
+      "enum": ["text", "integer", "number", "boolean", "json", "text-file", "json-file"]
+    },
+    "required": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "object",
+            "properties": { "select": { "const": "all" } },
+            "required": ["select"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "format": { "enum": ["json", "json-file"] }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "object",
+            "properties": { "kind": { "const": "role-binding" } },
+            "required": ["kind"]
+          }
+        }
+      },
+      "then": {
+        "properties": { "format": { "const": "text" } }
+      }
+    }
+  ],
+  "$defs": {
+    "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$" },
+    "jsonPointer": {
+      "type": "string",
+      "pattern": "^(?:/(?:[^~/]|~[01])*)*$"
+    },
+    "source": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "role", "event", "pointer"],
+          "properties": {
+            "kind": { "const": "event" },
+            "role": { "$ref": "#/$defs/name" },
+            "event": { "$ref": "#/$defs/name" },
+            "pointer": { "$ref": "#/$defs/jsonPointer" },
+            "select": { "enum": ["one", "all"], "default": "one" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "role"],
+          "properties": {
+            "kind": { "const": "role-binding" },
+            "role": { "$ref": "#/$defs/name" }
+          }
+        }
+      ]
+    }
+  }
+}
