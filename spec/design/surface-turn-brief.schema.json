@@ -48,6 +48,7 @@
     },
     "outputs": {
       "type": "array",
+      "uniqueItems": true,
       "items": {
         "type": "object",
         "additionalProperties": false,

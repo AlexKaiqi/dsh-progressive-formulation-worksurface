@@ -23,7 +23,7 @@
     },
     "surfaces": {
       "type": "object",
-      "propertyNames": { "type": "string", "minLength": 1 },
+      "propertyNames": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
       "additionalProperties": { "$ref": "runtime-authority.schema.json#/$defs/localId" }
     },
     "contracts": {

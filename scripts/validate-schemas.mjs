@@ -46,9 +46,9 @@ const targetValidators = await loadSchemas(targetAjv, designRoot, [
 
 const builtinCatalog = await validateBuiltinEventCatalog()
 await validateSessionShellContract()
-const runtimeBinding = await validateRuntimeBindings()
-await validateTurnBrief()
-await validateDelegate(runtimeBinding, builtinCatalog)
+const runtimeBindings = await validateRuntimeBindings()
+await validateTurnBrief(runtimeBindings.surfaceTurn)
+await validateDelegate(runtimeBindings.orchestrate, builtinCatalog)
 await validateFanoutJoin(builtinCatalog)
 await validateSerialLoop(builtinCatalog)
 
@@ -203,6 +203,7 @@ async function validateRuntimeBindings() {
   for (const [label, invalid] of [
     ['Surface Turn with Run identity', { ...left, execution: { ...left.execution, runId: 'run-crossed' } }],
     ['Orchestrate Run with Surface identity', { ...orchestrate, execution: { ...orchestrate.execution, surfaceId: 'surface-crossed' } }],
+    ['Orchestrate Run with invalid Surface handle', { ...orchestrate, surfaces: { ...orchestrate.surfaces, 'bad handle': 'surface-crossed' } }],
   ]) {
     if (validate(invalid)) throw new Error(`runtime-binding.schema.json accepts ${label}`)
   }
@@ -224,10 +225,11 @@ async function validateRuntimeBindings() {
       throw new Error(`runtime-event-envelope.schema.json accepts ${label}`)
     }
   }
-  return orchestrate
+  assertUnique(Object.values(orchestrate.surfaces), 'Orchestrate Runtime Binding Surface identity')
+  return { surfaceTurn: left, orchestrate }
 }
 
-async function validateTurnBrief() {
+async function validateTurnBrief(runtimeBinding) {
   const brief = JSON.parse(await readFile(new URL('examples/turn-brief.review.json', root), 'utf8'))
   assertModelVisible(brief, 'turn-brief.review.json')
   const validate = targetValidators.get('surface-turn-brief')
@@ -239,6 +241,18 @@ async function validateTurnBrief() {
       throw new Error(`Turn Brief command does not exactly name ${output.name}`)
     }
   }
+  validateTurnBriefBinding(brief, runtimeBinding)
+  const ghost = {
+    ...brief,
+    outputs: [{
+      ...brief.outputs[0],
+      name: 'ghost.completed',
+      commandTemplate: "ws emit ghost.completed --payload '{}'",
+    }],
+  }
+  assertFailure(() => validateTurnBriefBinding(ghost, runtimeBinding), 'Turn Brief accepts an unbound Event output')
+  const duplicate = { ...brief, outputs: [brief.outputs[0], { ...brief.outputs[0], when: 'A duplicate semantic output.' }] }
+  assertFailure(() => validateTurnBriefBinding(duplicate, runtimeBinding), 'Turn Brief accepts a duplicate Event output')
 }
 
 async function validateDelegate(runtimeBinding, builtinCatalog) {
@@ -297,9 +311,15 @@ async function validateDelegate(runtimeBinding, builtinCatalog) {
   const handles = Object.keys(registration.bindings)
   assertUnique(handles, 'Registration Surface handle')
   assertUnique(Object.values(registration.bindings), 'Registration Surface binding')
-  if (!sameJson([...handles].sort(), Object.keys(runtimeBinding.surfaces).sort())) {
-    throw new Error('Registration source and Runtime Binding expose different Surface handles')
+  validateRuntimeBindingSurfaces(runtimeBinding, registration.bindings, 'Registration source')
+  const duplicateSurfaceBinding = {
+    ...runtimeBinding,
+    surfaces: { ...runtimeBinding.surfaces, researcher: runtimeBinding.surfaces.coordinator },
   }
+  assertFailure(
+    () => validateRuntimeBindingSurfaces(duplicateSurfaceBinding, registration.bindings, 'negative Runtime Binding'),
+    'Runtime Binding accepts a duplicate or misbound Surface identity',
+  )
 
   const durable = JSON.parse(await readFile(new URL('examples/orchestrate-registration-record.delegate.json', root), 'utf8'))
   validateValue('orchestrate-registration-record.delegate.json', durable, 'orchestrate-registration-record')
@@ -313,6 +333,7 @@ async function validateDelegate(runtimeBinding, builtinCatalog) {
   if (!sameJson(durable.surfaces, registration.bindings)) {
     throw new Error('Durable Registration Surface bindings disagree with authoring source')
   }
+  validateRuntimeBindingSurfaces(runtimeBinding, durable.surfaces, 'Durable Registration')
   if (!sameJson(Object.keys(durable.historyBoundary).sort(), [...handles].sort())) {
     throw new Error('Durable Registration does not freeze one history boundary per Surface')
   }
@@ -357,6 +378,18 @@ async function validateDelegate(runtimeBinding, builtinCatalog) {
   const routes = await loadRegistrationRoutes(registration, sourceUrl, builtinCatalog)
   await readFile(new URL(registration.entrypoint, sourceUrl), 'utf8')
   validateDurableRoutes(durable, routes, runtimeBinding, handles)
+  const [bindingContractName] = Object.keys(runtimeBinding.contracts)
+  const runtimeBindingWithGhostContract = {
+    ...runtimeBinding,
+    contracts: {
+      ...runtimeBinding.contracts,
+      'ghost.completed': runtimeBinding.contracts[bindingContractName],
+    },
+  }
+  assertFailure(
+    () => validateDurableRoutes(durable, routes, runtimeBindingWithGhostContract, handles),
+    'Runtime Binding accepts an extra Event Contract',
+  )
 
   const state = JSON.parse(await readFile(new URL('state.json', runUrl), 'utf8'))
   assertModelVisible(state, 'delegate/run/state.json')
@@ -382,6 +415,12 @@ async function validateDelegate(runtimeBinding, builtinCatalog) {
     throw new Error('Run view does not materialize every registered Surface exactly once')
   }
   await validateRunContracts(state, routes, runUrl, runtimeBinding)
+  const [omittedContract] = Object.keys(state.contracts)
+  const incompleteContracts = Object.fromEntries(Object.entries(state.contracts).filter(([name]) => name !== omittedContract))
+  await assertAsyncFailure(
+    () => validateRunContracts({ ...state, contracts: incompleteContracts }, routes, runUrl, runtimeBinding),
+    'Run view accepts an incomplete Event Contract set',
+  )
 
   const inputs = (await readFile(new URL(state.files.inputs, runUrl), 'utf8'))
     .trim().split('\n').filter(Boolean).map((line) => JSON.parse(line))
@@ -409,7 +448,58 @@ async function validateDelegate(runtimeBinding, builtinCatalog) {
   if (validateSettlement(settlementWithDshEvent)) {
     throw new Error('Operation settlement accepts a DSH EventRef as an appended WorkSurface Event')
   }
-  validateOperationRecords(operationBatch, operationSettlement, durable, runtimeBinding, ledgerRecord)
+  validateOperationRecords(operationBatch, operationSettlement, durable, runtimeBinding, ledgerRecord, routes)
+  const settlementWithWrongAdvanceSurface = {
+    ...operationSettlement,
+    advance: operationSettlement.advance.map((operation, index) => index === 0
+      ? { ...operation, surface: 'coordinator' }
+      : operation),
+  }
+  assertFailure(
+    () => validateOperationRecords(operationBatch, settlementWithWrongAdvanceSurface, durable, runtimeBinding, ledgerRecord, routes),
+    'Operation settlement accepts an advance on the wrong Surface',
+  )
+  const settlementWithExtraSurface = {
+    ...operationSettlement,
+    surfaceRevisions: {
+      ...operationSettlement.surfaceRevisions,
+      intruder: `sha256:${'9'.repeat(64)}`,
+    },
+  }
+  assertFailure(
+    () => validateOperationRecords(operationBatch, settlementWithExtraSurface, durable, runtimeBinding, ledgerRecord, routes),
+    'Operation settlement accepts an extra Surface Revision',
+  )
+  const ghostEvent = {
+    surface: 'intruder',
+    contract: {
+      scope: { authority: 'wsa_foreign_space', kind: 'registration', id: durable.registrationId },
+      name: 'ghost.completed',
+      digest: `sha256:${'9'.repeat(64)}`,
+    },
+    payload: {},
+    causes: operationBatch.causes,
+    operationKey: 'run-3/event/ghost',
+  }
+  const batchWithGhostEvent = { ...operationBatch, events: [...operationBatch.events, ghostEvent] }
+  const settlementWithGhostEvent = {
+    ...operationSettlement,
+    events: [{
+      operationKey: ghostEvent.operationKey,
+      event: {
+        source: 'worksurface',
+        subject: { authority: operationBatch.authority, kind: 'surface', id: 'intruder' },
+        seq: 1,
+        id: 'ghost-event',
+      },
+    }],
+  }
+  validateValue('negative Operation batch with ghost Event', batchWithGhostEvent, 'orchestrate-operation-batch')
+  validateValue('negative Operation settlement with ghost Event', settlementWithGhostEvent, 'orchestrate-operation-settlement')
+  assertFailure(
+    () => validateOperationRecords(batchWithGhostEvent, settlementWithGhostEvent, durable, runtimeBinding, ledgerRecord, routes),
+    'Operation records accept an unbound, unauthorized Event',
+  )
 
   const tempRoot = await mkdtemp(join(tmpdir(), 'worksurface-delegate-example-'))
   try {
@@ -656,7 +746,7 @@ async function loadRegistrationRoutes(registration, sourceUrl, builtinCatalog) {
   return routes
 }
 
-function validateOperationRecords(batch, settlement, registration, runtimeBinding, ledgerRecord) {
+function validateOperationRecords(batch, settlement, registration, runtimeBinding, ledgerRecord, routes) {
   if (batch.authority !== registration.authority || batch.registrationId !== registration.registrationId
     || batch.orchestrateRevision !== registration.orchestrateRevision || batch.runId !== runtimeBinding.execution.runId
     || batch.triggerInputSeq !== ledgerRecord.inputSeq) {
@@ -665,8 +755,15 @@ function validateOperationRecords(batch, settlement, registration, runtimeBindin
   if (!batch.causes.some((cause) => sameJson(cause, ledgerRecord.event))) {
     throw new Error('Recorded Operation batch lost its trigger EventRef cause')
   }
-  if (!sameJson(Object.keys(batch.surfaces).sort(), Object.keys(registration.surfaces).sort())) {
+  for (const cause of batch.causes) {
+    if (cause.subject.authority !== batch.authority) throw new Error('Recorded Operation batch contains a foreign-authority cause')
+  }
+  const registeredHandles = Object.keys(registration.surfaces).sort()
+  if (!sameJson(Object.keys(batch.surfaces).sort(), registeredHandles)) {
     throw new Error('Recorded Operation batch does not freeze every registered Surface')
+  }
+  if (!sameJson(Object.keys(settlement.surfaceRevisions).sort(), registeredHandles)) {
+    throw new Error('Operation settlement does not cover exactly the registered Surfaces')
   }
   for (const [handle, revisions] of Object.entries(batch.surfaces)) {
     if (revisions.surfaceId !== registration.surfaces[handle]) {
@@ -679,24 +776,81 @@ function validateOperationRecords(batch, settlement, registration, runtimeBindin
   if (settlement.authority !== batch.authority || settlement.registrationId !== batch.registrationId || settlement.runId !== batch.runId) {
     throw new Error('Operation settlement identity disagrees with its recorded batch')
   }
-  const recordedKeys = [...batch.events, ...batch.advance].map((operation) => operation.operationKey).sort()
-  const settledKeys = [...settlement.events, ...settlement.advance].map((operation) => operation.operationKey).sort()
+  const recordedKeys = [...batch.events, ...batch.advance].map((operation) => operation.operationKey)
+  const settledKeys = [...settlement.events, ...settlement.advance].map((operation) => operation.operationKey)
   assertUnique(recordedKeys, 'recorded Operation key')
   assertUnique(settledKeys, 'settled Operation key')
-  if (!sameJson(recordedKeys, settledKeys)) throw new Error('Operation settlement does not cover the complete recorded batch')
+  const recordedTypedKeys = [
+    ...batch.events.map((operation) => `event:${operation.operationKey}`),
+    ...batch.advance.map((operation) => `advance:${operation.operationKey}`),
+  ].sort()
+  const settledTypedKeys = [
+    ...settlement.events.map((operation) => `event:${operation.operationKey}`),
+    ...settlement.advance.map((operation) => `advance:${operation.operationKey}`),
+  ].sort()
+  if (!sameJson(recordedTypedKeys, settledTypedKeys)) {
+    throw new Error('Operation settlement does not cover every recorded operation with the same operation type')
+  }
+  const batchCauseSet = new Set(batch.causes.map((cause) => JSON.stringify(cause)))
+  const assertOperationCauses = (operation, label) => {
+    for (const cause of operation.causes) {
+      if (!batchCauseSet.has(JSON.stringify(cause))) throw new Error(`${label} contains a cause outside the recorded batch`)
+    }
+  }
+  for (const operation of batch.events) {
+    if (!registeredHandles.includes(operation.surface)) throw new Error(`Recorded Event targets unbound Surface ${operation.surface}`)
+    const durableRoute = registration.routes[operation.contract.name]
+    const sourceRoute = routes.get(operation.contract.name)
+    if (durableRoute === undefined || sourceRoute === undefined || !(durableRoute.emitOn ?? []).includes(operation.surface)) {
+      throw new Error(`Recorded Event ${operation.contract.name} is not authorized on ${operation.surface}`)
+    }
+    validateResolvedContract(operation.contract, durableRoute, batch.authority, `Recorded Event ${operation.contract.name}`)
+    const validatePayload = compilePayload(operation.contract.name, sourceRoute.declaration.payloadSchema)
+    if (!validatePayload(operation.payload)) throw new Error(`Recorded Event payload violates ${operation.contract.name}`)
+    assertOperationCauses(operation, `Recorded Event ${operation.contract.name}`)
+  }
   for (const operation of batch.advance) {
-    const binding = runtimeBinding.contracts
+    if (!registeredHandles.includes(operation.surface)) throw new Error(`Recorded advance targets unbound Surface ${operation.surface}`)
+    assertOperationCauses(operation, `Recorded advance ${operation.surface}`)
     for (const output of operation.outputs) {
-      const local = binding[output.name]
-      if (local === undefined || local.scope.kind !== output.scope.kind || local.scope.id !== output.scope.id || local.digest !== output.digest) {
+      const local = runtimeBinding.contracts[output.name]
+      const durableRoute = registration.routes[output.name]
+      if (local === undefined || durableRoute === undefined || !(durableRoute.surfaceOutputFrom ?? []).includes(operation.surface)) {
+        throw new Error(`Recorded advance contains unauthorized Event output ${output.name}`)
+      }
+      validateResolvedContract(output, durableRoute, batch.authority, `Recorded advance output ${output.name}`)
+      if (local.scope.kind !== output.scope.kind || local.scope.id !== output.scope.id || local.digest !== output.digest) {
         throw new Error(`Recorded advance contains unresolved Event output ${output.name}`)
       }
+    }
+  }
+  const recordedEvents = new Map(batch.events.map((operation) => [operation.operationKey, operation]))
+  for (const result of settlement.events) {
+    const recorded = recordedEvents.get(result.operationKey)
+    if (recorded === undefined) throw new Error(`Event settlement ${result.operationKey} has no recorded Event`)
+    const expectedSurfaceId = registration.surfaces[recorded.surface]
+    if (result.event.source !== 'worksurface' || result.event.subject.kind !== 'surface'
+      || result.event.subject.authority !== batch.authority || result.event.subject.id !== expectedSurfaceId) {
+      throw new Error(`Event settlement ${result.operationKey} references the wrong target stream`)
+    }
+  }
+  const recordedAdvances = new Map(batch.advance.map((operation) => [operation.operationKey, operation]))
+  for (const result of settlement.advance) {
+    const recorded = recordedAdvances.get(result.operationKey)
+    if (recorded === undefined || result.surface !== recorded.surface) {
+      throw new Error(`Advance settlement ${result.operationKey} references the wrong Surface`)
     }
   }
 }
 
 function validateDurableRoutes(durable, routes, runtimeBinding, handles) {
-  if (Object.keys(durable.routes).length !== routes.size) throw new Error('Durable Registration routes disagree with authoring source')
+  const routeNames = [...routes.keys()].sort()
+  if (!sameJson(Object.keys(durable.routes).sort(), routeNames)) {
+    throw new Error('Durable Registration routes disagree with authoring source')
+  }
+  if (!sameJson(Object.keys(runtimeBinding.contracts).sort(), routeNames)) {
+    throw new Error('Runtime Binding Contract set disagrees with durable Registration routes')
+  }
   for (const [name, route] of Object.entries(durable.routes)) {
     const source = routes.get(name)?.route
     const binding = runtimeBinding.contracts[name]
@@ -716,6 +870,13 @@ function validateDurableRoutes(durable, routes, runtimeBinding, handles) {
 }
 
 async function validateRunContracts(state, routes, runUrl, runtimeBinding) {
+  const routeNames = [...routes.keys()].sort()
+  if (!sameJson(Object.keys(state.contracts).sort(), routeNames)) {
+    throw new Error('Run view does not expose the complete admitted Event Contract set')
+  }
+  if (runtimeBinding !== undefined && !sameJson(Object.keys(runtimeBinding.contracts).sort(), routeNames)) {
+    throw new Error('Runtime Binding does not expose the complete admitted Event Contract set')
+  }
   for (const [name, contract] of Object.entries(state.contracts)) {
     const source = routes.get(name)
     const binding = runtimeBinding?.contracts[name]
@@ -780,6 +941,35 @@ function validateResult(result, inputs, handles, routes) {
         throw new Error(`Advance allows unauthorized Surface output ${output} from ${advance.surface}`)
       }
     }
+  }
+}
+
+function validateTurnBriefBinding(brief, runtimeBinding) {
+  if (runtimeBinding.kind !== 'surface-turn') throw new Error('Turn Brief requires a Surface Turn Runtime Binding')
+  const outputNames = brief.outputs.map((output) => output.name)
+  assertUnique(outputNames, 'Turn Brief Event output')
+  const authorized = Object.entries(runtimeBinding.contracts)
+    .filter(([, contract]) => contract.capabilities.includes('surface-output'))
+    .map(([name]) => name)
+    .sort()
+  if (!sameJson([...outputNames].sort(), authorized)) {
+    throw new Error('Turn Brief Event outputs disagree with the Surface Turn Runtime Binding')
+  }
+}
+
+function validateRuntimeBindingSurfaces(runtimeBinding, surfaces, label) {
+  const handles = Object.keys(runtimeBinding.surfaces)
+  assertUnique(Object.values(runtimeBinding.surfaces), `${label} Runtime Binding Surface identity`)
+  if (!sameJson([...handles].sort(), Object.keys(surfaces).sort())
+    || handles.some((handle) => runtimeBinding.surfaces[handle] !== surfaces[handle])) {
+    throw new Error(`${label} and Runtime Binding disagree on Surface identities`)
+  }
+}
+
+function validateResolvedContract(contract, route, authority, label) {
+  if (contract.scope.authority !== authority || contract.scope.kind !== route.scope.kind
+    || contract.scope.id !== route.scope.id || contract.digest !== route.digest) {
+    throw new Error(`${label} has an inconsistent Contract identity`)
   }
 }
 
@@ -851,6 +1041,24 @@ function assertUniqueKey(key, seen) {
 
 function assertUnique(values, label) {
   if (new Set(values).size !== values.length) throw new Error(`${label} is not unique`)
+}
+
+function assertFailure(action, message) {
+  try {
+    action()
+  } catch {
+    return
+  }
+  throw new Error(message)
+}
+
+async function assertAsyncFailure(action, message) {
+  try {
+    await action()
+  } catch {
+    return
+  }
+  throw new Error(message)
 }
 
 function sameJson(left, right) {
