@@ -11,7 +11,7 @@
     "authority": { "$ref": "runtime-authority.schema.json#/$defs/authorityId" },
     "registrationId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
     "orchestrateRevision": { "$ref": "runtime-event-contract.schema.json#/$defs/digest" },
-    "entrypoint": { "$ref": "#/$defs/relativePath" },
+    "entrypoint": { "$ref": "runtime-authority.schema.json#/$defs/relativePath" },
     "surfaces": {
       "type": "object",
       "minProperties": 1,
@@ -68,12 +68,6 @@
           "dshEventSeq": { "type": "integer", "minimum": -1 }
         }
       }
-    }
-  },
-  "$defs": {
-    "relativePath": {
-      "type": "string",
-      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\).+$"
     }
   }
 }

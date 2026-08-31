@@ -9,7 +9,7 @@
   "properties": {
     "version": { "const": 1 },
     "registrationId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
-    "entrypoint": { "$ref": "#/$defs/relativePath" },
+    "entrypoint": { "$ref": "runtime-authority.schema.json#/$defs/relativePath" },
     "bindings": {
       "type": "object",
       "minProperties": 1,
@@ -24,7 +24,7 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "file": { "$ref": "#/$defs/relativePath" },
+          "file": { "$ref": "runtime-authority.schema.json#/$defs/relativePath" },
           "builtin": { "const": true },
           "consumeFrom": {
             "type": "array",
@@ -61,12 +61,6 @@
           }
         ]
       }
-    }
-  },
-  "$defs": {
-    "relativePath": {
-      "type": "string",
-      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\).+$"
     }
   }
 }

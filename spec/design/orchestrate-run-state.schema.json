@@ -24,7 +24,7 @@
         "additionalProperties": false,
         "required": ["file", "capabilities"],
         "properties": {
-          "file": { "$ref": "#/$defs/relativePath" },
+          "file": { "$ref": "runtime-authority.schema.json#/$defs/relativePath" },
           "capabilities": {
             "type": "array",
             "minItems": 1,
@@ -42,12 +42,6 @@
         "inputs": { "const": "inputs.jsonl" },
         "result": { "const": "result.json" }
       }
-    }
-  },
-  "$defs": {
-    "relativePath": {
-      "type": "string",
-      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\).+$"
     }
   }
 }

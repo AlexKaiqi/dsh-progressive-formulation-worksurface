@@ -68,7 +68,23 @@
         "subject": { "$ref": "#/$defs/causalSubject" },
         "seq": { "type": "integer", "minimum": 0 },
         "id": { "type": "string", "minLength": 1 }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["source"], "properties": { "source": { "const": "worksurface" } } },
+          "then": { "properties": { "subject": { "type": "object", "properties": { "kind": { "const": "surface" } } } } }
+        },
+        {
+          "if": { "required": ["source"], "properties": { "source": { "const": "dsh" } } },
+          "then": { "properties": { "subject": { "type": "object", "properties": { "kind": { "const": "dsh-session" } } } } }
+        }
+      ]
+    },
+    "workSurfaceEventRef": {
+      "allOf": [
+        { "$ref": "#/$defs/eventRef" },
+        { "type": "object", "required": ["source"], "properties": { "source": { "const": "worksurface" } } }
+      ]
     }
   }
 }

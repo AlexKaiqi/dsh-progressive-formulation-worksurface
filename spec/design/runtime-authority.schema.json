@@ -12,6 +12,11 @@
   },
   "$defs": {
     "authorityId": { "type": "string", "pattern": "^wsa_[a-z0-9][a-z0-9_-]{7,127}$" },
-    "localId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" }
+    "localId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "relativePath": {
+      "$comment": "A filesystem-relative locator, not a URL. Percent escapes, URL query/fragment syntax, absolute paths, URI schemes, Windows separators, control characters, and dot segments are rejected before resolution.",
+      "type": "string",
+      "pattern": "^(?!/)(?![A-Za-z][A-Za-z0-9+.-]*:)(?!.*\\\\)(?!.*[?#%\\u0000\\r\\n])(?!.*(?:^|/)\\.\\.?(?:/|$)).+$"
+    }
   }
 }

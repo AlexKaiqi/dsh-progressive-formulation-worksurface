@@ -206,6 +206,24 @@ async function validateRuntimeBindings() {
   ]) {
     if (validate(invalid)) throw new Error(`runtime-binding.schema.json accepts ${label}`)
   }
+  for (const [label, cause] of [
+    ['DSH source on a Surface subject', {
+      source: 'dsh',
+      subject: { authority: left.authority, kind: 'surface', id: left.execution.surfaceId },
+      seq: 1,
+      id: 'mismatched-dsh-source',
+    }],
+    ['WorkSurface source on a DSH Session subject', {
+      source: 'worksurface',
+      subject: { authority: left.authority, kind: 'dsh-session', id: left.execution.sessionId },
+      seq: 1,
+      id: 'mismatched-worksurface-source',
+    }],
+  ]) {
+    if (validateEvent({ ...durableEvent, causes: [cause] })) {
+      throw new Error(`runtime-event-envelope.schema.json accepts ${label}`)
+    }
+  }
   return orchestrate
 }
 
@@ -265,6 +283,16 @@ async function validateDelegate(runtimeBinding, builtinCatalog) {
   if (validateRegistration(invalidCopiedBuiltin)) {
     throw new Error('Registration can ambiguously select both built-in and file Contract sources')
   }
+  for (const path of [
+    'https://example.invalid/orchestrate.py',
+    'file:///etc/passwd',
+    'C:/outside/orchestrate.py',
+    'contracts/%2e%2e/outside.json',
+  ]) {
+    if (validateRegistration({ ...registration, entrypoint: path })) {
+      throw new Error(`Registration accepts non-relative entrypoint ${path}`)
+    }
+  }
 
   const handles = Object.keys(registration.bindings)
   assertUnique(handles, 'Registration Surface handle')
@@ -275,6 +303,10 @@ async function validateDelegate(runtimeBinding, builtinCatalog) {
 
   const durable = JSON.parse(await readFile(new URL('examples/orchestrate-registration-record.delegate.json', root), 'utf8'))
   validateValue('orchestrate-registration-record.delegate.json', durable, 'orchestrate-registration-record')
+  const validateRegistrationRecord = targetValidators.get('orchestrate-registration-record')
+  if (validateRegistrationRecord({ ...durable, entrypoint: 'file:///etc/passwd' })) {
+    throw new Error('Durable Registration accepts a non-relative entrypoint')
+  }
   if (durable.authority !== runtimeBinding.authority || durable.registrationId !== runtimeBinding.execution.registrationId) {
     throw new Error('Durable Registration identity disagrees with Runtime Binding')
   }
@@ -330,6 +362,17 @@ async function validateDelegate(runtimeBinding, builtinCatalog) {
   assertModelVisible(state, 'delegate/run/state.json')
   validateValue('delegate/run/state.json', state, 'orchestrate-run-state')
   const validateState = targetValidators.get('orchestrate-run-state')
+  const [firstContractName] = Object.keys(state.contracts)
+  const stateWithEscapingContract = {
+    ...state,
+    contracts: {
+      ...state.contracts,
+      [firstContractName]: { ...state.contracts[firstContractName], file: 'contracts/%2e%2e/outside.json' },
+    },
+  }
+  if (validateState(stateWithEscapingContract)) {
+    throw new Error('Run state accepts an escaping Contract path')
+  }
   const legacySurfaceArray = Object.entries(state.surfaces).map(([handle, path]) => ({ handle, path }))
   if (validateState({ ...state, surfaces: legacySurfaceArray })) {
     throw new Error('Run state accepts the redundant Surface array form')
@@ -350,6 +393,22 @@ async function validateDelegate(runtimeBinding, builtinCatalog) {
   const operationSettlement = JSON.parse(await readFile(new URL('examples/orchestrate-operation-settlement.delegate.json', root), 'utf8'))
   validateValue('orchestrate-operation-batch.delegate.json', operationBatch, 'orchestrate-operation-batch')
   validateValue('orchestrate-operation-settlement.delegate.json', operationSettlement, 'orchestrate-operation-settlement')
+  const validateSettlement = targetValidators.get('orchestrate-operation-settlement')
+  const settlementWithDshEvent = {
+    ...operationSettlement,
+    events: [{
+      operationKey: 'forged-dsh-event',
+      event: {
+        source: 'dsh',
+        subject: { authority: operationSettlement.authority, kind: 'dsh-session', id: 'session-researcher' },
+        seq: 19,
+        id: 'tool-result-19',
+      },
+    }],
+  }
+  if (validateSettlement(settlementWithDshEvent)) {
+    throw new Error('Operation settlement accepts a DSH EventRef as an appended WorkSurface Event')
+  }
   validateOperationRecords(operationBatch, operationSettlement, durable, runtimeBinding, ledgerRecord)
 
   const tempRoot = await mkdtemp(join(tmpdir(), 'worksurface-delegate-example-'))
