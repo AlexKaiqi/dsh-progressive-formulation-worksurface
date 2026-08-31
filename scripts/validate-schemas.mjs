@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Ajv2020 from 'ajv/dist/2020.js'
 import addFormats from 'ajv-formats'
+import { sha256, stableStringify } from '../packages/core/src/hash.ts'
 import { adaptDshToolCompleted } from '../examples/dsh-tool-completed-adapter.mjs'
 
 const root = new URL('../', import.meta.url)
@@ -164,22 +165,38 @@ async function validateRuntimeBindings() {
     throw new Error('Surface Turn bindings do not prove authority isolation for identical local handles')
   }
 
-  const durableContract = {
-    version: 1,
-    scope: { authority: left.authority, kind: 'registration', id: 'review-flow' },
-    name: 'review.completed',
-    description: 'One reviewer completed a review.',
-    subjects: ['surface'],
-    producers: ['surface-session'],
-    payloadSchema: {
-      $schema: 'https://json-schema.org/draft/2020-12/schema',
-      type: 'object',
-    },
-  }
+  const reviewDeclaration = JSON.parse(await readFile(new URL('examples/review.completed.declaration.json', root), 'utf8'))
+  validateValue('review.completed.declaration.json', reviewDeclaration, 'event-declaration')
+  const reviewRoute = { surfaceOutputFrom: ['reviewer'] }
+  const durableContract = materializeRegistrationContract(
+    left.authority,
+    'review-flow',
+    reviewDeclaration,
+    reviewRoute,
+  )
   const validateContract = targetValidators.get('runtime-event-contract')
   if (!validateContract(durableContract)) {
     throw new Error(`Runtime Event Contract example is invalid: ${targetAjv.errorsText(validateContract.errors)}`)
   }
+  assertBindingContractDigest(left, reviewDeclaration, reviewRoute)
+  assertBindingContractDigest(right, reviewDeclaration, reviewRoute)
+  if (left.contracts['review.completed'].digest === right.contracts['review.completed'].digest) {
+    throw new Error('Runtime Event Contract digest omits its authority scope')
+  }
+  const forgedReviewBinding = {
+    ...left,
+    contracts: {
+      ...left.contracts,
+      'review.completed': {
+        ...left.contracts['review.completed'],
+        digest: `sha256:${'9'.repeat(64)}`,
+      },
+    },
+  }
+  assertFailure(
+    () => assertBindingContractDigest(forgedReviewBinding, reviewDeclaration, reviewRoute),
+    'Surface Turn Runtime Binding accepts a Contract digest that was not recomputed',
+  )
   const durableEvent = {
     version: 1,
     id: 'event-1',
@@ -188,7 +205,7 @@ async function validateRuntimeBindings() {
     type: {
       scope: durableContract.scope,
       name: durableContract.name,
-      contract: `sha256:${'a'.repeat(64)}`,
+      contract: digestRuntimeContract(durableContract),
     },
     payload: {},
     causes: [],
@@ -275,9 +292,10 @@ async function validateTurnBrief(runtimeBinding) {
 }
 
 async function validateDelegate(runtimeBinding, builtinCatalog) {
-  const sourceUrl = new URL('examples/orchestrate-code/delegate/', root)
-  const runUrl = new URL('run/', sourceUrl)
-  const registration = JSON.parse(await readFile(new URL('registration.json', sourceUrl), 'utf8'))
+  const exampleUrl = new URL('examples/orchestrate-code/delegate/', root)
+  const sourceUrl = new URL('artifact/', exampleUrl)
+  const runUrl = new URL('run/', exampleUrl)
+  const registration = JSON.parse(await readFile(new URL('registration.json', exampleUrl), 'utf8'))
   validateValue('delegate/registration.json', registration, 'orchestrate-registration')
   const validateRegistration = targetValidators.get('orchestrate-registration')
   const legacyEventArray = Object.entries(registration.events).map(([name, route]) => ({ name, ...route }))
@@ -418,6 +436,17 @@ async function validateDelegate(runtimeBinding, builtinCatalog) {
   const routes = await loadRegistrationRoutes(registration, sourceUrl, builtinCatalog)
   await readFile(new URL(registration.entrypoint, sourceUrl), 'utf8')
   validateDurableRoutes(durable, routes, runtimeBinding, handles)
+  const [mutatedName] = routes.keys()
+  const admitted = routes.get(mutatedName)
+  const mutatedRoutes = new Map(routes)
+  mutatedRoutes.set(mutatedName, {
+    ...admitted,
+    declaration: { ...admitted.declaration, description: `${admitted.declaration.description} Changed after admission.` },
+  })
+  assertFailure(
+    () => validateDurableRoutes(durable, mutatedRoutes, runtimeBinding, handles),
+    'Durable Registration accepts a Contract digest after its declaration changes',
+  )
   const [bindingContractName] = Object.keys(runtimeBinding.contracts)
   const runtimeBindingWithGhostContract = {
     ...runtimeBinding,
@@ -738,9 +767,10 @@ async function validateSerialLoop(builtinCatalog) {
 }
 
 async function loadExecutableExample(name, builtinCatalog) {
-  const sourceUrl = new URL(`examples/orchestrate-code/${name}/`, root)
-  const runUrl = new URL('run/', sourceUrl)
-  const registration = JSON.parse(await readFile(new URL('registration.json', sourceUrl), 'utf8'))
+  const exampleUrl = new URL(`examples/orchestrate-code/${name}/`, root)
+  const sourceUrl = new URL('artifact/', exampleUrl)
+  const runUrl = new URL('run/', exampleUrl)
+  const registration = JSON.parse(await readFile(new URL('registration.json', exampleUrl), 'utf8'))
   validateValue(`${name}/registration.json`, registration, 'orchestrate-registration')
   const handles = Object.keys(registration.bindings)
   assertUnique(Object.values(registration.bindings), `${name} Registration Surface binding`)
@@ -788,7 +818,7 @@ async function loadRegistrationRoutes(registration, sourceUrl, builtinCatalog) {
       throw new Error(`built-in Event ${name} does not authorize the surface-session producer`)
     }
     compilePayload(sourceLabel, declaration.payloadSchema)
-    routes.set(name, { route, declaration, builtin: catalogEvent })
+    routes.set(name, { route, declaration, builtin: catalogEvent, builtinScopeId: builtinCatalog.scopeId })
   }
   return routes
 }
@@ -899,11 +929,20 @@ function validateDurableRoutes(durable, routes, runtimeBinding, handles) {
     throw new Error('Runtime Binding Contract set disagrees with durable Registration routes')
   }
   for (const [name, route] of Object.entries(durable.routes)) {
-    const source = routes.get(name)?.route
+    const admitted = routes.get(name)
+    const source = admitted?.route
     const binding = runtimeBinding.contracts[name]
-    if (source === undefined || binding === undefined) throw new Error(`Durable route ${name} has no source or Runtime Binding`)
+    if (source === undefined || binding === undefined || admitted === undefined) throw new Error(`Durable route ${name} has no source or Runtime Binding`)
     if (route.scope.authority !== durable.authority || route.scope.kind !== binding.scope.kind || route.scope.id !== binding.scope.id || route.digest !== binding.digest) {
       throw new Error(`Durable route ${name} has inconsistent Contract identity`)
+    }
+    const contract = materializeRouteContract(durable.authority, durable.registrationId, name, admitted)
+    const validateContract = targetValidators.get('runtime-event-contract')
+    if (!validateContract(contract)) {
+      throw new Error(`Durable route ${name} cannot materialize as a Runtime Contract: ${targetAjv.errorsText(validateContract.errors)}`)
+    }
+    if (route.digest !== digestRuntimeContract(contract)) {
+      throw new Error(`Durable route ${name} digest does not identify its canonical Contract snapshot`)
     }
     for (const handle of routeHandles(route)) {
       if (!handles.includes(handle)) throw new Error(`Durable route ${name} references unknown Surface ${handle}`)
@@ -1054,6 +1093,56 @@ function compilePayload(label, schema) {
     return ajv.compile(schema)
   } catch (error) {
     throw new Error(`${label} contains invalid payload JSON Schema: ${error.message}`)
+  }
+}
+
+function materializeRouteContract(authority, registrationId, name, admitted) {
+  if (admitted.builtin !== undefined) {
+    const { exposure: _exposure, ...catalogContract } = admitted.builtin
+    return normalizeRuntimeContract({
+      version: 1,
+      scope: { authority, kind: 'builtin', id: admitted.builtinScopeId },
+      name,
+      ...catalogContract,
+    })
+  }
+  return materializeRegistrationContract(authority, registrationId, admitted.declaration, admitted.route)
+}
+
+function materializeRegistrationContract(authority, registrationId, declaration, route) {
+  const producers = [
+    ...(route.emitOn === undefined ? [] : ['orchestrate']),
+    ...(route.surfaceOutputFrom === undefined ? [] : ['surface-session']),
+  ]
+  return normalizeRuntimeContract({
+    version: 1,
+    scope: { authority, kind: 'registration', id: registrationId },
+    name: declaration.name,
+    description: declaration.description,
+    subjects: ['surface'],
+    producers,
+    payloadSchema: declaration.payloadSchema,
+  })
+}
+
+function normalizeRuntimeContract(contract) {
+  return {
+    ...contract,
+    subjects: [...contract.subjects].sort(),
+    producers: [...new Set(contract.producers)].sort(),
+  }
+}
+
+function digestRuntimeContract(contract) {
+  return `sha256:${sha256(stableStringify(normalizeRuntimeContract(contract)))}`
+}
+
+function assertBindingContractDigest(binding, declaration, route) {
+  const contract = binding.contracts[declaration.name]
+  if (contract === undefined) throw new Error(`Runtime Binding omits Contract ${declaration.name}`)
+  const canonical = materializeRegistrationContract(binding.authority, contract.scope.id, declaration, route)
+  if (contract.scope.kind !== canonical.scope.kind || contract.digest !== digestRuntimeContract(canonical)) {
+    throw new Error(`Runtime Binding Contract ${declaration.name} was not resolved from its canonical snapshot`)
   }
 }
 

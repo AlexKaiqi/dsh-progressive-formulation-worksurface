@@ -10,9 +10,9 @@ Orchestrate 描述已存在 Surface 之间的推进关系：收到什么事实�
 
 ## 从 authoring 到运行
 
-1. authoring 模型准备完整 Surface 目录、普通 Orchestrate code 和 Event Contract；
+1. authoring 模型准备完整 Surface 目录、独立 Orchestrate artifact 根目录和 Registration source；artifact 只含普通 code、局部 Event Contract 与全部 support files，不含 Registration metadata 或 run view；
 2. [`orchestrate-registration.schema.json`](../spec/design/orchestrate-registration.schema.json) 约束的 Registration source 用 local handle 绑定现有 Surface，并声明 Event routes；同一 Surface 不得以多个 handle 重复绑定；
-3. Runtime 准入后固定 code Revision、entrypoint、解析后的 Contract、Surface identity 和各输入 stream 的历史边界，形成不可变 [`orchestrate-registration-record.schema.json`](../spec/design/orchestrate-registration-record.schema.json)；
+3. Runtime 以现有 [`RevisionStore.snapshot(artifactRoot, 'artifact')`](../packages/core/src/revision-store.ts) 固定完整 artifact，得到由排序 manifest、文件 SHA-256、长度和 executable bit 决定的 Orchestrate Revision；再从该 Revision 读取 entrypoint 与 Contract，固定解析后的 Contract、Surface identity 和各输入 stream 的历史边界，形成不可变 [`orchestrate-registration-record.schema.json`](../spec/design/orchestrate-registration-record.schema.json)；
 4. active Registration 命中新的 `consumeFrom` Event 后，Runtime 按 [`orchestrate-input-ledger-record.schema.json`](../spec/design/orchestrate-input-ledger-record.schema.json) 把 EventRef 去重追加到 Input Ledger，并调度固定 Revision；
 5. code 修改已绑定 Surface 的 staging 副本，并用 [`orchestrate-result.schema.json`](../spec/design/orchestrate-result.schema.json) 请求 Event append 或推进；
 6. Runtime 校验、记录、提交全部 Surface Revision，最后才追加 Event 和推进 Session。
@@ -20,6 +20,8 @@ Orchestrate 描述已存在 Surface 之间的推进关系：收到什么事实�
 局部 Contract 若由 code 消费，Registration 还必须给它至少一个实际 producer capability；规范样例中的初始 `*.requested` Event 都由 coordinator 的 `surfaceOutputFrom` 产生。Runtime lifecycle built-in 默认不进入 code input，只有 catalog 明确标记为 `orchestrate-input` 的安全 projection 可以被消费。
 
 Registration 是关系的静态装配和路由，不是行为 DSL。精确业务条件、信息转换、fan-out、join 和 loop 都是普通代码。
+
+Registration 中的 `entrypoint` 与 Contract `file` 都相对已选择的 artifact 根解析。准入、重放和恢复不得重新读取可变 authoring 目录；artifact 内任意 code、Contract 或 support file 的字节、路径、长度或 executable bit 变化都会产生新的 Orchestrate Revision。Registration source 与 run fixture 留在 artifact 根之外，避免其业务绑定或运行输出污染 code 内容身份。规范 delegate 的真实 revision 由 [`revision-store.spec.ts`](../packages/core/tests/revision-store.spec.ts) 直接调用 `RevisionStore` 重算，并以代码篡改和错误快照根作为反例。
 
 ## `when / who / how`
 
@@ -63,6 +65,6 @@ recorded batch 对其中所有 `(Surface, base Revision)` 建立跨重启 reserv
 
 [`examples/orchestrate-code/delegate/`](../examples/orchestrate-code/delegate/) 是规范 delegate 样例：Registration 绑定两个预先存在的 Surface；代码把 coordinator 中由 Event payload 定位的问题写入 researcher，再推进 researcher；完成 Event 到达后，代码把结果写回 coordinator 并推进它。[`examples/orchestrate-code/fanout-join/`](../examples/orchestrate-code/fanout-join/) 把同一问题派到两个预先存在的 explorer，并只在两个 `exploration.completed` 都进入 Input Ledger 后写回 coordinator。[`examples/orchestrate-code/serial-loop/`](../examples/orchestrate-code/serial-loop/) 则先串行推进 worker，未收敛时改写并再次推进同一 Surface，收敛后才把结果交回 coordinator。
 
-每个样例的 `orchestrate.py` 是 `when / who / how` 的真源，`registration.json` 是装配真源，目录中的 Contract 是 Event payload 真源。[`scripts/validate-schemas.mjs`](../scripts/validate-schemas.mjs) 实际执行 delegate、fan-out、join、serial 和 loop，并验证输入、Surface 集合、文件传递、Event capability、result 和持久记录的一致性。
+每个样例的 `artifact/orchestrate.py` 是 `when / who / how` 的真源，`registration.json` 是装配真源，`artifact/contracts/` 是 Event payload 真源，`run/` 是隔离在 revision 外的运行视图。[`scripts/validate-schemas.mjs`](../scripts/validate-schemas.mjs) 实际执行 delegate、fan-out、join、serial 和 loop，并验证输入、Surface 集合、文件传递、Event capability、result 和持久记录的一致性。
 
 这些 pattern 都只是普通条件和文件操作的可复用写法，不是 Runtime 原语。未来若引入取消、超时、并发上限或补偿，必须先定义持久事实、fold、恢复和测试。

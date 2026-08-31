@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://worksurface.local/spec/design/orchestrate-registration-record.schema.json",
   "title": "Runtime-private Code-first Orchestrate Registration Record",
-  "$comment": "Immutable payload of the first registered fact in a Registration stream. Runtime derives it from an admitted authoring source and exact Orchestrate Revision; replay restores routing and history boundaries without reading mutable authoring files.",
+  "$comment": "Immutable payload of the first registered fact in a Registration stream. Runtime derives it from an admitted authoring source and the exact RevisionStore artifact snapshot; replay materializes that Orchestrate Revision and restores routing and history boundaries without reading mutable authoring files.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "authority", "registrationId", "orchestrateRevision", "entrypoint", "surfaces", "routes", "historyBoundary"],

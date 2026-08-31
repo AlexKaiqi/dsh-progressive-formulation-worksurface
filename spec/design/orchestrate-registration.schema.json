@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://worksurface.local/spec/design/orchestrate-registration.schema.json",
   "title": "Code-first Orchestrate Registration Source",
-  "$comment": "Authoring admission metadata; it is not part of the immutable Orchestrate Revision containing entrypoint, Contracts, and support files. bindings name existing Surfaces and admission rejects two handles bound to the same Surface. consumeFrom routes inputs, emitOn authorizes the orchestrate producer, and surfaceOutputFrom authorizes a surface-session producer; business conditions and information transfer remain ordinary code in entrypoint.",
+  "$comment": "Authoring admission metadata outside the selected artifact root. entrypoint and Contract file paths resolve within that root, whose code, Contracts, and support files are snapshotted by RevisionStore as the immutable Orchestrate Revision. bindings name existing Surfaces and admission rejects two handles bound to the same Surface. consumeFrom routes inputs, emitOn authorizes the orchestrate producer, and surfaceOutputFrom authorizes a surface-session producer; business conditions and information transfer remain ordinary code in entrypoint.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "registrationId", "entrypoint", "bindings", "events"],

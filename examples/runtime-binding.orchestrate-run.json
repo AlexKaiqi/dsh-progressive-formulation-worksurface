@@ -13,12 +13,12 @@
   "contracts": {
     "research.requested": {
       "scope": { "kind": "registration", "id": "delegate-research" },
-      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "digest": "sha256:474a2f9121299591f8d3d21fd048326401efc5b2bf38a1cc085239e324cc7393",
       "capabilities": ["consume", "surface-output"]
     },
     "research.completed": {
       "scope": { "kind": "registration", "id": "delegate-research" },
-      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "sha256:960aaba05665e1b4a03cbb311905c7dff71da33988464e7d32ce3a58363ebf74",
       "capabilities": ["consume", "surface-output"]
     }
   }

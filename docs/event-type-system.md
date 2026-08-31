@@ -29,7 +29,9 @@ Runtime 将该名字解析为：
 
 预定义 Event 只保留跨工作流都稳定的系统事实。名字、producer、subject、payload Schema 与模型暴露级别的唯一来源是 [`builtin-event-catalog.json`](../spec/design/builtin-event-catalog.json)，其结构由 [`builtin-event-catalog.schema.json`](../spec/design/builtin-event-catalog.schema.json) 约束。Registration 通过 `builtin: true` 引用它们，不复制声明。只有标记为 `orchestrate-input` 的 built-in 可以通过 `consumeFrom` 进入模型编写的 code；`runtime-only` payload 可能含 Session、Revision 等私有身份，在另行定义并验证安全 projection 前不得物化为 `inputs.jsonl`。其余 Event 由 Registration 中的 Contract 文件局部声明。“临时”表示只服务当前任务、作用域和生产权限有限，不表示可以在一次 run 中临时改变 Registration。
 
-模型只维护业务名、说明和 payload JSON Schema。Runtime 在 Registration 准入时补齐 authority、scope、subject、producer，规范化后计算 digest，并持久化不可变 Contract snapshot。Schema 改变产生新 digest，不修改旧 Contract；只要 Event 仍引用旧 digest，旧 snapshot 就必须可读。run 期间只能引用已注册的局部名字；新增或修改 Contract 必须形成新的 Registration。
+模型只维护业务名、说明和 payload JSON Schema。Runtime 在 Registration 准入时补齐 `version`、authority、scope、subjects 和 producers，形成 [`runtime-event-contract.schema.json`](../spec/design/runtime-event-contract.schema.json) 所定义的完整 Contract。规范对象把 `subjects`、`producers` 当作集合去重并按词典序排序，再使用 Core 的 [`stableStringify`](../packages/core/src/hash.ts) 递归排序对象键、保留所有数组顺序，最后计算 `sha256:<sha256(canonical JSON)>`。payload JSON Schema 中的数组不得泛化排序，因为 `prefixItems` 等数组顺序可能携带语义。authority 属于 scope 并参与摘要，因此不同 authority 下内容相同的局部声明也不会共享 digest。
+
+Runtime 持久化这个不可变 Contract snapshot。声明、scope 或 producer capability 改变都会产生新 digest，不修改旧 Contract；只要 Event 仍引用旧 digest，旧 snapshot 就必须可读。run 期间只能引用已注册的局部名字；新增或修改 Contract 必须形成新的 Registration。规范示例和负向篡改门禁由 [`validate-schemas.mjs`](../scripts/validate-schemas.mjs) 重算，不能用仅符合字符串形状的占位摘要替代。
 
 Registration 的三种 route 同时定义解析范围和生产权限：
 

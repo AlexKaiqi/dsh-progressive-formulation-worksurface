@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://worksurface.local/spec/design/runtime-event-contract.schema.json",
   "title": "Runtime-scoped Event Contract",
-  "$comment": "Canonical contract for a small set of built-ins and for temporary Event Types defined at runtime. Temporary means capability-scoped, not disposable: the contract snapshot remains reachable while any Event references its digest.",
+  "$comment": "Canonical contract for built-ins and Registration-local Event Types. Runtime sorts the set-valued subjects and producers, then digests the entire authority-scoped object with Core stableStringify and SHA-256; payloadSchema arrays retain their declared order. The immutable snapshot remains reachable while any Event references its digest.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "scope", "name", "description", "subjects", "producers", "payloadSchema"],

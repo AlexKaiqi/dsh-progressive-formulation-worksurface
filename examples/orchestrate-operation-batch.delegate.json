@@ -3,7 +3,7 @@
   "authority": "wsa_workspace_a",
   "registrationId": "delegate-research",
   "runId": "run-3",
-  "orchestrateRevision": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "orchestrateRevision": "sha256:05fedd3259c1c4216afae745e6132235016abc85023414800cfed33d4f24da21",
   "triggerInputSeq": 0,
   "causes": [
     {
@@ -34,7 +34,7 @@
         {
           "scope": { "authority": "wsa_workspace_a", "kind": "registration", "id": "delegate-research" },
           "name": "research.completed",
-          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          "digest": "sha256:960aaba05665e1b4a03cbb311905c7dff71da33988464e7d32ce3a58363ebf74"
         }
       ],
       "causes": [

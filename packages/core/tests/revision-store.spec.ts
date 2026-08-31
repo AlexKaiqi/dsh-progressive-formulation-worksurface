@@ -1,6 +1,7 @@
-import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, cp, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { DefinitionStore, RevisionStore, SURFACE_TEMPLATE } from '../src/index.ts'
 
@@ -71,6 +72,32 @@ describe('RevisionStore v1', () => {
     await writeFile(join(root, 'outside-registration.json'), '{}')
     await symlink(join(root, 'outside-registration.json'), join(definition, 'registration.json'))
     await expect(store.snapshotDefinition(definition)).rejects.toThrow(/unsupported entry/)
+  })
+
+  it('recomputes the code-first Orchestrate Revision from only its artifact root', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ws-orchestrate-revision-')); roots.push(root)
+    const store = new RevisionStore(join(root, 'state', 'revisions'))
+    const example = new URL('../../../examples/orchestrate-code/delegate/', import.meta.url)
+    const artifact = fileURLToPath(new URL('artifact/', example))
+    const registrationRecord = JSON.parse(await readFile(new URL('../../../examples/orchestrate-registration-record.delegate.json', import.meta.url), 'utf8')) as { orchestrateRevision: string }
+    const operationBatch = JSON.parse(await readFile(new URL('../../../examples/orchestrate-operation-batch.delegate.json', import.meta.url), 'utf8')) as { orchestrateRevision: string }
+
+    const snapshot = await store.snapshot(artifact, 'artifact')
+    expect(snapshot.manifest.entries.map(entry => entry.path)).toEqual([
+      'contracts/research.completed.json',
+      'contracts/research.requested.json',
+      'orchestrate.py',
+    ])
+    expect(snapshot.revision).toBe(registrationRecord.orchestrateRevision)
+    expect(operationBatch.orchestrateRevision).toBe(snapshot.revision)
+
+    const changedArtifact = join(root, 'changed-artifact')
+    await cp(artifact, changedArtifact, { recursive: true })
+    await writeFile(join(changedArtifact, 'support.txt'), 'new support bytes\n')
+    expect((await store.snapshot(changedArtifact, 'artifact')).revision).not.toBe(snapshot.revision)
+
+    const contaminatedRoot = fileURLToPath(example)
+    expect((await store.snapshot(contaminatedRoot, 'artifact')).revision).not.toBe(snapshot.revision)
   })
 
   it('mark-and-sweep collects an orphan snapshot while preserving reachable and pinned revisions', async () => {

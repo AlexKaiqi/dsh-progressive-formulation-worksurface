@@ -11,7 +11,7 @@
   "contracts": {
     "review.completed": {
       "scope": { "kind": "registration", "id": "review-flow" },
-      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "sha256:6ae64cee3cbaf0616a08b1c08f710647f440d91dd093aa8fb445a98a5e674310",
       "capabilities": ["surface-output"]
     }
   }
