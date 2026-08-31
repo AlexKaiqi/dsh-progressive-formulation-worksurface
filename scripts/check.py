@@ -50,7 +50,8 @@ def static_checks() -> None:
     required_components = {
         "surface", "session", "turn_context", "model", "definition_json",
         "event_contract", "fixed_definition", "ws_emit", "event_stream",
-        "orchestrate", "activation_operation", "delivery", "target_session",
+        "orchestrate", "activation_operation", "code_binding", "runtime_injection",
+        "code_handler", "effects_file", "managed_operation", "delivery", "target_session",
     }
     missing_components = sorted(required_components - component_ids)
     if missing_components:
@@ -62,6 +63,13 @@ def static_checks() -> None:
     )
     if "YAML" in component_vocabulary:
         fail("interactive design reintroduces the rejected YAML pattern authoring model")
+    cards = "\n".join(
+        str(item)
+        for card in source.get("cards", [])
+        for item in card.get("items", [])
+    )
+    if "code.env" not in component_vocabulary + cards or "直接" not in component_vocabulary + cards:
+        fail("interactive design does not show direct Runtime environment injection")
     if "<svg" not in artifact or "WorkSurface" not in artifact:
         fail("interactive design artifact is not a rendered WorkSurface diagram")
     for schema in (

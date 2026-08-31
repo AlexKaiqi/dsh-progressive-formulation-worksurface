@@ -3,10 +3,10 @@
   "diagramType": "architecture",
   "source": "worksurface-system.architecture.json",
   "artifact": "worksurface-system.html",
-  "specificationSha256": "620a6e6dd3d42a390c0512f1550eb6a3452f01d1fb324c93c53de85e0200e913",
-  "specificationBytes": 11372,
-  "artifactSha256": "e1df54eee1018ef4a245c5726a985b025edcd26a0828eee498bd33180ecfaddb",
-  "artifactBytes": 736582,
+  "specificationSha256": "48c572719207b7b4bcccddbcec56362ee3460b464621c5ed459da780a45568eb",
+  "specificationBytes": 15392,
+  "artifactSha256": "58575ad0a507c5ff5ab32b75bdb1cde1231fbbfd67c8b8364b13674f6cb58088",
+  "artifactBytes": 750535,
   "validation": {
     "profile": "showcase",
     "checksPassed": 9,
@@ -16,7 +16,7 @@
   },
   "visualReview": {
     "status": "skipped",
-    "reason": "Chrome/Chromium unavailable and in-app browser blocks automated file:// navigation",
+    "reason": "Archify visual-check skipped because Chrome/Chromium is unavailable; structural showcase validation passed 9/9",
     "correctionRounds": 0
   }
 }

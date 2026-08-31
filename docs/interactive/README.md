@@ -10,7 +10,8 @@
 
 1. Surface 如何持续维护并进入模型上下文；
 2. 推进产生的 Event 如何驱动 Orchestrate；
-3. 模型需要理解哪些事件与 Definition 语义，以及 authoring 格式增加了多少额外认知负担。
+3. Definition 如何声明 code 输入，Runtime 如何把 Event 字段直接注入环境变量；
+4. code 如何只产生 effect，再由 Runtime 建立可靠 Operation。
 
 源码、schema、store 和测试映射放在[实现索引](../architecture.md)与[完整设计](../worksurface-complete-design.md)中，不占据主画布。
 
