@@ -2,12 +2,12 @@
 
 ## 当前设计真源
 
-1. [实现交互图](interactive/worksurface-system.html)：物理组件、持久化对象与运行路径；可编辑源为 [`worksurface-implementation.architecture.json`](interactive/worksurface-implementation.architecture.json)。
+1. [系统设计交互图](interactive/worksurface-system.html)：领域定位、边界、概念状态和推进关系；可编辑源为 [`worksurface-design.workflow.json`](interactive/worksurface-design.workflow.json)。
 2. [完整系统设计](worksurface-complete-design.md)：只定义能映射到当前类型、存储、fold、恢复或测试的概念，并把未实现方向单独列出。
 3. [实现索引](architecture.md)：组件、状态和关键流程到源码位置的映射。
 4. [机器协议与不变量](invariants-and-acceptance.md)：`spec/`、`WS-01` 至 `WS-23` 和测试证据。
 
-交互图用于检查整体关系，完整系统设计给出严格语义，源码、schema 和测试证明物理实现。三者不一致时，不能用抽象描述掩盖差异：先判定代码现状，再明确选择修代码还是把文档标记为提案。
+交互图用于检查系统设计，完整系统设计给出严格语义，[实现索引](architecture.md)、源码、schema 和测试证明物理落点。实现证据属于概念详情，不替代主设计图。三者不一致时，先判定代码现状，再明确选择修代码还是把文档标记为提案。
 
 ## 专题文档
 

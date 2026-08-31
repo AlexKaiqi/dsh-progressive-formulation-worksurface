@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourcePath = path.resolve(
-  process.argv[2] ?? path.join(root, "docs/interactive/worksurface-implementation.architecture.json"),
+  process.argv[2] ?? path.join(root, "docs/interactive/worksurface-design.workflow.json"),
 );
 const artifactPath = path.resolve(
   process.argv[3] ?? path.join(root, "docs/interactive/worksurface-system.html"),

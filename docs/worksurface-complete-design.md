@@ -14,7 +14,71 @@
 6. 幂等、并发和恢复规则在哪里执行；
 7. 哪些测试证明这些规则。
 
-只有说明文字、UI 名称或一张图，不足以建立概念。交互图中的每个实现节点都带源码证据；没有物理承载的术语不得作为既成节点出现。
+只有说明文字、UI 名称或一张图，不足以建立概念。交互图负责设计关系和状态，本文与实现索引负责物理协议和源码证据；没有物理承载的术语不得作为既成节点出现。
+
+## A. 系统设计主线
+
+实现约束不是主画布。WorkSurface 的系统设计主线是：
+
+```text
+Surface
+  ↓ Context Projection
+绑定的 DSH Session（Turn → Step → Tool Call）
+  ↓ 推进边界仍待定义
+业务 Event
+  ↓ replay / match
+Orchestrate Activation
+  ↓ durable Operation
+emit / followup
+  ↓
+同一个 Surface 继续推进
+```
+
+这里各层的状态不同：
+
+| 设计对象 | 设计含义 | 当前状态 |
+| --- | --- | --- |
+| Surface | 可寻址、推进过程中持续维护且模型可见的工作上下文 | 领域定位明确；v1 仅由文件 WIP、Revision、Event stream、Binding 和 DSH Session 组合承载 |
+| Context Projection | 决定一次模型调用实际看到 Surface 的哪些内容 | 已实现 Revision files、Session facts 和 provider occurrence；通用局部地址协议未实现 |
+| DSH execution | 提供 Session、Turn、Step 与 Tool Call 的权威执行日志 | 已实现并由 DSH 所有 |
+| Episode | 若保留该名称，应表示 Surface 内一个可持久、可引用、可恢复的推进边界 | 尚未定义；当前不得使用 |
+| WorkSurface Event | 推进过程中产生、可被 Orchestrate 消费的业务事实 | Event envelope、EventRef、stream 已实现；通用 content ref payload 协议未实现 |
+| Orchestrate | 根据固定 Definition、Registration 和 Event history 决定后续影响 | replay、Activation、Operation、emit/followup 已实现 |
+
+### A.1 Episode 是设计问题，不是占位答案
+
+设计确认前，`Episode` 节点只表示以下问题必须被回答，不能表示已经有了定义：
+
+1. 身份是否是 `EpisodeId`，它如何从 Surface 和推进请求派生；
+2. 哪个持久事实开始 Episode，哪个事实结束或中止它；
+3. 它引用 DSH Session 的哪些 seq 区间，能否跨多个 Turn/Step；
+4. 它固定哪些输入 Revision、ContextPlan、WorkSurface EventRefs 和输出 Revision；
+5. 权威记录存入 Surface stream、独立 stream，还是另一种 store；
+6. 开放 Episode 在崩溃后如何 fold 和恢复；
+7. Orchestrate 消费的是 Episode 本身、Episode 产生的 Event，还是两者中的一种。
+
+这些决定没有完成前，系统只使用已经存在的 DSH 执行事实和 WorkSurface Event/Activation/Operation。
+
+### A.2 Orchestrate 的统一实现边界
+
+目标作者层允许多个 source 形式，但它们不能进入推进控制器：
+
+```text
+YAML pattern ─┐
+              ├─ compile / adapt ─→ canonical OrchestrationDefinition
+code builder ─┘                              ↓
+                                  Definition Revision
+                                              ↓
+                       Registration + Event history
+                                              ↓
+                           evaluator → reliable effects
+```
+
+这个目标边界已经确定；当前只完成右半段。现在 `definition.json` 直接就是 `OrchestrationDefinition v1`，YAML compiler、code builder adapter 和 provenance 仍未实现。Code handler 是 Definition 固定的运行 artifact，不等同于作者层的 code builder。
+
+### A.3 控制职责而非虚构 Runtime 实体
+
+推进控制的逻辑边界是：固定 Definition 与 Registration，重放 Event，派生 Activation，以持久 Operation 执行 effect。当前由多个实现组件承担，设计图称其为“事件推进控制”，而不是再发明一个有独立身份的 `Runtime` 领域对象。
 
 ## 1. 定位与所有权
 
@@ -413,6 +477,6 @@ author source --compile/adapt--> canonical OrchestrationDefinition
 - replay/fold；
 - 幂等、并发和恢复规则；
 - 单元测试与故障测试；
-- 本文和[可交互实现图](interactive/worksurface-system.html)的更新。
+- 本文和[可交互系统设计图](interactive/worksurface-system.html)的更新。
 
 缺少其中任一项时，只能称为 proposal，不得写入当前概念图。

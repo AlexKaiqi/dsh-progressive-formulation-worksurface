@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "WorkSurface：工作上下文如何被持续推进",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [900, 500],
+    "legend": {
+      "mode": "hidden",
+      "entries": {
+        "frontend": { "label": "Surface 语义" },
+        "backend": { "label": "推进控制" },
+        "database": { "label": "固定定义" },
+        "cloud": { "label": "DSH 执行" },
+        "security": { "label": "协议边界" },
+        "messagebus": { "label": "事件事实" },
+        "external": { "label": "作者输入" }
+      }
+    },
+    "views": [
+      {
+        "id": "surface-model",
+        "label": "Surface 持续推进",
+        "focus": ["surface-current", "dsh-session", "episode-gap", "orchestrate-engine"],
+        "note": "Surface 是持续维护的工作上下文；当前由文件 Revision 投影内容，并由唯一 DSH Session 承载执行。"
+      },
+      {
+        "id": "episode-decision",
+        "label": "Episode 待定义边界",
+        "focus": ["dsh-session", "episode-gap", "business-event", "surface-current"],
+        "note": "Episode 只保留为待设计问题；ID、起止事实、DSH seq、Revision/EventRef、store、fold 与恢复未确定前不能进入模型。"
+      },
+      {
+        "id": "event-drive",
+        "label": "事件驱动推进",
+        "focus": ["episode-gap", "business-event", "registration", "orchestrate-engine", "surface-current"],
+        "note": "推进产生业务 Event；Orchestrate 重放并匹配 Event，形成 Activation，再以可靠 Operation 执行 emit 或 followup。"
+      },
+      {
+        "id": "definition-boundary",
+        "label": "Definition 统一边界",
+        "focus": ["author-source", "canonical-definition", "registration", "orchestrate-engine"],
+        "note": "目标是 YAML pattern 与 code builder 都编译到同一 canonical Definition；当前只有 definition.json 直达 Definition v1。"
+      },
+      {
+        "id": "implementation-status",
+        "label": "现状与目标",
+        "focus": ["surface-current", "dsh-session", "episode-gap", "author-source", "canonical-definition", "orchestrate-engine"],
+        "note": "节点 tag 标出已实现、部分实现或待设计；源码映射留在实现索引，不占据主画布。"
+      }
+    ]
+  },
+  "lanes": [
+    { "id": "progress", "label": "Surface：上下文、执行与推进事实" },
+    { "id": "authoring", "label": "Orchestrate 作者层" },
+    { "id": "orchestration", "label": "Orchestrate 求值与效果" }
+  ],
+  "phases": [
+    { "id": "prepare", "label": "准备上下文", "fromCol": 0, "toCol": 1 },
+    { "id": "advance", "label": "实际推进", "fromCol": 2, "toCol": 4, "variant": "emphasis" },
+    { "id": "react", "label": "事件反应", "fromCol": 5, "toCol": 5, "variant": "security" }
+  ],
+  "groups": [
+    { "id": "dsh-carrier", "label": "当前 DSH 执行承载", "lane": "progress", "fromCol": 2, "toCol": 2, "variant": "default" },
+    { "id": "episode-question", "label": "待定义推进边界", "lane": "progress", "fromCol": 4, "toCol": 4, "variant": "dashed" },
+    { "id": "definition-contract", "label": "统一 Definition 合同", "lane": "authoring", "fromCol": 0, "toCol": 3, "variant": "emphasis" }
+  ],
+  "mainPath": ["surface-current", "dsh-session", "episode-gap", "business-event", "orchestrate-engine"],
+  "nodes": [
+    { "id": "surface-current", "lane": "progress", "col": 0, "type": "frontend", "label": "Surface", "sublabel": "可寻址、持续维护", "tag": "领域定位" },
+    { "id": "dsh-session", "lane": "progress", "col": 2, "type": "cloud", "label": "投影与 DSH 执行", "sublabel": "Context / Session / Turn / Step", "tag": "v1：1 Surface : 1 Session", "width": 140 },
+    { "id": "episode-gap", "lane": "progress", "col": 4, "type": "security", "label": "Episode", "sublabel": "ID / boundary / refs", "tag": "待定义" },
+
+    { "id": "business-event", "lane": "progress", "col": 5, "type": "messagebus", "label": "业务 Event", "sublabel": "payload / causes", "tag": "信封已实现" },
+
+    { "id": "author-source", "lane": "authoring", "col": 0, "type": "external", "label": "作者 Source", "sublabel": "YAML / code builder", "tag": "目标入口" },
+    { "id": "canonical-definition", "lane": "authoring", "col": 2, "type": "database", "label": "Definition", "sublabel": "roles / conditions", "tag": "当前：JSON v1" },
+    { "id": "registration", "lane": "authoring", "col": 3, "type": "security", "label": "Registration", "sublabel": "revision / bindings", "tag": "已实现" },
+
+    { "id": "orchestrate-engine", "lane": "orchestration", "col": 5, "type": "backend", "label": "事件推进控制", "sublabel": "match → Activation", "tag": "record → settle" }
+  ],
+  "edges": [
+    { "id": "surface-context", "from": "surface-current", "to": "dsh-session", "label": "Context Projection", "variant": "emphasis", "role": "main" },
+    { "id": "session-episode", "from": "dsh-session", "to": "episode-gap", "variant": "dashed", "role": "main" },
+    { "id": "episode-event", "from": "episode-gap", "to": "business-event", "variant": "dashed", "role": "main" },
+    { "id": "event-orchestrate", "from": "business-event", "to": "orchestrate-engine", "variant": "emphasis", "role": "main" },
+    { "id": "orchestrate-surface", "from": "orchestrate-engine", "to": "surface-current", "variant": "emphasis", "role": "return", "route": "return-left" },
+
+    { "id": "source-definition", "from": "author-source", "to": "canonical-definition", "label": "compile / adapt", "variant": "dashed" },
+    { "id": "definition-registration", "from": "canonical-definition", "to": "registration", "variant": "emphasis" },
+    { "id": "registration-engine", "from": "registration", "to": "orchestrate-engine", "variant": "security" }
+  ]
+}

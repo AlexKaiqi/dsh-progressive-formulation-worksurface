@@ -25,11 +25,11 @@ Activation → durable Operation → emit 或 followup → settlement
 
 模型继续使用 Bash、Zsh、Python、Node 和普通文件能力。模型侧唯一 WorkSurface 领域命令是 `ws emit`；可信实现补齐事件身份、因果、绑定和 capability。
 
-`Episode` 不是当前概念：仓库中没有 `EpisodeId`、schema、store、边界事件、fold、恢复协议或测试，因此不能用于解释现有执行历史或 UI 分组。若以后引入，必须先给出可持久化、可重放、可测试且能映射 DSH/WorkSurface 事实的协议。
+`Episode` 不是当前概念：仓库中没有 `EpisodeId`、schema、store、边界事件、fold、恢复协议或测试，因此不能用于解释现有执行历史或 UI 分组。设计图只把它保留为一个明确的待决边界；若以后引入，必须先给出可持久化、可重放、可测试且能映射 DSH/WorkSurface 事实的协议。
 
 详见：
 
-- [实现交互图](docs/interactive/worksurface-system.html)：物理组件、持久化结构和实际执行链
+- [系统设计交互图](docs/interactive/worksurface-system.html)：Surface、DSH 执行、Episode 定义缺口、事件与 Orchestrate 的关系
 - [完整系统设计](docs/worksurface-complete-design.md)：当前定位、严格概念定义、流程和未实现项
 - [实现索引](docs/architecture.md)：概念到源码与存储的映射
 - [UI 设计](docs/ui-design.md)：基于当前事实的可删除投影

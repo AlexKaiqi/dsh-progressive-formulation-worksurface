@@ -1,6 +1,6 @@
 # WorkSurface v1 实现索引
 
-> 本文只做代码导航。概念定义见[系统设计](worksurface-complete-design.md)，关系图见[可交互实现图](interactive/worksurface-system.html)。
+> 本文只做代码导航，不承担主设计图职责。概念定义见[系统设计](worksurface-complete-design.md)，关系见[可交互系统设计图](interactive/worksurface-system.html)。
 
 ## 1. 组件与物理责任
 
