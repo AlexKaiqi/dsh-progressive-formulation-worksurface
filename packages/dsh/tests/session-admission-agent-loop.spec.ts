@@ -1,5 +1,5 @@
 // Invariant assertions: [WS-01] [WS-09] [WS-10] [WS-13] [WS-20] [WS-21]
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -13,7 +13,7 @@ import * as ShellEnvPlugin from '@deepseek-ai/dsh-shell-env'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { FileEventStore, RevisionStore, SURFACE_TEMPLATE } from '@pf-worksurface/core'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { installDshSessionAdapter } from '../src/session-adapter.ts'
 import { SurfaceSessionAdmission } from '../src/session-admission.ts'
 import { SurfaceSessionService } from '../src/session-surface.ts'
@@ -122,13 +122,13 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
       expect(adapter.requests[0]?.messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('complete progress history of WorkSurface')))).toBe(true)
 
       const wip = join(agent.session.header.cwd!, 'wip.txt')
-      await writeFile(wip, 'same worktree\n')
+      await writeFile(wip, 'same authoring WIP\n')
       expect((await admission.ensure({ surfaceId: 'surface-a' })).sessionId).toBe(opened.sessionId)
       send(agent, 'continue the same work')
       await agent.whenIdle()
 
       expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
-      expect(await readFile(wip, 'utf8')).toBe('same worktree\n')
+      expect(await readFile(wip, 'utf8')).toBe('same authoring WIP\n')
       expect(surfaces.bindingForSurface('surface-a')?.sessionId).toBe(opened.sessionId)
       expect(surfaces.activeSurface(opened.sessionId)).toBeUndefined()
     } finally {
@@ -136,7 +136,7 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
     }
   })
 
-  it('automatically continues a crash-interrupted Turn in the same Session and worktree after restart', async () => {
+  it('automatically continues a crash-interrupted Turn in the same Session and authoring WIP after restart', async () => {
     const first = await fixture({ persistence: true })
     const opened = await first.admission.ensure({ surfaceId: 'surface-a' })
     const firstAgent = first.ctx.agents.get(SessionId(opened.sessionId))!
@@ -264,7 +264,7 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
     const persistenceRoot = join(root, 'sessions')
     await mkdir(join(work, 'surfaces', 'planner'), { recursive: true })
     await writeFile(join(work, 'surfaces', 'planner', 'surface.md'), SURFACE_TEMPLATE)
-    const runtime = await mountServiceRuntime(root, work, ['dependent child ran'], persistenceRoot)
+    const runtime = await mountServiceRuntime(root, work, ['root child ran', 'dependent child ran'], persistenceRoot)
     try {
       const opened = await runtime.ctx.workSurfaces.ensureSession({ surfaceId: 'planner' })
       const planner = runtime.ctx.agents.get(SessionId(opened.sessionId))!
@@ -273,47 +273,74 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
       const contract = SURFACE_TEMPLATE
         .replace('# Goal\n', '# Goal\n\nProduce the dependent deliverable.\n')
         .replace('# Known Facts and Constraints\n', '# Known Facts and Constraints\n\nEmit `delivery.completed` with stable key `delivery-v1`.\n')
-      expect(await runtime.ctx.workSurfaces.createSurface('dependent-child', contract, capability))
-        .toMatchObject({ surfaceId: 'dependent-child', created: true, planner: { surfaceId: 'planner', sessionId: opened.sessionId, turn: 1 } })
-      expect(await runtime.ctx.workSurfaces.createSurface('dependent-child', contract, capability))
-        .toMatchObject({ surfaceId: 'dependent-child', created: false })
+      for (const surfaceId of ['root-child', 'dependent-child']) {
+        await mkdir(join(work, 'surfaces', surfaceId), { recursive: true })
+        await writeFile(join(work, 'surfaces', surfaceId, 'surface.md'), contract)
+        await writeFile(join(work, 'surfaces', surfaceId, 'evidence.txt'), 'file-authored before emit\n')
+      }
+      const invalidPlan = join(work, 'orchestrations', 'invalid-plan')
+      const externalRegistration = join(root, 'external-registration.json')
+      await mkdir(invalidPlan, { recursive: true })
+      await writeFile(externalRegistration, JSON.stringify({ version: 1, registrationId: 'outside', bindings: { root: 'root-child' } }))
+      await symlink(externalRegistration, join(invalidPlan, 'registration.json'))
+      await expect(runtime.ctx.workSurfaces.emitTurn(capability, 'root.symlink', {}, 'symlink')).rejects.toMatchObject({ code: 'invalid-definition' })
+      expect(await runtime.ctx.workSurfaces.replayEvents('planner')).toEqual([])
+      await rm(invalidPlan, { recursive: true })
+      await mkdir(invalidPlan, { recursive: true })
+      await writeFile(join(invalidPlan, 'registration.json'), JSON.stringify({ version: 1, registrationId: 'invalid', bindings: {}, command: 'register' }))
+      await expect(runtime.ctx.workSurfaces.emitTurn(capability, 'root.invalid', {}, 'invalid')).rejects.toMatchObject({ code: 'invalid-definition' })
+      expect(await runtime.ctx.workSurfaces.replayEvents('planner')).toEqual([])
+      await rm(invalidPlan, { recursive: true })
 
       const definition = {
         version: 1 as const,
-        roles: ['sourceA', 'sourceB', 'child'],
+        roles: ['sourceA', 'sourceB', 'root', 'child'],
         subscriptions: [{
+          id: 'start-root', history: 'from-registration' as const,
+          when: { role: 'sourceA', event: 'root.a.ready' },
+          reaction: { followup: [{ role: 'root', message: 'Execute the dependency-free root contract.', operationKey: 'start-root' }] },
+        }, {
           id: 'join-roots', history: 'all' as const, key: '$.payload.plan',
           when: { all: [{ role: 'sourceA', event: 'root.a.ready' }, { role: 'sourceB', event: 'root.b.ready' }] },
           reaction: { followup: [{ role: 'child', message: 'Read surface.md and execute the dependent deliverable.', operationKey: 'start-dependent' }] },
         }],
       }
-      const bindings = { sourceA: 'planner', sourceB: 'planner', child: 'dependent-child' }
-      const registered = await runtime.ctx.workSurfaces.registerDefinition('dependent-plan', bindings, 'reg-dependent-plan', definition, capability)
-      expect(await runtime.ctx.workSurfaces.registerDefinition('dependent-plan', bindings, 'reg-dependent-plan', definition, capability)).toEqual(registered)
-      await expect(runtime.ctx.workSurfaces.registerDefinition(
-        'dependent-plan', { ...bindings, child: 'other-child' }, 'reg-dependent-plan', definition, capability,
-      )).rejects.toMatchObject({ code: 'already-exists-conflict' })
+      const bindings = { sourceA: 'planner', sourceB: 'planner', root: 'root-child', child: 'dependent-child' }
+      await mkdir(join(work, 'orchestrations', 'dependent-plan', 'handlers'), { recursive: true })
+      await writeFile(join(work, 'orchestrations', 'dependent-plan', 'definition.json'), JSON.stringify(definition))
+      await writeFile(join(work, 'orchestrations', 'dependent-plan', 'handlers', 'support.mjs'), 'export const support = true\n', { mode: 0o755 })
+      await writeFile(join(work, 'orchestrations', 'dependent-plan', 'registration.json'), JSON.stringify({
+        version: 1, registrationId: 'reg-dependent-plan', bindings,
+      }))
 
       await runtime.ctx.workSurfaces.emitTurn(capability, 'root.a.ready', { plan: 'p1' }, 'root-a')
-      await runtime.ctx.workSurfaces.engine.reconcile('reg-dependent-plan')
+      const registeredInspection = await runtime.ctx.workSurfaces.inspectOrchestration('reg-dependent-plan')
+      expect(registeredInspection.bindings).toEqual(bindings)
+      expect((await runtime.ctx.workSurfaces.readRevisionFile(registeredInspection.definitionRevision, 'handlers/support.mjs')).content)
+        .toBe('export const support = true\n')
+      await expect(runtime.ctx.workSurfaces.readRevisionFile(registeredInspection.definitionRevision, 'registration.json'))
+        .rejects.toMatchObject({ code: 'not-found' })
+      await vi.waitFor(() => expect(runtime.ctx.workSurfaces.surfaces.bindingForSurface('root-child')).toBeDefined())
+      const rootBinding = runtime.ctx.workSurfaces.surfaces.bindingForSurface('root-child')!
+      await vi.waitFor(() => expect(runtime.ctx.agents.get(SessionId(rootBinding.sessionId))).toBeDefined())
+      await runtime.ctx.agents.get(SessionId(rootBinding.sessionId))!.whenIdle()
       expect(runtime.ctx.workSurfaces.surfaces.bindingForSurface('dependent-child')).toBeUndefined()
+      await writeFile(join(work, 'surfaces', 'root-child', 'surface.md'), 'temporarily invalid while in progress\n')
 
       await runtime.ctx.workSurfaces.emitTurn(capability, 'root.b.ready', { plan: 'p1' }, 'root-b')
-      await runtime.ctx.workSurfaces.engine.reconcile('reg-dependent-plan')
+      await vi.waitFor(() => expect(runtime.ctx.workSurfaces.surfaces.bindingForSurface('dependent-child')).toBeDefined())
       const childBinding = runtime.ctx.workSurfaces.surfaces.bindingForSurface('dependent-child')!
+      await vi.waitFor(() => expect(runtime.ctx.agents.get(SessionId(childBinding.sessionId))).toBeDefined())
       const child = runtime.ctx.agents.get(SessionId(childBinding.sessionId))!
       await child.whenIdle()
       expect(child.session.events.filter(event => event.type === 'worksurface/binding')).toHaveLength(1)
       expect(child.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
       expect(child.session.deriveMessages().some(message => message.content.some(block => block.type === 'text'
         && block.text === 'Read surface.md and execute the dependent deliverable.'))).toBe(true)
+      await vi.waitFor(async () => expect((await runtime.ctx.workSurfaces.inspectOrchestration('reg-dependent-plan')).pendingOperations).toEqual([]))
       const inspection = await runtime.ctx.workSurfaces.inspectOrchestration('reg-dependent-plan')
-      expect(inspection.pendingOperations).toEqual([])
       const target = inspection.runs[0]?.operations[0]?.target
       if (target === undefined || !('messageId' in target)) throw new Error('expected managed followup receipt')
-      await runtime.ctx.workSurfaces.surfaces.followupSurface(
-        'dependent-child', 'Read surface.md and execute the dependent deliverable.', target.messageId,
-      )
       await runtime.ctx.workSurfaces.engine.reconcile('reg-dependent-plan')
       expect(child.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
       expect(runtime.ctx.agents.list().filter(agent => String(agent.id) === childBinding.sessionId)).toHaveLength(1)
@@ -335,7 +362,7 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
     const firstAgent = first.ctx.agents.get(SessionId(opened.sessionId))!
     send(firstAgent, 'start before service restart')
     await firstAgent.whenIdle()
-    await writeFile(join(firstAgent.session.header.cwd!, 'service-restart.txt'), 'same durable worktree\n')
+    await writeFile(join(firstAgent.session.header.cwd!, 'service-restart.txt'), 'same durable authoring WIP\n')
     firstAgent.session.append('turn/start', { turn: 2 })
     await first.ctx.sessions.flush(firstAgent.session)
     await first.ctx.fiber.dispose()
@@ -352,7 +379,7 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
       expect(resumed.session.events.filter(event => event.type === 'turn/end').map(event => event.type === 'turn/end' && event.data.reason.kind))
         .toEqual(['completed', 'interrupted', 'completed'])
       expect(await readFile(join(resumed.session.header.cwd!, 'service-restart.txt'), 'utf8'))
-        .toBe('same durable worktree\n')
+        .toBe('same durable authoring WIP\n')
       expect(second.ctx.workSurfaces.surfaces.bindingForSurface('surface-a')?.sessionId).toBe(opened.sessionId)
     } finally {
       await second.ctx.fiber.dispose()

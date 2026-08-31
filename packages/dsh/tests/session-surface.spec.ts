@@ -1,5 +1,5 @@
 // Invariant assertions: [WS-01] [WS-09] [WS-10] [WS-12] [WS-13] [WS-14] [WS-21]
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -44,13 +44,14 @@ function start(service: SurfaceSessionService, current: Session, number = 1): st
 
 describe('SurfaceSessionService', () => {
   it('binds one Surface to one DSH Session before its first Turn', async () => {
-    const { service, state } = await fixture()
+    const { service, state, work } = await fixture()
     const current = session('session-a', service.cwdForSurface('surface-a'))
+    expect(current.header.cwd).toBe(work)
     const binding = await service.bindSession(current, 'surface-a', 'authoring')
     expect(binding).toMatchObject({ sessionId: 'session-a', surfaceId: 'surface-a', inputSource: 'authoring' })
     expect(current.events.find(event => event.type === 'worksurface/binding')).toMatchObject({ data: binding, ignorable: true })
     expect(JSON.parse(await readFile(join(state, 'surface-sessions', 'surface-a', 'context.json'), 'utf8')))
-      .toMatchObject({ execution: { sessionId: 'session-a' }, surface: { id: 'surface-a' }, capabilities: { createSurface: true } })
+      .toMatchObject({ execution: { sessionId: 'session-a' }, surface: { id: 'surface-a' }, capabilities: { targetSurfaces: ['surface-a'] } })
     expect(service.bindingForSession('session-a')).toEqual(binding)
     expect(service.bindingForSurface('surface-a')).toEqual(binding)
   })
@@ -65,7 +66,7 @@ describe('SurfaceSessionService', () => {
       .rejects.toMatchObject({ code: 'already-exists-conflict' })
   })
 
-  it('requires the Surface worktree as cwd and binding before the first Turn', async () => {
+  it('requires the public authoring root as cwd and binding before the first Turn', async () => {
     const { service } = await fixture()
     await expect(service.bindSession(session('wrong-cwd'), 'surface-a', 'authoring'))
       .rejects.toMatchObject({ code: 'already-exists-conflict' })
@@ -73,6 +74,19 @@ describe('SurfaceSessionService', () => {
     late.append('turn/start', { turn: 1 })
     await expect(service.bindSession(late, 'surface-b', 'authoring'))
       .rejects.toMatchObject({ code: 'already-exists-conflict' })
+  })
+
+  it('rejects a symlinked public surfaces root without touching its target', async () => {
+    const { root, service, work } = await fixture()
+    const outside = join(root, 'outside')
+    await mkdir(join(outside, 'surface-a'), { recursive: true })
+    await writeFile(join(outside, 'surface-a', 'sentinel'), 'keep\n')
+    await rm(join(work, 'surfaces'), { recursive: true })
+    await symlink(outside, join(work, 'surfaces'))
+
+    await expect(service.bindSession(session('session-symlink', service.cwdForSurface('surface-a')), 'surface-a', 'authoring'))
+      .rejects.toMatchObject({ code: 'invalid-working-copy' })
+    expect(await readFile(join(outside, 'surface-a', 'sentinel'), 'utf8')).toBe('keep\n')
   })
 
   it('does not activate ordinary DSH Sessions', async () => {
@@ -127,7 +141,7 @@ describe('SurfaceSessionService', () => {
     await expect(service.emitTurn(capability, 'review.accepted', {})).rejects.toMatchObject({ code: 'unauthorized' })
   })
 
-  it('recovers the one-to-one binding and worktree without opening a Surface', async () => {
+  it('recovers the one-to-one binding and authoring WIP without opening a Surface', async () => {
     const { events, revisions, service, work, state } = await fixture()
     const original = session('session-recover', service.cwdForSurface('surface-a'))
     await service.bindSession(original, 'surface-a', 'authoring')
@@ -135,6 +149,7 @@ describe('SurfaceSessionService', () => {
     const cwd = service.activeSurface('session-recover')!.cwd
     await writeFile(join(cwd, 'wip.md'), 'kept\n')
     service.endTurn('session-recover')
+    await rm(join(state, 'surface-sessions', 'surface-a', 'authoring.initialized'))
 
     const recovered = new SurfaceSessionService(events, revisions, work, state)
     await recovered.init()
@@ -143,6 +158,38 @@ describe('SurfaceSessionService', () => {
     expect(resumedCapability).not.toBe(capability)
     expect(recovered.activeSurface('session-recover')!.cwd).toBe(cwd)
     expect(await readFile(join(cwd, 'wip.md'), 'utf8')).toBe('kept\n')
+  })
+
+  it('rematerializes a missing authoring directory when its marker survived', async () => {
+    const { events, revisions, service, work, state } = await fixture()
+    const original = session('session-rematerialize', service.cwdForSurface('surface-a'))
+    await service.bindSession(original, 'surface-a', 'authoring')
+    await rm(join(work, 'surfaces', 'surface-a'), { recursive: true })
+
+    const recovered = new SurfaceSessionService(events, revisions, work, state)
+    await recovered.init()
+    expect(await readFile(join(work, 'surfaces', 'surface-a', 'surface.md'), 'utf8')).toBe(SURFACE_TEMPLATE)
+  })
+
+  it('resumes a legacy private-worktree binding without losing unpublished WIP', async () => {
+    const { events, revisions, service, work, state } = await fixture()
+    const original = session('session-legacy', service.cwdForSurface('surface-a'))
+    await service.bindSession(original, 'surface-a', 'authoring')
+    const legacyRoot = join(state, 'surface-sessions', 'surface-a')
+    const legacyWorktree = join(legacyRoot, 'work')
+    await rm(join(legacyRoot, 'authoring.initialized'))
+    await mkdir(legacyWorktree)
+    await writeFile(join(legacyRoot, 'work.initialized'), 'legacy\n')
+    await writeFile(join(legacyWorktree, 'surface.md'), SURFACE_TEMPLATE)
+    await writeFile(join(legacyWorktree, 'wip.md'), 'legacy unpublished\n')
+
+    const recovered = new SurfaceSessionService(events, revisions, work, state)
+    await recovered.init()
+    const resumed = Session.create(SessionId('session-legacy'), original.events, { ...original.header, cwd: legacyWorktree })
+    await recovered.bindSession(resumed, 'surface-a', 'authoring')
+    start(recovered, resumed, 1)
+    expect(recovered.activeSurface('session-legacy')!.cwd).toBe(legacyWorktree)
+    expect(await readFile(join(legacyWorktree, 'wip.md'), 'utf8')).toBe('legacy unpublished\n')
   })
 
   it('keeps business events but rejects forged publication events', async () => {

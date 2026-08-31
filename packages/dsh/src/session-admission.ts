@@ -68,8 +68,8 @@ interface RecoveryCandidate extends SurfaceSessionRecoveryResult {
 
 const RESTART_CONTINUATION = [
   'DSH restarted while this WorkSurface Session still had unfinished work.',
-  'Continue the same Surface from its durable Session history and current worktree.',
-  'First reconcile the worktree and any tool call whose outcome may be uncertain; do not blindly repeat non-idempotent external side effects.',
+  'Continue the same Surface from its durable Session history and current authoring directory.',
+  'First reconcile DSH_SURFACE_DIR and any tool call whose outcome may be uncertain; do not blindly repeat non-idempotent external side effects.',
 ].join(' ')
 
 /**

@@ -94,10 +94,11 @@ export class DshWorkSurfaceSessionAdapter {
       name: 'worksurface-session-v1',
       variables: {
         DSH_WORKSURFACE_CLI: { description: 'Absolute WorkSurface CLI path for the current DSH Turn.' },
+        DSH_WORKSURFACE_ROOT: { description: 'Writable public authoring root containing surfaces/ and orchestrations/.' },
         DSH_WORKSURFACE_SOCKET: { description: 'Private Host transport selected by the WorkSurface plugin.' },
         DSH_WORKSURFACE_CAPABILITY: { description: 'Short-lived capability bound to the current DSH Session and Turn.' },
         DSH_SURFACE_ID: { description: 'The one WorkSurface whose progress this DSH Session records.' },
-        DSH_SURFACE_DIR: { description: 'Persistent worktree and cwd of this Surface Session.' },
+        DSH_SURFACE_DIR: { description: 'Authoring directory of the one Surface bound to this Session.' },
         DSH_CONTEXT_FILE: { description: 'Structured context for this Surface Session.' },
       },
       resolve: execution => {
@@ -109,6 +110,7 @@ export class DshWorkSurfaceSessionAdapter {
         if (surface === undefined) return {}
         return {
           DSH_WORKSURFACE_CLI: this.cliPath,
+          DSH_WORKSURFACE_ROOT: this.service.workRoot,
           DSH_WORKSURFACE_SOCKET: this.socketPath,
           DSH_WORKSURFACE_CAPABILITY: turn.capability,
           DSH_SURFACE_ID: surface.surfaceId,

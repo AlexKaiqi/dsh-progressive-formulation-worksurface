@@ -8,7 +8,7 @@ const ajv = new Ajv2020({ allErrors: true, strict: true })
 addFormats(ajv)
 
 const validators = new Map()
-for (const name of ['event', 'definition', 'context', 'binding']) {
+for (const name of ['event', 'definition', 'context', 'binding', 'authoring-registration']) {
   const schema = JSON.parse(await readFile(new URL(`${name}.schema.json`, spec), 'utf8'))
   if (!ajv.validateSchema(schema)) throw new Error(`${name}.schema.json is not a valid JSON Schema: ${ajv.errorsText()}`)
   validators.set(name, ajv.compile(schema))
@@ -16,7 +16,7 @@ for (const name of ['event', 'definition', 'context', 'binding']) {
 
 for (const entry of await readdir(new URL('fixtures/', spec), { withFileTypes: true })) {
   if (!entry.isFile() || !entry.name.endsWith('.json')) continue
-  const match = /^(event|definition|context|binding)\.(valid|invalid)\.[^.]+\.json$/.exec(entry.name)
+  const match = /^(event|definition|context|binding|authoring-registration)\.(valid|invalid)\.[^.]+\.json$/.exec(entry.name)
   if (match === null) throw new Error(`Schema fixture '${entry.name}' does not declare schema and expectation`)
   const value = JSON.parse(await readFile(new URL(`fixtures/${entry.name}`, spec), 'utf8'))
   const validate = validators.get(match[1])

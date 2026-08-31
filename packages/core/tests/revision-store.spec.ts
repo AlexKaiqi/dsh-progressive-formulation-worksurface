@@ -62,8 +62,15 @@ describe('RevisionStore v1', () => {
     await expect(store.snapshotDefinition(definition)).rejects.toThrow(/absent/)
     await mkdir(join(definition, 'handlers'))
     await writeFile(join(definition, 'handlers', 'run.mjs'), 'process.exit(0)\n')
+    await writeFile(join(definition, 'registration.json'), JSON.stringify({ version: 1, registrationId: 'reg-a', bindings: { source: 'a', target: 'b' } }))
     const snapshot = await store.snapshotDefinition(definition)
+    expect(snapshot.manifest.entries.map(entry => entry.path)).toContain('handlers/run.mjs')
+    expect(snapshot.manifest.entries.map(entry => entry.path)).not.toContain('registration.json')
     await expect(new DefinitionStore(join(root, 'definition-cache'), store).get(snapshot.revision)).resolves.toMatchObject({ revision: snapshot.revision })
+    await rm(join(definition, 'registration.json'))
+    await writeFile(join(root, 'outside-registration.json'), '{}')
+    await symlink(join(root, 'outside-registration.json'), join(definition, 'registration.json'))
+    await expect(store.snapshotDefinition(definition)).rejects.toThrow(/unsupported entry/)
   })
 
   it('mark-and-sweep collects an orphan snapshot while preserving reachable and pinned revisions', async () => {

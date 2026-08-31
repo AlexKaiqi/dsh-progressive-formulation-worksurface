@@ -59,7 +59,6 @@ export interface SurfaceSessionContext {
   readonly capabilities: {
     readonly emit: readonly ['surface.revision.published', '*']
     readonly targetSurfaces: readonly [string]
-    readonly createSurface: true
   }
 }
 
@@ -116,7 +115,7 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     readonly stateRoot: string,
   ) {}
 
-  /** Load the durable one-to-one index and rebuild any missing worktree. */
+  /** Load the durable one-to-one index and rebuild any missing authoring directory. */
   async init(): Promise<void> {
     if (this.initialized) return
     const root = this.surfaceSessionsRoot()
@@ -132,7 +131,7 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
       this.revisionsBySurface.set(binding.surfaceId, revision)
       await this.revisions.pin(revision.inputRevision)
       if (revision.outputRevision !== undefined) await this.revisions.pin(revision.outputRevision)
-      await this.ensureWorktree(binding, revision)
+      await this.ensureAuthoring(binding, revision)
       await atomicJson(this.contextPath(binding.surfaceId), contextFor(binding, revision))
     }
     this.initialized = true
@@ -158,10 +157,6 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     validateSource(source)
     if (!this.initialized) throw new WorkSurfaceError('effect-failed', 'Surface Session service is not initialized')
     const sessionId = String(session.id)
-    const expectedCwd = this.worktreePath(surfaceId)
-    if (session.header.cwd === undefined || resolve(session.header.cwd) !== resolve(expectedCwd)) {
-      throw new WorkSurfaceError('already-exists-conflict', `DSH Session '${sessionId}' cwd must be its Surface worktree '${expectedCwd}'`)
-    }
     const operation = this.bindingMutation.then(async () => {
       const existingForSurface = this.bindingsBySurface.get(surfaceId)
       const existingForSession = this.bindingsBySession.get(sessionId)
@@ -172,14 +167,21 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
             ? `Surface '${surfaceId}' already progresses as DSH Session '${existingForSurface.sessionId}'`
             : `DSH Session '${sessionId}' already progresses Surface '${existingForSession!.surfaceId}'`)
         }
+        const cwd = session.header.cwd === undefined ? undefined : resolve(session.header.cwd)
+        if (cwd !== resolve(this.workRoot) && cwd !== resolve(this.legacyWorktreePath(surfaceId))) {
+          throw new WorkSurfaceError('already-exists-conflict', `DSH Session '${sessionId}' cwd does not match its WorkSurface binding`)
+        }
         const revision = await this.deriveRevisionState(existing)
         this.revisionsBySurface.set(surfaceId, revision)
-        await this.ensureWorktree(existing, revision)
+        await this.ensureAuthoring(existing, revision)
         await atomicJson(this.contextPath(surfaceId), contextFor(existing, revision))
         this.attachSession(session)
         return existing
       }
 
+      if (session.header.cwd === undefined || resolve(session.header.cwd) !== resolve(this.workRoot)) {
+        throw new WorkSurfaceError('already-exists-conflict', `DSH Session '${sessionId}' cwd must be the WorkSurface authoring root '${this.workRoot}'`)
+      }
       if (session.events.some(event => event.type === 'turn/start')) {
         throw new WorkSurfaceError('already-exists-conflict', `DSH Session '${sessionId}' must bind its Surface before the first Turn`)
       }
@@ -198,7 +200,7 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
       const revision = await this.deriveRevisionState(binding)
       this.revisionsBySurface.set(surfaceId, revision)
       await this.revisions.pin(revision.inputRevision)
-      await this.ensureWorktree(binding, revision)
+      await this.ensureAuthoring(binding, revision)
       await atomicJson(this.contextPath(surfaceId), contextFor(binding, revision))
       this.attachSession(session)
       return binding
@@ -238,7 +240,9 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
       sessionId,
       turn,
       surfaceId: binding.surfaceId,
-      cwd: this.worktreePath(binding.surfaceId),
+      cwd: resolve(session.header.cwd ?? '') === resolve(this.legacyWorktreePath(binding.surfaceId))
+        ? this.legacyWorktreePath(binding.surfaceId)
+        : this.authoringPath(binding.surfaceId),
       contextFile: this.contextPath(binding.surfaceId),
       binding,
       revision,
@@ -278,11 +282,15 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
       .map(binding => structuredClone(binding))
       .sort((left, right) => left.surfaceId.localeCompare(right.surfaceId))
   }
-  cwdForSurface(surfaceId: string): string { return this.worktreePath(surfaceId) }
+  cwdForSurface(surfaceId: string): string {
+    validateSurfaceId(surfaceId)
+    return this.workRoot
+  }
 
   /** Resolve the product default for an unbound Surface without asking the user for protocol vocabulary. */
   async defaultInputSource(surfaceId: string): Promise<SurfaceInputSource> {
     validateSurfaceId(surfaceId)
+    await this.assertSurfaceRoot()
     if (await exists(this.authoringPath(surfaceId))) return 'authoring'
     if (publishedHead(await this.replaySurface(surfaceId)) !== null) return 'published'
     throw new WorkSurfaceError('not-found', `Surface '${surfaceId}' has neither an authoring directory nor a published revision`)
@@ -321,18 +329,12 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     return this.eventStore.replay(registrationSubject(registrationId), fromSeq)
   }
 
-  /** Repair authoring projections and Surface worktrees. DSH repairs and resumes Sessions. */
+  /** Repair authoring projections and contexts. DSH repairs and resumes Sessions. */
   async recover(): Promise<void> {
-    for (const surfaceId of await this.eventStore.list('surface')) {
-      const events = await this.replaySurface(surfaceId)
-      const published = events.findLast(event => event.name === 'surface.revision.published'
-        && event.meta.inputRevision !== undefined && event.meta.outputRevision !== undefined)
-      if (published !== undefined) await this.refreshAuthoring(surfaceId, published.meta.inputRevision!, published.meta.outputRevision!)
-    }
     for (const binding of this.bindingsBySurface.values()) {
       const revision = await this.deriveRevisionState(binding)
       this.revisionsBySurface.set(binding.surfaceId, revision)
-      await this.ensureWorktree(binding, revision)
+      await this.ensureAuthoring(binding, revision)
       await atomicJson(this.contextPath(binding.surfaceId), contextFor(binding, revision))
     }
   }
@@ -353,9 +355,9 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     return this.revisions.collect({ reachable, minAgeMs })
   }
 
-  /** Surface Session worktrees are durable recovery state; only abandoned temporaries are collected. */
-  async collectWorktreeGarbage(minAgeMs = 7 * 24 * 60 * 60 * 1_000): Promise<SurfaceSessionGcResult> {
-    if (!Number.isFinite(minAgeMs) || minAgeMs < 0) throw new WorkSurfaceError('invalid-working-copy', 'Worktree GC requires a non-negative finite age')
+  /** Authoring WIP is durable; collect only abandoned Surface Session temporaries. */
+  async collectSessionGarbage(minAgeMs = 7 * 24 * 60 * 60 * 1_000): Promise<SurfaceSessionGcResult> {
+    if (!Number.isFinite(minAgeMs) || minAgeMs < 0) throw new WorkSurfaceError('invalid-working-copy', 'Surface Session GC requires a non-negative finite age')
     const root = this.surfaceSessionsRoot()
     await mkdir(root, { recursive: true, mode: 0o700 })
     let sweptTemporaryPaths = 0
@@ -373,10 +375,16 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     return { retainedSurfaceSessions: this.bindingsBySurface.size, sweptTemporaryPaths }
   }
 
+  /** @deprecated Use collectSessionGarbage. */
+  collectWorktreeGarbage(minAgeMs?: number): Promise<SurfaceSessionGcResult> {
+    return this.collectSessionGarbage(minAgeMs)
+  }
+
   private async createBinding(surfaceId: string, sessionId: string, source: SurfaceInputSource): Promise<SurfaceSessionBinding> {
     let prepared: Revision | undefined
     let inputSource: SurfaceSessionBinding['inputSource']
     if (source === 'authoring') {
+      await this.assertSurfaceRoot()
       prepared = (await this.revisions.snapshotSurface(this.authoringPath(surfaceId))).revision
       inputSource = 'authoring'
     } else if (source.startsWith('revision:')) {
@@ -411,6 +419,7 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
   private async publish(scope: TurnScope, payload: JsonValue): Promise<EventRef> {
     const current = scope.current
     return this.serializeSurface(current.surfaceId, async () => {
+      if (current.cwd === this.authoringPath(current.surfaceId)) await this.assertSurfaceRoot()
       const outputRevision = (await this.revisions.snapshotSurface(current.cwd)).revision
       await this.revisions.pin(outputRevision)
       const expectedHead = current.revision.expectedHead
@@ -442,45 +451,49 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
         this.revisionsBySurface.set(current.surfaceId, revision)
         scope.current = { ...current, revision }
         await atomicJson(current.contextFile, contextFor(current.binding, revision))
-        await this.refreshAuthoring(current.surfaceId, current.revision.inputRevision, outputRevision)
       }
       return ref
     })
   }
 
-  private async ensureWorktree(binding: SurfaceSessionBinding, revision: SurfaceRevisionState): Promise<string> {
+  private async ensureAuthoring(binding: SurfaceSessionBinding, revision: SurfaceRevisionState): Promise<string> {
     const root = this.surfaceSessionPath(binding.surfaceId)
-    const work = this.worktreePath(binding.surfaceId)
-    const marker = join(root, 'work.initialized')
+    const authoring = this.authoringPath(binding.surfaceId)
+    const marker = join(root, 'authoring.initialized')
+    const legacyMarker = join(root, 'work.initialized')
+    const legacyWorktree = this.legacyWorktreePath(binding.surfaceId)
     await mkdir(root, { recursive: true, mode: 0o700 })
-    if (await exists(marker) && await exists(work)) return work
-    await rm(work, { recursive: true, force: true })
-    const temporary = join(root, `work.${randomUUID()}.tmp`)
+    if (await exists(legacyMarker)) {
+      if (await exists(legacyWorktree)) {
+        await requireRealDirectory(legacyWorktree, 'legacy Surface worktree')
+        return legacyWorktree
+      }
+      const temporary = join(root, `work.${randomUUID()}.tmp`)
+      try {
+        await this.revisions.materialize(revision.inputRevision, temporary)
+        await rename(temporary, legacyWorktree)
+      } finally {
+        await rm(temporary, { recursive: true, force: true })
+      }
+      return legacyWorktree
+    }
+
+    await this.assertSurfaceRoot()
+    if (await exists(authoring)) {
+      await requireRealDirectory(authoring, 'Surface authoring path')
+      await writeMarker(marker, revision.inputRevision)
+      return authoring
+    }
+
+    const temporary = join(root, `authoring.${randomUUID()}.tmp`)
     try {
       await this.revisions.materialize(revision.inputRevision, temporary)
-      await rename(temporary, work)
-      await writeFile(marker, `${revision.inputRevision}\n`, { flag: 'wx', mode: 0o600 })
+      await rename(temporary, authoring)
+      await writeMarker(marker, revision.inputRevision)
     } finally {
       await rm(temporary, { recursive: true, force: true })
     }
-    return work
-  }
-
-  private async refreshAuthoring(surfaceId: string, inputRevision: Revision, outputRevision: Revision): Promise<void> {
-    const authoring = this.authoringPath(surfaceId)
-    try {
-      if ((await this.revisions.snapshotSurface(authoring)).revision !== inputRevision) return
-      const parent = dirname(authoring)
-      const replacement = join(parent, `.${surfaceId}.${randomUUID()}.new`)
-      const backup = join(parent, `.${surfaceId}.${randomUUID()}.old`)
-      await this.revisions.materialize(outputRevision, replacement)
-      if ((await this.revisions.snapshotSurface(authoring)).revision !== inputRevision) { await rm(replacement, { recursive: true, force: true }); return }
-      await rename(authoring, backup)
-      try { await rename(replacement, authoring) } catch (error) { await rename(backup, authoring); throw error }
-      await rm(backup, { recursive: true, force: true })
-    } catch {
-      // Authoring is a repairable projection; the publication event is already durable.
-    }
+    return authoring
   }
 
   private requireScope(capability: string): TurnScope {
@@ -500,6 +513,10 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     this.bindingsBySession.set(binding.sessionId, binding)
   }
 
+  private async assertSurfaceRoot(): Promise<void> {
+    await requireRealDirectory(resolve(this.workRoot, 'surfaces'), 'Surface authoring root')
+  }
+
   private authoringPath(surfaceId: string): string {
     const root = resolve(this.workRoot, 'surfaces')
     const path = resolve(root, surfaceId)
@@ -514,7 +531,7 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     return join(this.surfaceSessionsRoot(), surfaceId)
   }
 
-  private worktreePath(surfaceId: string): string { return join(this.surfaceSessionPath(surfaceId), 'work') }
+  private legacyWorktreePath(surfaceId: string): string { return join(this.surfaceSessionPath(surfaceId), 'work') }
   private contextPath(surfaceId: string): string { return join(this.surfaceSessionPath(surfaceId), 'context.json') }
 
   private serializeSurface<T>(surfaceId: string, operation: () => Promise<T>): Promise<T> {
@@ -542,7 +559,7 @@ function contextFor(binding: SurfaceSessionBinding, revision: SurfaceRevisionSta
       expectedHead: revision.expectedHead,
       ...(revision.outputRevision === undefined ? {} : { outputRevision: revision.outputRevision }),
     },
-    capabilities: { emit: ['surface.revision.published', '*'], targetSurfaces: [binding.surfaceId], createSurface: true },
+    capabilities: { emit: ['surface.revision.published', '*'], targetSurfaces: [binding.surfaceId] },
   }
 }
 
@@ -589,6 +606,18 @@ async function atomicJson(path: string, value: unknown): Promise<void> {
   const temporary = `${path}.${randomUUID()}.tmp`
   await writeFile(temporary, `${stableStringify(value)}\n`, { flag: 'wx', mode: 0o400 })
   await rename(temporary, path)
+}
+
+async function requireRealDirectory(path: string, label: string): Promise<void> {
+  const info = await lstat(path)
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    throw new WorkSurfaceError('invalid-working-copy', `${label} must be a real directory`)
+  }
+}
+
+async function writeMarker(path: string, revision: Revision): Promise<void> {
+  try { await writeFile(path, `${revision}\n`, { flag: 'wx', mode: 0o600 }) }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
 }
 
 async function exists(path: string): Promise<boolean> {

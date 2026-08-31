@@ -17,7 +17,7 @@ def fail(message: str) -> None:
 
 
 def static_checks() -> None:
-    for schema in ("event.schema.json", "definition.schema.json", "context.schema.json", "binding.schema.json"):
+    for schema in ("event.schema.json", "definition.schema.json", "context.schema.json", "binding.schema.json", "authoring-registration.schema.json"):
         json.loads((SPEC / schema).read_text())
     template = (SPEC / "surface-template.md").read_text()
     required = [
@@ -45,7 +45,7 @@ def static_checks() -> None:
                 fail(f"{entry.get('id')} has no explicit assertion tag in {test}")
 
     cli_sources = "\n".join(path.read_text() for path in (ROOT / "packages/cli/src").glob("*.ts"))
-    forbidden = ["surface.derive", "revision.commit", "revision.checkout"]
+    forbidden = ["surface.create", "orchestrate.register", "surface.derive", "revision.commit", "revision.checkout"]
     for token in forbidden:
         if token in cli_sources:
             fail(f"CLI still exposes forbidden domain mutation {token}")

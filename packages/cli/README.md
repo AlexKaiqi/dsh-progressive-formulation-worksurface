@@ -8,6 +8,6 @@ ws emit <event-name> [--surface <surface-id>] [--key <operation-key>] [--payload
 
 Surface 与 DSH Session 在 Agent 启动前已经唯一绑定。`ws emit <name>` 从受信任的 `DSH_SURFACE_ID` 解析唯一目标，不能打开或切换 Surface。离开 Surface Session 上下文后，管理调用者必须显式提供 Surface；CLI 不进行猜测。
 
-Surface 与 Orchestration 目录由 Bash、Zsh、Python、Node.js 和编辑器直接构造，不提供 create/derive/clone/write CLI。Definition 生命周期和 inspection 属于 Host/Web/SDK 管理面。
+Surface 与 Orchestration 目录由 Bash、Zsh、Python、Node.js 和编辑器直接构造，不提供 create/derive/clone/write/register CLI。`orchestrations/<id>/registration.json` 把 Registration 身份与角色绑定文件化，但不进入 Definition Revision；managed emit 先让 Runtime 固定尚未登记的 Registration，再 append 请求的 root event。Definition inspection 与已登记生命周期控制属于 Host/Web/SDK 管理面。
 
 CLI 只做认证 transport、参数编码、结果展示和退出码，不直接打开 persistence、对象库或 projection，也不实现匹配、handler 调度、幂等或 Agent 推进。transport 可替换。

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -11,7 +11,6 @@ import {
   defineOrchestration,
   projectSurfaceLifecycle,
   stableStringify,
-  validateSurfaceMarkdown,
   type EventRef,
   type JsonValue,
   type Revision,
@@ -53,10 +52,10 @@ export interface SurfaceTopologyNode {
 
 export interface SurfaceChoice { readonly surfaceId: string; readonly title: string }
 
-export interface SurfaceCreationResult {
-  readonly surfaceId: string
-  readonly created: boolean
-  readonly planner: { readonly surfaceId: string; readonly sessionId: string; readonly turn: number }
+interface AuthoringRegistration {
+  readonly version: 1
+  readonly registrationId: string
+  readonly bindings: Readonly<Record<string, string>>
 }
 
 export interface TopologyInspection {
@@ -75,6 +74,8 @@ export interface LegacyDataReport {
 
 export interface WorkSurfaceGcResult {
   readonly revisions: RevisionGcResult
+  readonly sessions: SurfaceSessionGcResult
+  /** @deprecated Use sessions. */
   readonly worktrees: SurfaceSessionGcResult
 }
 
@@ -159,27 +160,6 @@ export class WorkSurfaceService extends Service {
 
   async [Service.init](): Promise<void> { await this.startupRecovery }
 
-  async createSurface(surfaceId: string, markdown: string, capability: string): Promise<SurfaceCreationResult> {
-    validateAuthorId(surfaceId, 'Surface')
-    validateSurfaceMarkdown(markdown)
-    const planner = this.surfaces.planningSource(capability)
-    const directory = this.authorPath('surfaces', surfaceId)
-    const contract = join(directory, 'surface.md')
-    const content = markdown.endsWith('\n') ? markdown : `${markdown}\n`
-    await mkdir(directory, { recursive: true })
-    let created = false
-    try {
-      await writeFile(contract, content, { encoding: 'utf8', flag: 'wx' })
-      created = true
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      if (await readFile(contract, 'utf8') !== content) {
-        throw new WorkSurfaceError('already-exists-conflict', `Surface '${surfaceId}' already has a different authoring contract`)
-      }
-    }
-    return { surfaceId, created, planner }
-  }
-
   emitEvent(
     surfaceId: string,
     name: string,
@@ -194,7 +174,9 @@ export class WorkSurfaceService extends Service {
     })
   }
 
-  emitTurn(capability: string, name: string, payload: JsonValue, operationKey?: string): Promise<EventRef> {
+  async emitTurn(capability: string, name: string, payload: JsonValue, operationKey?: string): Promise<EventRef> {
+    this.surfaces.planningSource(capability)
+    await this.syncAuthoringRegistrations()
     return this.surfaces.emitTurn(capability, name, payload, operationKey)
   }
 
@@ -241,43 +223,36 @@ export class WorkSurfaceService extends Service {
   async registerDefinition(
     orchestrationId: string,
     bindings: Readonly<Record<string, string>>,
-    registrationId = `reg_${randomUUID()}`,
-    definitionInput?: unknown,
-    capability?: string,
+    registrationId: string,
   ): Promise<{ orchestrationId: string; registrationId: string; definitionRevision: Revision }> {
     validateAuthorId(orchestrationId, 'Orchestration')
     validateAuthorId(registrationId, 'Registration')
-    if (capability !== undefined) this.surfaces.planningSource(capability)
-    const directory = this.authorPath('orchestrations', orchestrationId)
-    if (definitionInput !== undefined) {
-      const definition = defineOrchestration(definitionInput).definition
-      const content = `${stableStringify(definition)}\n`
-      await mkdir(directory, { recursive: true })
-      const path = join(directory, 'definition.json')
-      try {
-        await writeFile(path, content, { encoding: 'utf8', flag: 'wx' })
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-        if (await readFile(path, 'utf8') !== content) {
-          throw new WorkSurfaceError('already-exists-conflict', `Orchestration '${orchestrationId}' already has a different authoring Definition`)
-        }
-      }
-    }
-    const definitionRevision = (await this.revisions.snapshotDefinition(directory)).revision
-    let definition: unknown
-    try { definition = JSON.parse((await this.revisions.readFile(definitionRevision, 'definition.json')).toString('utf8')) }
-    catch { throw new WorkSurfaceError('invalid-definition', `Orchestration '${orchestrationId}' has invalid definition.json`) }
+    validateBindings(bindings)
 
     if ((await this.surfaces.replayRegistration(registrationId)).length > 0) {
       const existing = await this.engine.inspect(registrationId)
       if (existing.orchestrationId === orchestrationId
-        && existing.definitionRevision === definitionRevision
         && stableStringify(existing.bindings) === stableStringify(bindings)) {
         this.registrationIds.add(registrationId)
-        return { orchestrationId, registrationId, definitionRevision }
+        return { orchestrationId, registrationId, definitionRevision: existing.definitionRevision }
       }
       throw new WorkSurfaceError('already-exists-conflict', `Registration '${registrationId}' already fixes different orchestration facts`)
     }
+
+    await this.assertAuthoringCollection('orchestrations')
+    await this.assertAuthoringCollection('surfaces')
+    for (const surfaceId of new Set(Object.values(bindings))) {
+      const authoring = this.authorPath('surfaces', surfaceId)
+      if (await exists(authoring)) await this.revisions.snapshotSurface(authoring)
+      else await this.surfaces.defaultInputSource(surfaceId)
+    }
+
+    const directory = this.authorPath('orchestrations', orchestrationId)
+    const definitionRevision = (await this.revisions.snapshotDefinition(directory)).revision
+    let definition: unknown
+    try { definition = JSON.parse((await this.revisions.readFile(definitionRevision, 'definition.json')).toString('utf8')) }
+    catch { throw new WorkSurfaceError('invalid-definition', `Orchestration '${orchestrationId}' has invalid definition.json`) }
+    definition = defineOrchestration(definition).definition
 
     const result = await this.engine.register({ orchestrationId, registrationId, definitionRevision, definition: definition as never, bindings })
     this.registrationIds.add(registrationId)
@@ -353,14 +328,13 @@ export class WorkSurfaceService extends Service {
   /** Collect only old immutable objects that no durable Event fact or pin can reach. */
   async collectGarbage(minAgeMs = 7 * 24 * 60 * 60 * 1_000): Promise<WorkSurfaceGcResult> {
     const revisions = await this.surfaces.collectGarbage(minAgeMs)
-    const worktrees = await this.surfaces.collectWorktreeGarbage(minAgeMs)
-    return { revisions, worktrees }
+    const sessions = await this.surfaces.collectSessionGarbage(minAgeMs)
+    return { revisions, sessions, worktrees: sessions }
   }
 
   async dispatch(call: WorkSurfaceRpcCall, signal: AbortSignal): Promise<unknown> {
     const p = call.params
     switch (call.method) {
-      case 'surface.create': return this.createSurface(text(p, 'surfaceId'), text(p, 'markdown'), text(p, 'capability'))
       case 'event.emit': {
         const eventId = optionalText(p, 'eventId')
         return this.emitEvent(text(p, 'surfaceId'), text(p, 'name'), json(p.payload), {
@@ -370,13 +344,6 @@ export class WorkSurfaceService extends Service {
       case 'event.emit-turn': return this.emitTurn(text(p, 'capability'), text(p, 'name'), json(p.payload), optionalText(p, 'operationKey'))
       case 'event.replay': return this.replayEvents(text(p, 'surfaceId'), optionalInteger(p, 'fromSeq'))
       case 'event.watch': return this.waitForEvents(text(p, 'surfaceId'), optionalInteger(p, 'fromSeq'), signal)
-      case 'orchestrate.register': return this.registerDefinition(
-        text(p, 'orchestrationId'),
-        recordOfStrings(p, 'bindings'),
-        optionalText(p, 'registrationId'),
-        p.definition,
-        optionalText(p, 'capability'),
-      )
       case 'orchestrate.pause': await this.pauseDefinition(text(p, 'registrationId')); return { status: 'paused' }
       case 'orchestrate.resume': await this.resumeDefinition(text(p, 'registrationId')); return { status: 'active' }
       case 'orchestrate.retire': await this.retireDefinition(text(p, 'registrationId')); return { status: 'retired' }
@@ -390,6 +357,27 @@ export class WorkSurfaceService extends Service {
         return { path }
       }
       case 'legacy.report': return this.inspectLegacyData()
+    }
+  }
+
+  private async syncAuthoringRegistrations(): Promise<void> {
+    const root = await this.assertAuthoringCollection('orchestrations')
+    const entries = (await readdir(root, { withFileTypes: true }))
+      .filter(entry => entry.isDirectory())
+      .sort((left, right) => left.name.localeCompare(right.name))
+    for (const entry of entries) {
+      const manifest = join(root, entry.name, 'registration.json')
+      let info: Awaited<ReturnType<typeof lstat>>
+      try { info = await lstat(manifest) }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
+        throw error
+      }
+      if (!info.isFile() || info.isSymbolicLink()) {
+        throw new WorkSurfaceError('invalid-definition', `Orchestration '${entry.name}' registration.json must be a regular file`)
+      }
+      const registration = parseAuthoringRegistration(await readFile(manifest, 'utf8'))
+      await this.registerDefinition(entry.name, registration.bindings, registration.registrationId)
     }
   }
 
@@ -424,6 +412,15 @@ export class WorkSurfaceService extends Service {
     return surfaceId
   }
 
+  private async assertAuthoringCollection(collection: 'surfaces' | 'orchestrations'): Promise<string> {
+    const root = resolve(this.config.workRoot, collection)
+    const info = await lstat(root)
+    if (!info.isDirectory() || info.isSymbolicLink()) {
+      throw new WorkSurfaceError('invalid-working-copy', `WorkSurface authoring root '${collection}' must be a real directory`)
+    }
+    return root
+  }
+
   private authorPath(collection: 'surfaces' | 'orchestrations', id: string): string {
     const root = resolve(this.config.workRoot, collection)
     const path = resolve(root, id)
@@ -442,10 +439,29 @@ export class WorkSurfaceService extends Service {
 function text(record: Readonly<Record<string, unknown>>, key: string): string { const value = record[key]; if (typeof value !== 'string' || value === '') throw invalid(key); return value }
 function optionalText(record: Readonly<Record<string, unknown>>, key: string): string | undefined { const value = record[key]; if (value === undefined) return undefined; if (typeof value !== 'string' || value === '') throw invalid(key); return value }
 function optionalInteger(record: Readonly<Record<string, unknown>>, key: string): number | undefined { const value = record[key]; if (value === undefined) return undefined; if (!Number.isSafeInteger(value) || (value as number) < 0) throw invalid(key); return value as number }
-function recordOfStrings(record: Readonly<Record<string, unknown>>, key: string): Record<string, string> { const value = record[key]; if (!isRecord(value) || Object.values(value).some(item => typeof item !== 'string')) throw invalid(key); return value as Record<string, string> }
 function json(value: unknown): JsonValue { try { JSON.stringify(value) } catch { throw invalid('payload') } return value as JsonValue }
 function isRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value) }
 function invalid(key: string): WorkSurfaceError { return new WorkSurfaceError('invalid-working-copy', `invalid RPC parameter '${key}'`) }
 function renderError(error: unknown): string { return error instanceof Error ? error.message : String(error) }
 function validateAuthorId(value: string, label: string): void { if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value)) throw new WorkSurfaceError('invalid-id', `invalid ${label} id '${value}'`) }
+function validateBindings(bindings: Readonly<Record<string, string>>): void {
+  if (!isRecord(bindings) || Object.keys(bindings).length === 0) throw new WorkSurfaceError('invalid-definition', 'registration bindings must be a non-empty object')
+  for (const [role, surfaceId] of Object.entries(bindings)) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(role)) throw new WorkSurfaceError('invalid-definition', `invalid registration role '${role}'`)
+    if (typeof surfaceId !== 'string') throw new WorkSurfaceError('invalid-definition', `Surface bound to '${role}' must be a string`)
+    validateAuthorId(surfaceId, `Surface bound to '${role}'`)
+  }
+}
+function parseAuthoringRegistration(text: string): AuthoringRegistration {
+  let value: unknown
+  try { value = JSON.parse(text) } catch { throw new WorkSurfaceError('invalid-definition', 'registration.json is not valid JSON') }
+  if (!isRecord(value) || value.version !== 1 || typeof value.registrationId !== 'string' || !isRecord(value.bindings)
+    || Object.keys(value).some(key => !['version', 'registrationId', 'bindings'].includes(key))) {
+    throw new WorkSurfaceError('invalid-definition', 'registration.json must contain only version, registrationId, and bindings')
+  }
+  validateAuthorId(value.registrationId, 'Registration')
+  const bindings = value.bindings as Record<string, string>
+  validateBindings(bindings)
+  return { version: 1, registrationId: value.registrationId, bindings }
+}
 async function exists(path: string): Promise<boolean> { try { await lstat(path); return true } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error } }

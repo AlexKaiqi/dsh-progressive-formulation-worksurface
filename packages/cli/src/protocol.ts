@@ -1,8 +1,7 @@
 /** Methods exposed by the replaceable WorkSurface Host transport. */
 export const WORKSURFACE_RPC_METHODS = [
-  'surface.create',
   'event.emit', 'event.emit-turn', 'event.replay', 'event.watch',
-  'orchestrate.register', 'orchestrate.pause', 'orchestrate.resume', 'orchestrate.retire', 'orchestrate.show', 'orchestrate.list',
+  'orchestrate.pause', 'orchestrate.resume', 'orchestrate.retire', 'orchestrate.show', 'orchestrate.list',
   'topology.show', 'revision.read', 'revision.materialize',
   'legacy.report',
 ] as const

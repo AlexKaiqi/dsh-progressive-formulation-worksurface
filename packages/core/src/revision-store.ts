@@ -105,6 +105,7 @@ export class RevisionStore {
         const name = normalizePath(relative(source, path))
         const pathInfo = await lstat(path)
         if (pathInfo.isSymbolicLink() || (!pathInfo.isDirectory() && !pathInfo.isFile())) throw new WorkSurfaceError('invalid-working-copy', `revision contains unsupported entry '${name}'`)
+        if (kind === 'definition' && name === 'registration.json') continue
         if (pathInfo.isDirectory()) {
           await walk(path)
           continue

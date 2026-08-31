@@ -5,7 +5,7 @@
 
 export { WorkSurfaceHost } from './host.ts'
 export { WorkSurfaceService } from './service.ts'
-export type { OrchestrationSummary, SurfaceChoice, SurfaceCreationResult, SurfaceTopologyNode, TopologyInspection, WorkSurfaceGcResult } from './service.ts'
+export type { OrchestrationSummary, SurfaceChoice, SurfaceTopologyNode, TopologyInspection, WorkSurfaceGcResult } from './service.ts'
 export { WorkSurfaceEngine } from './engine.ts'
 export { DshWorkSurfaceSessionAdapter, installDshSessionAdapter } from './session-adapter.ts'
 export { SurfaceSessionAdmission } from './session-admission.ts'

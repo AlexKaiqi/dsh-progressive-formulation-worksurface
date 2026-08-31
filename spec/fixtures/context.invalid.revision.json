@@ -7,5 +7,5 @@
     "inputRevision": "latest",
     "expectedHead": null
   },
-  "capabilities": { "emit": [], "targetSurfaces": ["surface-a"], "createSurface": false }
+  "capabilities": { "emit": [], "targetSurfaces": ["surface-a"] }
 }

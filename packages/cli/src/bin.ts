@@ -25,9 +25,7 @@ export async function main(argv = process.argv.slice(2), env = process.env): Pro
 
 async function execute(args: Args, env: NodeJS.ProcessEnv): Promise<unknown> {
   if (args.positional[0] === 'emit' && args.positional.length === 2) return emit(args, env)
-  if (args.positional[0] === 'surface' && args.positional[1] === 'create' && args.positional.length === 3) return createSurface(args, env)
-  if (args.positional[0] === 'orchestrate' && args.positional[1] === 'register' && args.positional.length === 3) return registerOrchestration(args, env)
-  throw usage('expected `ws emit`, `ws surface create`, or `ws orchestrate register`')
+  throw usage('expected `ws emit`')
 }
 
 async function emit(args: Args, env: NodeJS.ProcessEnv): Promise<unknown> {
@@ -51,45 +49,10 @@ async function emit(args: Args, env: NodeJS.ProcessEnv): Promise<unknown> {
   return client.call('event.emit', { surfaceId, name: target, payload: value, eventId })
 }
 
-async function createSurface(args: Args, env: NodeJS.ProcessEnv): Promise<unknown> {
-  allowFlags(args, ['contract-file', 'socket', 'capability'])
-  const capability = managedCapability(args, env)
-  const contractPath = requiredFlag(args, 'contract-file')
-  const markdown = readFileSync(realpathSync(contractPath), 'utf8')
-  return clientFor(args, env).call('surface.create', {
-    capability,
-    surfaceId: args.positional[2]!,
-    markdown,
-  })
-}
-
-async function registerOrchestration(args: Args, env: NodeJS.ProcessEnv): Promise<unknown> {
-  allowFlags(args, ['definition-file', 'bindings', 'bindings-file', 'registration', 'socket', 'capability'])
-  const capability = managedCapability(args, env)
-  const definition = parseJson(readFileSync(realpathSync(requiredFlag(args, 'definition-file')), 'utf8'), 'definition')
-  const inlineBindings = stringFlag(args, 'bindings')
-  const bindingsFile = stringFlag(args, 'bindings-file')
-  if ((inlineBindings === undefined) === (bindingsFile === undefined)) throw usage('exactly one of --bindings and --bindings-file is required')
-  const bindings = parseBindings(bindingsFile === undefined ? inlineBindings! : readFileSync(realpathSync(bindingsFile), 'utf8'))
-  return clientFor(args, env).call('orchestrate.register', {
-    capability,
-    orchestrationId: args.positional[2]!,
-    registrationId: requiredFlag(args, 'registration'),
-    definition,
-    bindings,
-  })
-}
-
 function clientFor(args: Args, env: NodeJS.ProcessEnv): WorkSurfaceHostClient {
   const socket = stringFlag(args, 'socket') ?? env.DSH_WORKSURFACE_SOCKET
   if (socket === undefined) throw new WorkSurfaceError('unauthorized', '--socket is required outside a managed DSH Turn')
   return new WorkSurfaceHostClient(socket)
-}
-
-function managedCapability(args: Args, env: NodeJS.ProcessEnv): string {
-  const capability = stringFlag(args, 'capability') ?? env.DSH_WORKSURFACE_CAPABILITY
-  if (capability === undefined) throw new WorkSurfaceError('unauthorized', 'a live DSH WorkSurface Turn capability is required')
-  return capability
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -119,12 +82,6 @@ function payload(args: Args): string {
   return inline ?? '{}'
 }
 
-function requiredFlag(args: Args, name: string): string {
-  const value = stringFlag(args, name)
-  if (value === undefined) throw usage(`--${name} is required`)
-  return value
-}
-
 function stringFlag(args: Args, name: string): string | undefined {
   const value = args.flags.get(name)
   return typeof value === 'string' ? value : undefined
@@ -133,15 +90,6 @@ function stringFlag(args: Args, name: string): string | undefined {
 function parseJson(text: string, label: string): unknown {
   try { return JSON.parse(text) }
   catch { throw usage(`${label} is not valid JSON`) }
-}
-
-function parseBindings(text: string): Record<string, string> {
-  const value = parseJson(text, 'bindings')
-  if (value === null || typeof value !== 'object' || Array.isArray(value)
-    || Object.values(value).some(item => typeof item !== 'string' || item === '')) {
-    throw usage('bindings must be a JSON object of role-to-Surface strings')
-  }
-  return value as Record<string, string>
 }
 
 function usage(message: string): WorkSurfaceError {

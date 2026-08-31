@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "registrationId": "proposal-review-v1",
+  "bindings": { "planner": "root" },
+  "command": "register"
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/authoring-registration.schema.json",
+  "title": "WorkSurface Authoring Registration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "registrationId", "bindings"],
+  "properties": {
+    "version": { "const": 1 },
+    "registrationId": { "$ref": "#/$defs/id" },
+    "bindings": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/role" },
+      "additionalProperties": { "$ref": "#/$defs/id" }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+    "role": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$" }
+  }
+}

@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 export function validateModelSuite(suite) {
-  const required = ['history-key-and-activation-replay', 'operation-intent-and-settlement-recovery', 'session-turn-worktree-recovery', 'turn-capability-and-publication-cas', 'handler-event-api-boundary', 'cli-and-service-equivalence']
+  const required = ['history-key-and-activation-replay', 'operation-intent-and-settlement-recovery', 'session-turn-authoring-recovery', 'turn-capability-and-publication-cas', 'handler-event-api-boundary', 'cli-and-service-equivalence']
   if (suite?.version !== 1 || !Array.isArray(suite?.cases)) return ['invalid suite']
   const errors = required.filter(id => !suite.cases.some(item => item?.id === id)).map(id => `missing ${id}`)
   for (const item of suite.cases) {

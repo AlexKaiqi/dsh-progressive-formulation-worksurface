@@ -1,14 +1,13 @@
 {
-  "version": 8,
+  "version": 9,
   "status": "replaceable transport contract",
   "authentication": "private Host socket, mode 0600",
   "call": ["id", "method", "params"],
   "methods": [
-    "surface.create",
     "event.emit", "event.emit-turn", "event.replay", "event.watch",
-    "orchestrate.register", "orchestrate.pause", "orchestrate.resume", "orchestrate.retire", "orchestrate.show", "orchestrate.list",
+    "orchestrate.pause", "orchestrate.resume", "orchestrate.retire", "orchestrate.show", "orchestrate.list",
     "topology.show", "revision.read", "revision.materialize",
     "legacy.report"
   ],
-  "boundary": "A Surface is bound to one DSH Session before its first Turn. A live Turn capability can emit only for that fixed Surface and may create authoring contracts for new Surfaces; no RPC opens or switches the current Session."
+  "boundary": "A Surface is bound to one DSH Session before its first Turn. The Agent constructs Surface and Orchestration directories with ordinary file capabilities; event.emit-turn fixes pending file-authored registrations before appending the requested event. No RPC creates, opens, registers, or switches a Surface."
 }

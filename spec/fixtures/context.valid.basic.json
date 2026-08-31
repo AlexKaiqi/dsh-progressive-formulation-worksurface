@@ -9,7 +9,6 @@
   },
   "capabilities": {
     "emit": ["surface.revision.published", "*"],
-    "targetSurfaces": ["surface-a"],
-    "createSurface": true
+    "targetSurfaces": ["surface-a"]
   }
 }

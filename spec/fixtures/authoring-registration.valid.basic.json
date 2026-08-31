@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "registrationId": "proposal-review-v1",
+  "bindings": {
+    "planner": "root",
+    "review": "review-a",
+    "delivery": "delivery"
+  }
+}

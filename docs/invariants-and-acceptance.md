@@ -12,7 +12,7 @@ pnpm check
 
 `pnpm check` 调用 `scripts/check.py`，依次验证：
 
-1. Event、Definition、Context schema 和示例；
+1. Event、Definition、文件化 Registration、Context schema 和示例；
 2. 标准 `surface.md` 模板；
 3. `spec/invariants.json` 的编号、enforcement point、测试路径与显式不变量断言标签；
 4. Core/Web/CLI 静态边界；
@@ -27,6 +27,7 @@ pnpm check
 | `spec/event.schema.json` | Event envelope、subject、EventRef、meta 与 JSON payload |
 | `spec/definition.schema.json` | Definition、role、history、key、条件与 reaction |
 | `spec/binding.schema.json` | SurfaceId 与 DSH SessionId 的一对一绑定文件格式 |
+| `spec/authoring-registration.schema.json` | `orchestrations/<id>/registration.json` 的稳定 ID 与 role bindings |
 | `spec/context.schema.json` | Surface Session 的只读上下文 |
 | `spec/surface-template.md` | Surface 七节主契约的唯一模板 |
 | `packages/dsh/spec/host-rpc.json` | 可替换 Host transport 的方法集合与版本 |
@@ -40,14 +41,14 @@ Markdown 不变量摘要不再单独维护，避免和 `spec/invariants.json` �
 | 同 EventId 重试、同 id 异内容冲突、跨实例锁内决策 | `packages/core/tests/file-event-store.spec.ts` |
 | snapshot/materialize、只读输入、异常目录和不可变对象 | `packages/core/tests/revision-store.spec.ts` |
 | Surface/Session 绑定前产生的孤儿 Revision 由年龄保护并可回收 | `packages/core/tests/revision-store.spec.ts`、`packages/dsh/tests/session-surface.spec.ts` |
-| 唯一 binding 写入后可重建 worktree、已关闭 Turn 的能力拒绝 | `packages/dsh/tests/session-surface.spec.ts` |
+| 唯一 binding 写入后可恢复 authoring WIP、已关闭 Turn 的能力拒绝 | `packages/dsh/tests/session-surface.spec.ts` |
 | publication append 后修复 authoring checkout | `packages/dsh/tests/session-surface.spec.ts` |
 | Session 恢复沿用原执行历史，不创建第二个执行身份 | `packages/dsh/tests/session-surface.spec.ts`、`packages/dsh/tests/session-adapter.spec.ts` |
 | Host 重启自动续推 `interrupted`、`aborted/disposed` 与持久 `next-turn`；完成或空闲 Session 保持休眠 | `packages/dsh/tests/session-admission.spec.ts`、`packages/dsh/tests/session-admission-agent-loop.spec.ts` |
 | 原生产品 admission 在 Agent 发布前绑定并保持 Session 空白，用户 composer 输入后才开始 Turn | `packages/dsh/tests/session-admission.spec.ts`、`packages/dsh/tests/session-admission-agent-loop.spec.ts`、`packages/web/tests/web.spec.ts` |
-| 可恢复 Session 的 WIP 保守保留；临时 materialization 按 retention 清理 | `packages/dsh/tests/session-surface.spec.ts` |
+| 公共作者目录中的 Session WIP 保守保留；临时 materialization 按 retention 清理 | `packages/dsh/tests/session-surface.spec.ts` |
 | Turn 结束但没有 publication 时不伪造 Surface 状态 | `packages/core/tests/view-projection.spec.ts` |
-| 用户后续输入开启新 Turn，并沿用该 Surface Session 的同一 worktree | `packages/dsh/tests/session-surface.spec.ts` |
+| 用户后续输入开启新 Turn，并沿用该 Surface 作者目录中的持久 WIP | `packages/dsh/tests/session-surface.spec.ts` |
 | 第二个 Session 绑定同一 Surface、同一 Session 绑定第二个 Surface均被拒绝 | `packages/dsh/tests/session-surface.spec.ts` |
 | operation record、target append、settlement 分段恢复 | `packages/dsh/tests/engine.spec.ts` |
 | live wakeup 丢失、重复、乱序后 replay 收敛 | `packages/dsh/tests/engine.spec.ts` |
