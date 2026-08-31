@@ -2,7 +2,7 @@ import { defineConfig } from 'tsdown'
 
 /** Bundle the TypeScript-emitted service entries into the published Host files. */
 export default defineConfig({
-  entry: ['lib/types/index.js', 'lib/types/invariant.js'],
+  entry: ['lib/types/index.js'],
   outDir: 'lib',
   format: ['esm'],
   platform: 'node',

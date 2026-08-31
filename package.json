@@ -25,7 +25,6 @@
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-agent-default-model": "link:../../deepseek-harness/packages/core/agent-default-model",
     "@deepseek-ai/dsh-agent-loop": "link:../../deepseek-harness/packages/core/agent-loop",
-    "@deepseek-ai/dsh-invariants": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-sandbox": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-session-persistence": "link:../../deepseek-harness/packages/session/session-persistence",
     "@deepseek-ai/dsh-session-persistence-jsonl": "link:../../deepseek-harness/packages/session/session-persistence-jsonl",
