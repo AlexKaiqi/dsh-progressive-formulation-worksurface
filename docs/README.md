@@ -13,6 +13,7 @@
 
 - [实现索引](architecture.md)：把权威设计章节映射到代码、协议和测试；不另行定义架构。
 - [验证指南](invariants-and-acceptance.md)：机器可读不变量、统一门禁和恢复测试入口。
+- [模型上下文](context-management.zh.md)：不可变 Revision 与 Session 事实到模型输入的重建链路；英文版见 [Fact-backed model context](context-management.md)。
 - [`spec/`](../spec/)：Event、Definition、Surface Session Binding、Context schema，标准 Surface 模板和机器可读不变量注册表。
 - [`examples/`](../examples/)：符合当前 Definition 和 Surface 契约的示例。
 

@@ -16,6 +16,7 @@
 | Registration replay、managed emit、自动 admission followup 与 operation 对账 | `packages/dsh/src/engine.ts`、`packages/dsh/src/session-adapter.ts` | `packages/dsh/tests/engine.spec.ts`、`packages/dsh/tests/session-admission-agent-loop.spec.ts` |
 | 精确 Definition Revision handler | `packages/dsh/src/code-handler.ts` | `packages/dsh/tests/code-handler.spec.ts` |
 | DSH Session/Turn adapter 与模型环境 | `packages/dsh/src/session-adapter.ts`、`packages/dsh/src/model/session-instructions.ts` | `packages/dsh/tests/session-adapter.spec.ts` |
+| 基于事实的模型上下文、provider occurrence 与 render audit | `packages/dsh/src/context/`、`packages/dsh/src/session-adapter.ts` | `docs/context-management.zh.md`、`packages/dsh/tests/context-runtime.spec.ts` |
 | 普通文件能力构建 Surface/Orchestration、managed `ws emit` 登记与 Host transport | `packages/cli/src/bin.ts`、`packages/dsh/src/host.ts`、`packages/dsh/src/service.ts` | `spec/authoring-registration.schema.json`、`packages/dsh/spec/host-rpc.json`、`packages/cli/tests/`、`packages/dsh/tests/session-admission-agent-loop.spec.ts` |
 | publication 与业务状态 replay projection | `packages/core/src/view-projection.ts` | `packages/core/tests/view-projection.spec.ts` |
 | 原生拓扑、事件唤醒重放与证据侧栏 | `packages/web/client.js`、`packages/web/index.js`、`packages/web/styles.css` | `packages/web/tests/web.spec.ts`、`packages/web/evals/suite.json`、`packages/web/evals/browser-harness.mjs` |

@@ -27,6 +27,7 @@ import { WorkSurfaceHost } from './host.ts'
 import { SurfaceSessionAdmission, type SurfaceSessionAdmissionRequest, type SurfaceSessionAdmissionResult } from './session-admission.ts'
 import { SurfaceSessionService, type SurfaceInputSource, type SurfaceSessionBinding, type SurfaceSessionGcResult } from './session-surface.ts'
 import { installDshSessionAdapter } from './session-adapter.ts'
+import { WorkSurfaceContextRuntime } from './context/runtime.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context { workSurfaces: WorkSurfaceService }
@@ -89,6 +90,7 @@ export class WorkSurfaceService extends Service {
     'agentDefaultModel',
     'sessions',
     'sessionPersistence',
+    'systemPrompt',
   ]
   static Config = CONFIG_SCHEMA
 
@@ -98,6 +100,7 @@ export class WorkSurfaceService extends Service {
   readonly surfaces: SurfaceSessionService
   readonly sessionAdmission: SurfaceSessionAdmission
   readonly engine: WorkSurfaceEngine
+  readonly contextRuntime: WorkSurfaceContextRuntime
   private readonly host: WorkSurfaceHost
   private readonly registrationIds = new Set<string>()
   private readonly initialization: Promise<void>
@@ -110,6 +113,11 @@ export class WorkSurfaceService extends Service {
     this.eventStore = new FileEventStore(this.config.eventRoot)
     this.revisions = new RevisionStore(this.config.revisionRoot)
     this.surfaces = new SurfaceSessionService(this.eventStore, this.revisions, this.config.workRoot, this.config.root)
+    this.contextRuntime = new WorkSurfaceContextRuntime(ctx, {
+      revisions: this.revisions,
+      runtimeRoot: this.config.runtimeRoot,
+      tokenBudget: () => 128_000,
+    })
     this.engine = new WorkSurfaceEngine(
       new DefinitionStore(this.config.definitionRoot, this.revisions),
       this.surfaces,
@@ -132,7 +140,7 @@ export class WorkSurfaceService extends Service {
         if (event.subject.kind === 'surface' || event.name === 'registration.operation-recorded') this.queueReconcile()
       })
       await this.host.start()
-      installDshSessionAdapter(ctx, this.surfaces, this.config.socketPath, async surfaceId => {
+      installDshSessionAdapter(ctx, this.surfaces, this.contextRuntime, this.config.socketPath, async surfaceId => {
         const result = await this.sessionAdmission.ensure({ surfaceId })
         return { sessionId: result.sessionId }
       })

@@ -36,12 +36,12 @@
     "prepack": "tsc -b && tsdown"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1"
+    "@deepseek-ai/cordis": "^4.0.2"
   },
   "dependencies": {
     "@pf-worksurface/core": "workspace:^"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1"
+    "@deepseek-ai/cordis": "^4.0.2"
   }
 }

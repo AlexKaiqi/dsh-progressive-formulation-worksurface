@@ -8,6 +8,9 @@ import { WorkSurfaceError } from '@pf-worksurface/core'
 import type { BashEnvContributor, ShellEnvRegistry } from '@deepseek-ai/dsh-shell-env'
 import { workSurfaceInstructions } from './model/session-instructions.ts'
 import type { SurfaceSessionService } from './session-surface.ts'
+import type { WorkSurfaceContextRuntime } from './context/runtime.ts'
+import type { RenderedContext } from './context/types.ts'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 
 declare module '@deepseek-ai/cordis' {
   interface Context { shellEnv: ShellEnvRegistry; sessions: SessionStore }
@@ -25,12 +28,14 @@ export class DshWorkSurfaceSessionAdapter {
   constructor(
     private readonly ctx: Context,
     private readonly service: SurfaceSessionService,
+    private readonly contextRuntime: WorkSurfaceContextRuntime | undefined,
     private readonly socketPath: string,
     private readonly ensureSurface?: (surfaceId: string) => Promise<{ readonly sessionId: string }>,
   ) {
     this.registerSessionEvents()
     this.registerShellContext()
     this.registerModelContext()
+    this.registerFactBackedContext()
     this.adoptLiveAgents()
     const unregister = this.service.registerFollowupRouter((surfaceId, message, messageId) => this.deliverFollowup(surfaceId, message, messageId))
     this.ctx.effect(() => unregister, 'worksurface.sessionFollowupRouter()')
@@ -89,6 +94,44 @@ export class DshWorkSurfaceSessionAdapter {
     })
   }
 
+  private registerFactBackedContext(): void {
+    if (this.contextRuntime === undefined) return
+    const runtime = this.contextRuntime
+    const pending = new WeakMap<Agent, RenderedContext>()
+    this.ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+      const transformed = await next()
+      const agent = agentFromScope(context.scope)
+      if (agent === undefined) return transformed
+      const binding = this.service.bindingForSession(String(agent.session.id))
+      const active = this.service.activeSurface(String(agent.session.id))
+      if (binding === undefined || active === undefined) return transformed
+      context.signal?.throwIfAborted()
+      const revision = active.revision.outputRevision ?? active.revision.inputRevision
+      await runtime.publishRevision(agent, binding.surfaceId, revision, null)
+      await runtime.prepareAutomaticOccurrences(agent, context.signal)
+      const route = agent.session.requestContext()
+      const provider = agent.options.provider ?? route?.provider
+      const model = agent.options.model ?? route?.model
+      const rendered = await runtime.render(agent, {
+        ...(provider === undefined ? {} : { provider }),
+        ...(model === undefined ? {} : { model }),
+        ...(route?.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
+      })
+      transformed.contexts.push(...rendered.contexts)
+      pending.set(agent, rendered)
+      return transformed
+    })
+    this.ctx.on('agent/request', async (payload, next) => {
+      const resolved = await next()
+      const rendered = pending.get(payload.agent)
+      if (rendered !== undefined) {
+        pending.delete(payload.agent)
+        runtime.recordRender(payload.agent, rendered)
+      }
+      return resolved
+    })
+  }
+
   private registerShellContext(): void {
     const contributor: BashEnvContributor = {
       name: 'worksurface-session-v1',
@@ -127,10 +170,23 @@ export class DshWorkSurfaceSessionAdapter {
 export function installDshSessionAdapter(
   ctx: Context,
   service: SurfaceSessionService,
-  socketPath: string,
+  contextRuntimeOrSocketPath: WorkSurfaceContextRuntime | string,
+  socketPathOrEnsureSurface?: string | ((surfaceId: string) => Promise<{ readonly sessionId: string }>),
   ensureSurface?: (surfaceId: string) => Promise<{ readonly sessionId: string }>,
 ): DshWorkSurfaceSessionAdapter {
-  return new DshWorkSurfaceSessionAdapter(ctx, service, socketPath, ensureSurface)
+  const contextRuntime = typeof contextRuntimeOrSocketPath === 'string' ? undefined : contextRuntimeOrSocketPath
+  const socketPath = typeof contextRuntimeOrSocketPath === 'string' ? contextRuntimeOrSocketPath : socketPathOrEnsureSurface
+  if (typeof socketPath !== 'string') throw new TypeError('WorkSurface Session adapter requires a socket path')
+  const resolvedEnsure = typeof contextRuntimeOrSocketPath === 'string' && typeof socketPathOrEnsureSurface === 'function'
+    ? socketPathOrEnsureSurface
+    : ensureSurface
+  return new DshWorkSurfaceSessionAdapter(ctx, service, contextRuntime, socketPath, resolvedEnsure)
+}
+
+function agentFromScope(scope: unknown): Agent | undefined {
+  if (scope === null || typeof scope !== 'object') return undefined
+  const candidate = scope as Partial<Agent>
+  return candidate.session !== undefined && candidate.options !== undefined ? candidate as Agent : undefined
 }
 
 function hasMessageReceipt(session: Session, messageId: string): boolean {

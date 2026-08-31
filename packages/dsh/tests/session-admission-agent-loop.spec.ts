@@ -9,6 +9,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import LlmRuntime, { LlmAdapter, createUserMessage, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SessionProjection from '@deepseek-ai/dsh-session-projection'
 import * as ShellEnvPlugin from '@deepseek-ai/dsh-shell-env'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -47,6 +48,7 @@ async function mountRuntime(root: string, surfaces: SurfaceSessionService, repli
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjection)
   await ctx.plugin(SystemPrompt, { persona: 'You are the test deployment.' })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
@@ -65,6 +67,7 @@ async function mountServiceRuntime(root: string, work: string, replies: string[]
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjection)
   await ctx.plugin(SystemPrompt, { persona: 'You are the service restart test deployment.' })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
@@ -362,6 +365,10 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
     const firstAgent = first.ctx.agents.get(SessionId(opened.sessionId))!
     send(firstAgent, 'start before service restart')
     await firstAgent.whenIdle()
+    expect(firstAgent.session.events.find(event => event.type === 'worksurface/context-revision')).toMatchObject({ ignorable: true })
+    expect(firstAgent.session.events.find(event => event.type === 'context/rendered')).toMatchObject({ ignorable: true })
+    expect(first.adapter.requests[0]?.messages.some(message => message.content.some(block => block.type === 'text'
+      && block.text.includes('# Acceptance Criteria')))).toBe(true)
     await writeFile(join(firstAgent.session.header.cwd!, 'service-restart.txt'), 'same durable authoring WIP\n')
     firstAgent.session.append('turn/start', { turn: 2 })
     await first.ctx.sessions.flush(firstAgent.session)

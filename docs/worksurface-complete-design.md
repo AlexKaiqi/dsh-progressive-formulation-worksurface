@@ -659,6 +659,8 @@ event、revision、能力范围等结构化内容不继续拆分为环境变量�
 
 context 中不包含 credential、Provider Key、Cookie 或未经认证的用户身份。`sessionId` 是当前 Surface 的唯一 DSH 执行身份，不能由模型覆盖；Turn 由短期 capability 和 DSH Session Event Log 表达，不写入这个可恢复静态投影。
 
+这里的 `context.json` 是提供给模型工具读取的静态执行投影，不是最终模型请求的第二份事实源。最终模型上下文必须从 DSH Session 日志与不可变 Surface Revision 单向重建：Session 记录 downstream-ignorable 的 `worksurface/context-revision`、provider occurrence 和 render manifest；manifest 只引用 Revision 文件的路径、摘要与大小，不从可变作者目录读取。原生 `session.surface` 继续唯一负责 transcript，WorkSurface 只把 Revision 文件和 provider 输出组装成 Context Plan。required 输入超过模型预算时必须失败，不能静默截断；`context/rendered` 只记录 included/omitted 身份、route、估算与内容哈希，不复制 prompt 字节。完整链路见[基于事实的模型上下文](context-management.zh.md)。
+
 ### 9.3 Turn 作用域能力
 
 每个活动 Turn 获得一个不进入 Surface 领域事件的短期 capability，同时绑定唯一 `SurfaceId + SessionId + Turn`。不存在后续 `ws open`。CLI 自动使用它；Turn 关闭、取消或被中断后，旧后台进程的 emit 必须被拒绝。
