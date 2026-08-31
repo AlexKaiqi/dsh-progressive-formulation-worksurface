@@ -5,18 +5,28 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import type { Session } from '@deepseek-ai/dsh-session'
 import {
   DefinitionStore,
+  EventContractStore,
   FileEventStore,
+  InputLedgerStore,
+  OperationLedgerStore,
+  RegistrationRecordStore,
   RevisionStore,
+  RuntimeAuthorityStore,
+  RuntimeEventStore,
   WorkSurfaceError,
   defineOrchestration,
+  eventContractDigest,
   projectSurfaceLifecycle,
   stableStringify,
+  runtimeEventId,
+  validatePayload,
   type EventRef,
   type JsonValue,
   type Revision,
   type RevisionGcResult,
   type SurfaceLifecycleProjection,
   type WorkSurfaceEvent,
+  type RuntimeEventRef,
   type WorkSurfaceViewDefinition,
 } from '@pf-worksurface/core'
 import type { WorkSurfaceRpcCall } from '@pf-worksurface/cli'
@@ -28,6 +38,10 @@ import { SurfaceSessionAdmission, type SurfaceSessionAdmissionRequest, type Surf
 import { SurfaceSessionService, type SurfaceInputSource, type SurfaceSessionBinding, type SurfaceSessionGcResult } from './session-surface.ts'
 import { installDshSessionAdapter } from './session-adapter.ts'
 import { WorkSurfaceContextRuntime } from './context/runtime.ts'
+import { BUILTIN_EVENT_CATALOG } from './builtin-event-catalog.ts'
+import { CodeFirstOrchestrator, type CodeFirstRegistrationInspection } from './code-first-orchestrator.ts'
+import { DshCodeFirstSurfacePort } from './code-first-surface-port.ts'
+import { SubprocessOrchestrateCodeRunner } from './orchestrate-code-runner.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context { workSurfaces: WorkSurfaceService }
@@ -63,6 +77,8 @@ export interface TopologyInspection {
   readonly anchorSurfaceId: string
   readonly surfaces: readonly SurfaceTopologyNode[]
   readonly orchestrations: readonly OrchestrationInspection[]
+  readonly codeFirst: readonly CodeFirstRegistrationInspection[]
+  readonly runtimeEvents: Readonly<Record<string, readonly import('@pf-worksurface/core').RuntimeEventEnvelope[]>>
   readonly view?: WorkSurfaceViewDefinition
 }
 
@@ -90,6 +106,7 @@ export class WorkSurfaceService extends Service {
     'agentDefaultModel',
     'sessions',
     'sessionPersistence',
+    'workspaceRegistry',
     'systemPrompt',
   ]
   static Config = CONFIG_SCHEMA
@@ -106,6 +123,9 @@ export class WorkSurfaceService extends Service {
   private readonly initialization: Promise<void>
   private readonly startupRecovery: Promise<void>
   private wakeQueued = false
+  private codeFirst?: CodeFirstOrchestrator
+  private codeFirstEvents?: RuntimeEventStore
+  private codeFirstSurfacePort?: DshCodeFirstSurfacePort
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'workSurfaces')
@@ -140,12 +160,45 @@ export class WorkSurfaceService extends Service {
         if (event.subject.kind === 'surface' || event.name === 'registration.operation-recorded') this.queueReconcile()
       })
       await this.host.start()
+      this.surfaces.registerTurnTransport(this.config.socketPath)
       installDshSessionAdapter(ctx, this.surfaces, this.contextRuntime, this.config.socketPath, async surfaceId => {
         const result = await this.sessionAdmission.ensure({ surfaceId })
         return { sessionId: result.sessionId }
+      }, surfaceId => this.prepareNextTurn(surfaceId))
+      const authority = await new RuntimeAuthorityStore(this.config.targetRoot).init()
+      this.surfaces.registerRuntimeAuthority(authority.id)
+      const targetEvents = new RuntimeEventStore(join(this.config.targetRoot, 'events'), authority.id)
+      const targetContracts = new EventContractStore(join(this.config.targetRoot, 'contracts'))
+      const targetRegistrations = new RegistrationRecordStore(join(this.config.targetRoot, 'registrations'), authority.id)
+      const targetInputs = new InputLedgerStore(join(this.config.targetRoot, 'input-ledgers'), authority.id)
+      const targetOperations = new OperationLedgerStore(join(this.config.targetRoot, 'operation-ledger'), authority.id)
+      const targetSurfaces = new DshCodeFirstSurfacePort(ctx, this.config.workRoot, this.config.targetRoot, this.revisions, targetEvents, targetContracts, this.surfaces)
+      const codeFirst = new CodeFirstOrchestrator(
+        authority.id,
+        this.revisions,
+        targetContracts,
+        targetEvents,
+        targetRegistrations,
+        targetInputs,
+        targetOperations,
+        new SubprocessOrchestrateCodeRunner(ctx, this.config.targetRoot, this.revisions),
+        targetSurfaces,
+        BUILTIN_EVENT_CATALOG,
+      )
+      this.codeFirst = codeFirst
+      this.codeFirstEvents = targetEvents
+      this.codeFirstSurfacePort = targetSurfaces
+      await codeFirst.init()
+      await targetSurfaces.recoverHeads()
+      await this.syncAuthoringRegistrations()
+      for (const binding of this.surfaces.listBindings()) await this.prepareNextTurn(binding.surfaceId)
+      const unwatchTarget = targetEvents.watch(event => { void codeFirst.accept(event).catch(error => ctx.logger.warn(`WorkSurface code-first reconcile failed: ${renderError(error)}`)) })
+      ctx.on('session/event', (session, event) => {
+        const adapted = targetSurfaces.adaptDshToolCompletion(session, event)
+        if (adapted !== undefined) void codeFirst.acceptDsh(adapted.ref, adapted.surfaceId).catch(error => ctx.logger.warn(`WorkSurface DSH Event adapter failed: ${renderError(error)}`))
       })
       await this.surfaces.recover()
-      return async () => { unwatch(); await this.host.close() }
+      return async () => { unwatchTarget(); unwatch(); await this.host.close() }
     }, 'worksurface.v1SessionIntegration()')
     this.initialization = Promise.resolve(lifecycle).then(() => undefined)
     this.sessionAdmission = new SurfaceSessionAdmission(ctx, this.surfaces, () => this.initialization)
@@ -182,10 +235,41 @@ export class WorkSurfaceService extends Service {
     })
   }
 
-  async emitTurn(capability: string, name: string, payload: JsonValue, operationKey?: string): Promise<EventRef> {
-    this.surfaces.planningSource(capability)
+  async emitTurn(capability: string, name: string, payload: JsonValue, operationKey?: string): Promise<EventRef | RuntimeEventRef> {
+    const source = this.surfaces.planningSource(capability)
     await this.syncAuthoringRegistrations()
-    return this.surfaces.emitTurn(capability, name, payload, operationKey)
+    const target = await this.codeFirst?.surfaceOutput(source.surfaceId, name)
+    if (target !== undefined) {
+      const authorization = this.surfaces.activeSurface(source.sessionId)?.runtimeBinding?.contracts[name]
+      const route = target.registration.routes[name]!
+      if (authorization === undefined || authorization.digest !== route.digest || stableStringify(authorization.scope) !== stableStringify(route.scope) || !authorization.capabilities.includes('surface-output')) {
+        throw new WorkSurfaceError('unauthorized', `Event '${name}' is not authorized by the current Turn Brief`)
+      }
+      if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) throw new WorkSurfaceError('invalid-working-copy', `payload for '${name}' must be an object`)
+      validatePayload(target.contract, payload)
+      const key = operationKey ?? name
+      return this.codeFirstEvents!.append(source.surfaceId, {
+        id: runtimeEventId(this.codeFirst!.authority, `${source.sessionId}/${source.turn}`, key, source.surfaceId),
+        type: { scope: target.contract.scope, name, contract: target.registration.routes[name]!.digest },
+        payload,
+        causes: [],
+        producer: { kind: 'surface-session', ref: `${source.sessionId}/${source.turn}` },
+        operationKey: key,
+      })
+    }
+    const ref = await this.surfaces.emitTurn(capability, name, payload, operationKey)
+    if (name !== 'surface.revision.published' || this.codeFirstSurfacePort === undefined) return ref
+    const event = (await this.surfaces.replaySurface(source.surfaceId, ref.seq))[0]
+    if (event?.name !== 'surface.revision.published' || event.meta.outputRevision === undefined) return ref
+    return this.codeFirstSurfacePort.recordPublished(source.surfaceId, {
+      sessionId: source.sessionId,
+      turn: source.turn,
+      expectedRevision: event.meta.expectedHead ?? null,
+      revision: event.meta.outputRevision,
+      ...(payload !== null && typeof payload === 'object' && !Array.isArray(payload) && typeof payload.summary === 'string'
+        ? { summary: payload.summary }
+        : {}),
+    })
   }
 
   /** Called by the creator during DSH Agent setup, before the Surface Session starts. */
@@ -197,8 +281,10 @@ export class WorkSurfaceService extends Service {
   cwdForSurface(surfaceId: string): string { return this.surfaces.cwdForSurface(surfaceId) }
 
   /** Product admission: create or resume the Surface's one real DSH Session without starting a Turn. */
-  ensureSession(request: SurfaceSessionAdmissionRequest): Promise<SurfaceSessionAdmissionResult> {
-    return this.sessionAdmission.ensure(request)
+  async ensureSession(request: SurfaceSessionAdmissionRequest): Promise<SurfaceSessionAdmissionResult> {
+    const result = await this.sessionAdmission.ensure(request)
+    await this.prepareNextTurn(request.surfaceId)
+    return result
   }
 
   replayEvents(surfaceId: string, fromSeq?: number): Promise<readonly WorkSurfaceEvent[]> {
@@ -288,6 +374,7 @@ export class WorkSurfaceService extends Service {
 
   async inspectTopology(surfaceId: string, view?: WorkSurfaceViewDefinition): Promise<TopologyInspection> {
     const all = await Promise.all([...this.registrationIds].sort().map(id => this.engine.inspect(id)))
+    const targetAll = await this.codeFirst?.inspectRegistrations() ?? []
     const surfaceIds = new Set([surfaceId])
     const included = new Set<string>()
     let changed = true
@@ -300,8 +387,16 @@ export class WorkSurfaceService extends Service {
         included.add(inspection.registrationId)
         for (const id of bound) if (!surfaceIds.has(id)) { surfaceIds.add(id); changed = true }
       }
+      for (const inspection of targetAll) {
+        if (included.has(`v5:${inspection.registrationId}`)) continue
+        const bound = Object.values(inspection.bindings)
+        if (!bound.some(id => surfaceIds.has(id))) continue
+        included.add(`v5:${inspection.registrationId}`)
+        for (const id of bound) if (!surfaceIds.has(id)) { surfaceIds.add(id); changed = true }
+      }
     }
     const orchestrations = all.filter(inspection => included.has(inspection.registrationId))
+    const codeFirst = targetAll.filter(inspection => included.has(`v5:${inspection.registrationId}`))
     const surfaces = await Promise.all([...surfaceIds].sort().map(async id => {
       const events = await this.replayEvents(id)
       const configured = view?.surfaces?.[id]
@@ -312,11 +407,14 @@ export class WorkSurfaceService extends Service {
         lifecycle: projectSurfaceLifecycle(events.map(event => ({ ref: { subject: `surface:${id}`, seq: event.seq, id: event.id }, event })), view?.interpretations ?? [], id),
       }
     }))
-    return { anchorSurfaceId: surfaceId, surfaces, orchestrations, ...(view === undefined ? {} : { view }) }
+    const runtimeEvents = Object.fromEntries(await Promise.all([...surfaceIds].sort().map(async id => [id, await this.codeFirstEvents?.replay(id) ?? []] as const)))
+    return { anchorSurfaceId: surfaceId, surfaces, orchestrations, codeFirst, runtimeEvents, ...(view === undefined ? {} : { view }) }
   }
 
   async listSurfaces(): Promise<readonly SurfaceChoice[]> {
     const ids = new Set(await this.eventStore.list('surface'))
+    for (const id of await this.codeFirstEvents?.listSurfaces() ?? []) ids.add(id)
+    for (const registration of await this.codeFirst?.inspectRegistrations() ?? []) for (const surfaceId of Object.values(registration.bindings)) ids.add(surfaceId)
     for (const registrationId of this.registrationIds) {
       const inspection = await this.engine.inspect(registrationId)
       for (const surfaceId of Object.values(inspection.bindings)) ids.add(surfaceId)
@@ -384,9 +482,25 @@ export class WorkSurfaceService extends Service {
       if (!info.isFile() || info.isSymbolicLink()) {
         throw new WorkSurfaceError('invalid-definition', `Orchestration '${entry.name}' registration.json must be a regular file`)
       }
+      const artifact = join(root, entry.name, 'artifact')
+      if (await exists(artifact)) {
+        if (this.codeFirst === undefined) throw new WorkSurfaceError('effect-failed', 'code-first Runtime is not initialized')
+        await this.codeFirst.admit(manifest, artifact)
+        continue
+      }
       const registration = parseAuthoringRegistration(await readFile(manifest, 'utf8'))
       await this.registerDefinition(entry.name, registration.bindings, registration.registrationId)
     }
+  }
+
+  private async prepareNextTurn(surfaceId: string): Promise<void> {
+    if (this.codeFirst === undefined) return
+    await this.syncAuthoringRegistrations()
+    const outputs = await this.codeFirst.surfaceOutputs(surfaceId)
+    this.surfaces.prepareTurnBrief(surfaceId, {
+      instruction: 'Follow the user message entering this Turn and the current Surface acceptance criteria.',
+      outputs: outputs.map(contract => ({ name: contract.name, description: contract.description, payloadSchema: contract.payloadSchema, scope: contract.scope, digest: eventContractDigest(contract) })),
+    })
   }
 
   private waitForEvents(surfaceId: string, fromSeq: number | undefined, signal: AbortSignal): Promise<readonly WorkSurfaceEvent[]> {

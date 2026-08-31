@@ -1,29 +1,32 @@
 # WorkSurface
 
-WorkSurface v1 是建立在 DSH 之上的文件化、事件驱动协调层。本文只描述当前代码已经实现的对象和边界。
+WorkSurface 是建立在 DSH 之上的文件化、事件驱动协调层。当前默认 authoring 面已经收敛到 code-first 目标协议；旧 `Definition v1` 仅作为 `v4` 数据与既有目录的兼容执行路径保留。
 
 当前 Surface 没有独立聚合对象。`SurfaceId` 是贯穿以下物理事实的关联键：
 
 - `work/surfaces/<surface-id>/`：模型持续维护的作者工作目录；当前 Revision 协议要求包含 `surface.md`；
-- `v4/events/surfaces/<surface-id>.jsonl`：该 Surface 的 WorkSurface Event stream；
+- `v5/authority.json`：持久 authority namespace；
+- `v5/events/surfaces/<surface-id>.jsonl`：带 scoped Contract identity 的目标 Event stream；
+- `v5/contracts/sha256/`、`registrations/`、`input-ledgers/`、`operation-ledger/`：不可变 Contract、Registration、输入与恢复事实；
+- `v4/events/`：旧 Definition v1 兼容事实，不与 v5 envelope 混写；
 - `v4/surface-sessions/<surface-id>/binding.json`：Surface 与唯一 DSH Session 的固定绑定；
 - `v4/revisions/`：发布后的不可变目录快照。
 
 Surface 的实际模型与工具执行由绑定的 DSH Session 承载。DSH 语义保持原样：Session 是完整的 append-only 交互历史；一个 Turn 包含零到多个 Step；一个 Step 是一次模型调用及该调用请求的工具执行。WorkSurface 不另建执行历史。
 
-当前 Orchestration 路径是：
+当前 code-first Orchestration 路径是：
 
 ```text
-definition.json + registration.json
-          ↓ admission / snapshot
-exact OrchestrationDefinition + Registration stream + Surface streams
-          ↓ replay / reconcile
-Activation → durable Operation → emit 或 followup → settlement
+artifact/ + registration.json
+          ↓ admission / content-addressed snapshot
+exact code Revision + resolved Event Contracts + Registration + Input Ledger
+          ↓ staged run / complete validation
+authority-global Operation batch → apply → Event / advance → settlement
 ```
 
-作者侧目前只有 JSON Definition；没有 YAML compiler，也没有独立 Definition IR。声明式 reaction 与 code handler 都由同一 Engine 调度，但二者尚未收敛成统一 Effect evaluator。
+Registration 只装配现有 Surface 与 Event route；业务条件、转换、fan-out、join 和 loop 都是普通代码。没有 YAML/JSON pattern DSL、独立 Definition IR 或模型编写的 effect plumbing。
 
-模型继续使用 Bash、Zsh、Python、Node 和普通文件能力。模型侧唯一 WorkSurface 领域命令是 `ws emit`；可信实现补齐事件身份、因果、绑定和 capability。
+模型继续使用 Bash、Zsh、Python、Node 和普通文件能力。稳定模型面只有四个 WorkSurface 变量与每 Turn 的 `turn-brief.json`；唯一领域命令是 Brief 中给出的 `ws emit` argv。namespace、digest、cause resolution 与 Operation 由 Runtime 补齐。一次性 transport 是 Host 的执行材料而非语义契约；它不进入 prompt、Brief 或稳定环境变量，但同一 OS 用户下的模型 shell 可能读取运行目录，因此安全边界是当前 Turn capability 的绑定与失效，不是 transport 字符串保密。
 
 详见：
 
@@ -33,6 +36,7 @@ Activation → durable Operation → emit 或 followup → settlement
 - [UI 设计](docs/ui-design.md)：基于当前事实的可删除投影
 - [模型上下文](docs/context-management.zh.md)：当前 Context Runtime 的事实模型
 - [验证指南](docs/invariants-and-acceptance.md)：机器不变量、测试证据和新概念准入门槛
+- [重构与验证报告](docs/verification-report-2026-09-01.md)：设计判断、文件责任拆分与真实 profile E2E 证据
 
 ```sh
 source ~/.nvm/nvm.sh

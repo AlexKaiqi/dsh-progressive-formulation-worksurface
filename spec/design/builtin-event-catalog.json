@@ -45,6 +45,40 @@
         }
       }
     },
+    "surface.revision.admitted": {
+      "description": "Runtime admitted the initial immutable Revision of an existing authoring Surface before code-first Registration.",
+      "exposure": "runtime-only",
+      "subjects": ["surface"],
+      "producers": ["runtime"],
+      "payloadSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["revision", "source"],
+        "properties": {
+          "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "source": { "const": "authoring" }
+        }
+      }
+    },
+    "surface.revision.applied": {
+      "description": "A recorded code-first Operation batch applied one candidate Revision to a bound Surface.",
+      "exposure": "runtime-only",
+      "subjects": ["surface"],
+      "producers": ["runtime"],
+      "payloadSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["registrationId", "runId", "baseRevision", "revision"],
+        "properties": {
+          "registrationId": { "type": "string", "minLength": 1 },
+          "runId": { "type": "string", "minLength": 1 },
+          "baseRevision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+        }
+      }
+    },
     "surface.revision.published": {
       "description": "A candidate Surface Revision became the published head by compare-and-swap.",
       "exposure": "runtime-only",

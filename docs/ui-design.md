@@ -9,6 +9,7 @@ UI 不创建领域事实，只读取并组合：
 ```text
 WorkSurface Surface streams
 + Registration streams
++ v5 Runtime Event streams / Input and Operation counters
 + exact OrchestrationDefinition
 + SurfaceSessionBinding
 + DSH Session events
@@ -24,6 +25,8 @@ WorkSurface Surface streams
 - Revision 描述不可变目录快照；
 - Binding 只描述 Surface 到 DSH Session 的固定映射；
 - `WorkSurfaceViewDefinition` 只描述标题、分组、解释和布局提示。
+
+code-first Runtime 没有可静态展开的业务图。UI 因此严格分开两层：Registration routes 只显示 `consumeFrom`、`emitOn`、`surfaceOutputFrom` 的声明能力；实际推进只显示已持久 Runtime Event、producer 与 causes。不得从任意 Orchestrate 代码或 route 声明推断一条“已发生”的业务边。
 
 ## 2. 产品位置与导航
 

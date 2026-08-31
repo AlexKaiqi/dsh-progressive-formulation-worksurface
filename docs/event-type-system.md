@@ -68,4 +68,4 @@ DSH 的 Step、Tool Call 和 Tool Result 仍属于 DSH Session Log。当前目�
 - 同一调用能力中，一个局部名字只能解析到一个 Contract digest；
 - built-in 默认不可被局部同名声明遮蔽；
 - 无 Contract 的裸名字不能持久化；
-- namespace、digest、cursor、ledger 和 transport 都不进入模型上下文。
+- namespace、digest、cursor 和 ledger 不进入模型语义上下文；transport 不进入 prompt、Brief 或稳定 shell contract。运行目录若对同一 OS principal 可读，transport 可能被观察，因此授权必须依赖当前 Session/Turn/Surface binding、输入校验与 Turn 结束失效，不能依赖字符串保密。

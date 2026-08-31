@@ -1,6 +1,6 @@
-# WorkSurface v1 当前实现基线
+# WorkSurface v4 兼容实现基线
 
-> 状态：当前实现参考，2026-08-31；不是目标设计。目标边界、待决项和已撤回方案只以 [`design-baseline.md`](design-baseline.md) 为准。本文只把已有类型、持久化记录、重放逻辑和测试约束称为“当前概念”。
+> 状态：旧 `Definition v1` / `v4` 兼容路径参考，2026-08-31；不是默认 authoring 设计。当前 code-first Runtime 以 [`design-baseline.md`](design-baseline.md)、目标 Schema 与 `WS-24` 至 `WS-27` 为准。
 
 ## 0. 设计纪律
 
@@ -175,11 +175,10 @@ Surface 不是目录、Revision 或 Session 的别名。当前实现通过一组
 
 同一个 Event ID 加相同规范内容是幂等重试；同 ID 不同内容是冲突。live watch 只负责唤醒，消费者必须 replay 后再计算。
 
-当前 `name: string` 没有 namespace、契约版本或所有权语义；`surface.*` 和
-`registration.*` 只是命名习惯及少量精确保留名称，不能视为已经建立的命名空间。
-目标边界另见 [`event-type-system.md`](event-type-system.md)：Runtime 在持久 authority 与当前
-执行 Binding 中将 dotted name 解析到 scoped Event Contract，而不是让模型拼接全局 namespace 前缀。目标 envelope、
-Contract、code-first Registration、Orchestrate staged run view 和 result 协议尚未进入当前 EventStore/Engine。
+本节描述的 v4 `name: string` 没有 namespace、契约版本或所有权语义；`surface.*` 和
+`registration.*` 只是兼容命名习惯及少量精确保留名称。默认 v5 边界另见
+[`event-type-system.md`](event-type-system.md)：Runtime 已在持久 authority 与当前执行 Binding 中把 dotted name
+解析到 scoped Event Contract，并已实现 code-first Registration、Input Ledger、staged run view、Operation batch 与 result executor。
 
 ### 3.3 Revision
 
@@ -300,7 +299,7 @@ WorkSurface 文档必须沿用所安装 DSH 包的语义：
 
 WorkSurface 只能引用或桥接这些事实，不能把它们重新命名成自己的生命周期。
 
-## 5. 当前运行链路
+## 5. v4 兼容运行链路
 
 ### 5.1 Surface admission 与执行
 
@@ -309,7 +308,7 @@ work/surfaces/<id>/
         ↓ validate / snapshot input
 SurfaceSessionService.bindSession()
         ↓ before first turn/start
-binding.json + DSH worksurface/binding event
+binding.json + 可选 ignorable DSH worksurface/binding event
         ↓
 DSH Session Turn / Step / Tool execution
         ↓ ordinary file writes
@@ -321,8 +320,7 @@ same authoring directory
 - `DSH_SURFACE_ID`；
 - `DSH_SURFACE_DIR`；
 - `DSH_WORKSURFACE_ROOT`；
-- `DSH_CONTEXT_FILE`；
-- `DSH_WORKSURFACE_CLI` 和 capability。
+- `DSH_WORKSURFACE_VIEW_DIR`，其中包含当前 `turn-brief.json`。
 
 Turn 结束后 capability 立即失效。
 
@@ -412,9 +410,9 @@ Engine 按 RegistrationId 串行 reconcile。运行内存中的 `running` map �
 | 限制 | 当前证据 | 进入设计前需要的物理协议 |
 | --- | --- | --- |
 | 仅文件级 Surface 局部寻址 | `SurfaceId` + relative path | 通用 Address 类型、adapter、working/frozen boundary |
-| Event 只有无 scope 的 `name: string` | `event.schema.json` 与 exact string matching | scoped、内容寻址的 Event Contract 与持久 envelope |
-| Code handler 只能 emit | `CodeHandlerEmit[]` | code-first Registration、已绑定 Surface 的 staged run view 与 Event/advance result |
-| WorkSurface 不消费 DSH EventRef | 只在 Event meta 保存 sessionId/turn | 稳定 DSH session-event reference adapter |
+| v4 Event 只有无 scope 的 `name: string` | `event.schema.json` 与 exact string matching | 默认 v5 已使用 scoped、内容寻址的 Contract/envelope；v4 保持隔离兼容 |
+| v4 Code handler 只能 emit | `CodeHandlerEmit[]` | 默认 v5 code-first 已支持 Event/advance result；不回写 v4 Definition effect |
+| v4 Engine 不消费 DSH EventRef | 只在 Event meta 保存 sessionId/turn | 默认 v5 已实现 `dsh.tool.completed` 安全 adapter；其它 DSH taxonomy 尚未泛化 |
 | Context 仍以 Revision 为核心 | `SurfaceSessionContext` | 对文件、事件和外部内容的统一 projection/ref |
 
 ## 8. 设计与代码同步规则

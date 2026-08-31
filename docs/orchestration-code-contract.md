@@ -1,6 +1,6 @@
 # Orchestrate code 契约
 
-> 状态：目标设计。本文定义执行语义；数据结构以链接的 JSON Schema 为准，具体行为以可执行样例为准。当前 v1 仍见 [`worksurface-complete-design.md`](worksurface-complete-design.md)。
+> 状态：当前默认 v5 执行契约。数据结构以链接的 JSON Schema 为准，具体行为以可执行样例、`CodeFirstOrchestrator` 和恢复测试为准。旧 Definition v1 见 [`worksurface-complete-design.md`](worksurface-complete-design.md)。
 
 ## 边界
 
@@ -28,7 +28,7 @@ Registration 中的 `entrypoint` 与 Contract `file` 都相对已选择的 artif
 | 问题 | 表达位置 | Runtime 保证 |
 | --- | --- | --- |
 | `when` | Registration 的 `consumeFrom` + code 的普通条件 | 只有准入且越过历史边界的 Event 能进入 Input Ledger；一个 Registration 内按 `inputSeq` 串行处理 |
-| `who` | Registration 的 Surface local handle | handle 在准入时绑定到已存在 Surface；完整 namespace 留在 Runtime-private Binding |
+| `who` | Registration 的 Surface local handle | handle 在准入时绑定到已存在 Surface；完整 namespace 由 Runtime-owned Binding 解析 |
 | `how` | code 对已绑定 Surface staging 副本的普通文件操作 | code 只能改变副本内容，不能增加、删除或改名 Surface 目录 |
 | 如何继续 | `result.json` 的 `advance` | 上下文提交成功后，Runtime 才建立或复用 1:1 DSH Session binding 并推进 |
 
@@ -42,7 +42,7 @@ Runtime 为一次运行物化 `state.json`、`inputs.jsonl`、Contract 文件、
 - [`orchestrate-input-record.schema.json`](../spec/design/orchestrate-input-record.schema.json)
 - [`orchestrate-result.schema.json`](../spec/design/orchestrate-result.schema.json)
 
-code 只依赖 cwd、local handle、局部 Event name、普通路径和上述文件；不依赖业务环境变量、authority、真实 Surface ID、Contract digest、cursor、lock、CAS、socket 或 transport secret。
+code 只依赖 cwd、local handle、局部 Event name、普通路径和上述文件；不依赖业务环境变量、authority、真实 Surface ID、Contract digest、cursor、lock、CAS、socket 或 transport。transport 不是 code contract，也不是依靠保密成立的授权边界。
 
 Surface 内容变更由 staging 副本的普通文件 diff 表达。`result.json` 只表达 Runtime 才能完成的两件事：向已授权 Surface append 已注册 Event，以及在提交后推进已注册 Surface 并授予已注册的输出 Event。run 不能新增 Contract 或改变 route。样例中的 `blocks/*.md` 是普通文件，不建立 Block 领域概念。
 
@@ -59,7 +59,7 @@ recorded batch 对其中所有 `(Surface, base Revision)` 建立跨重启 reserv
 
 这里保证的是可恢复和下游推进屏障，不宣称底层存储具备跨 Surface 原子快照：batch apply 期间，直接绕过 Runtime 读取 Surface head 的观察者可能短暂看到部分 Revision 已更新。若产品要求任意读者都获得 all-or-nothing 可见性，必须另行引入 authority-global commit record 和统一 head projection，不能靠“事务”一词暗示已经支持。
 
-`advance` 的目标只能是 Registration 已绑定 Surface。没有 DSH Session 时，Runtime 在首个 Turn 前创建并固定 1:1 binding；已有 binding 时复用原 Session。`followup` 只是当前 v1 向既有 Session 投递后续消息的内部桥，不属于目标 authoring 协议。
+`advance` 的目标只能是 Registration 已绑定 Surface。没有 DSH Session 时，Runtime 在首个 Turn 前创建并固定 1:1 binding；已有 binding 时复用原 Session。`followup`/managed advance 是 Runtime 向该唯一 Session 投递下一 Turn 的内部桥，不属于 authoring 协议。
 
 ## 可执行语义
 

@@ -5,10 +5,10 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const NS = 'worksurfaceWeb'
     const en = {
-      view: 'Topology', title: 'Work topology', subtitle: 'Events explain progress; Definitions explain paths.',
+      view: 'Topology', title: 'Work topology', subtitle: 'Registrations declare capabilities; recorded Events and causes explain actual progress.',
       refresh: 'Refresh', refreshing: 'Refreshing…', empty: 'No orchestration is connected to this Surface.',
       chooseSurface: 'Surface', noSurfaces: 'No authored or event-backed Surface exists yet.',
-      emptyHint: 'The Surface remains valid. Register an Orchestrate Definition to connect it to other work.',
+      emptyHint: 'The Surface remains valid. Admit an Orchestrate artifact and registration.json to connect it to other work.',
       loadFailed: 'Unable to replay WorkSurface topology', legend: 'Visual language', possible: 'Possible path',
       observed: 'Matched event', emitted: 'Emitted event', current: 'Current', details: 'Orchestration details',
       close: 'Close', definition: 'Definition', revision: 'Revision', bindings: 'Role bindings', condition: 'Condition evidence',
@@ -24,13 +24,15 @@ window.__ModuleLoader__.load({
       yes: 'Recorded', no: 'Not recorded', source: 'Source', target: 'Target', eventRefs: 'Event references',
       phase: 'Projected phase', evidence: 'Event evidence', group: 'Group',
       handlerInvocations: 'Handler invocations',
+      declaredCapabilities: 'Declared capabilities', actualFacts: 'Recorded Event facts', noActualFacts: 'No target Runtime Event has been recorded yet.',
+      inputs: 'inputs', runs: 'runs', pendingRuns: 'pending', consume: 'consume', emit: 'orchestrate emit', surfaceOutput: 'Surface output', causes: 'causes',
       advance: 'Continue in DSH', opening: 'Opening session…', sessionFailed: 'Unable to open the Surface Session',
     }
     const zh = {
-      view: '拓扑', title: '工作拓扑', subtitle: '事件解释推进，Definition 解释通路。',
+      view: '拓扑', title: '工作拓扑', subtitle: 'Registration 声明能力，已记录 Event 与 causes 解释实际推进。',
       refresh: '刷新', refreshing: '刷新中…', empty: '当前 Surface 尚未连接任何编排。',
       chooseSurface: 'Surface', noSurfaces: '尚未发现作者目录或事件支持的 Surface。',
-      emptyHint: 'Surface 本身仍然有效；注册 Orchestrate Definition 后会在这里形成事件拓扑。',
+      emptyHint: 'Surface 本身仍然有效；准入 Orchestrate artifact 与 registration.json 后会形成事件拓扑。',
       loadFailed: '无法重放 WorkSurface 拓扑', legend: '视觉语言', possible: '可能通路',
       observed: '已匹配事件', emitted: '已发出事件', current: '当前', details: '编排详情',
       close: '关闭', definition: 'Definition', revision: 'Revision', bindings: '角色绑定', condition: '条件证据',
@@ -46,6 +48,8 @@ window.__ModuleLoader__.load({
       yes: '已有事实', no: '尚无事实', source: '来源', target: '目标', eventRefs: '事件引用',
       phase: '投影阶段', evidence: '事件证据', group: '分组',
       handlerInvocations: 'Handler 调用',
+      declaredCapabilities: '声明的能力通路', actualFacts: '已记录 Event 事实', noActualFacts: '目标 Runtime 尚未记录 Event。',
+      inputs: '输入', runs: '运行', pendingRuns: '待结算', consume: '消费', emit: 'Orchestrate 发出', surfaceOutput: 'Surface 输出', causes: '原因',
       advance: '进入推进', opening: '正在进入 Session…', sessionFailed: '无法进入 Surface Session',
     }
     const dictionaries = { en, zh, 'zh-TW': zh }
@@ -173,13 +177,52 @@ window.__ModuleLoader__.load({
         !surfaceId && !loading && !error ? h('div', { key: 'no-surfaces', className: 'pf-ws-blank' }, t('noSurfaces')) : null,
         snapshot ? h('div', { key: 'body', className: `pf-ws-body${selected ? ' has-drawer' : ''}` }, [
           h('div', { key: 'canvas', className: 'pf-ws-canvas' }, [
-            snapshot.orchestrations.length === 0
+            (snapshot.codeFirst || []).length > 0 ? h(CodeFirstTopology, { key: 'code-first', snapshot, t, onSurface: openSurface }) : null,
+            snapshot.orchestrations.length > 0 ? h(TopologyGraph, { key: 'graph', snapshot, t, onSurface: openSurface, onSelect: setSelected }) : null,
+            snapshot.orchestrations.length === 0 && (snapshot.codeFirst || []).length === 0
               ? h('div', { key: 'empty', className: 'pf-ws-blank' }, [h('span', { key: 'mark', className: 'pf-ws-empty-mark' }, '◇'), h('strong', { key: 'title' }, t('empty')), h('p', { key: 'hint' }, t('emptyHint'))])
-              : h(TopologyGraph, { key: 'graph', snapshot, t, onSurface: openSurface, onSelect: setSelected }),
+              : null,
             h(Legend, { key: 'legend', t }),
           ]),
           selected ? h(EvidenceDrawer, { key: 'drawer', selection: selected, snapshot, t, onClose: () => setSelected(null), onSurface: openSurface }) : null,
         ]) : null,
+      ])
+    }
+
+    function CodeFirstTopology({ snapshot, t, onSurface }) {
+      const facts = Object.entries(snapshot.runtimeEvents || {}).flatMap(([surfaceId, events]) => events.map(event => ({ surfaceId, event })))
+        .sort((left, right) => left.event.recordedAt.localeCompare(right.event.recordedAt) || left.event.seq - right.event.seq)
+      return h('div', { className: 'pf-ws-code-first' }, [
+        h('section', { key: 'declared', className: 'pf-ws-runtime-section', 'aria-label': t('declaredCapabilities') }, [
+          h('h3', { key: 'title' }, t('declaredCapabilities')),
+          ...(snapshot.codeFirst || []).map(registration => h('article', { key: registration.registrationId, className: 'pf-ws-registration-card' }, [
+            h('header', { key: 'head' }, [
+              h('strong', { key: 'id' }, registration.registrationId),
+              h('code', { key: 'revision', title: registration.orchestrateRevision }, shortRevision(registration.orchestrateRevision)),
+              h('span', { key: 'counts' }, `${registration.acceptedInputCount} ${t('inputs')} · ${registration.recordedRunCount} ${t('runs')} · ${registration.pendingRunCount} ${t('pendingRuns')}`),
+            ]),
+            h('div', { key: 'bindings', className: 'pf-ws-binding-list' }, Object.entries(registration.bindings).map(([handle, id]) => h('button', { key: handle, type: 'button', onClick: () => onSurface(id) }, `${handle} → ${surfaceTitle(snapshot, id)}`))),
+            h('ul', { key: 'routes', className: 'pf-ws-route-list' }, Object.entries(registration.routes).map(([name, route]) => {
+              const capabilities = [
+                ...(route.consumeFrom || []).map(handle => `${t('consume')}: ${handle}`),
+                ...(route.emitOn || []).map(handle => `${t('emit')}: ${handle}`),
+                ...(route.surfaceOutputFrom || []).map(handle => `${t('surfaceOutput')}: ${handle}`),
+              ]
+              return h('li', { key: name }, [h('strong', { key: 'name' }, name), h('span', { key: 'caps' }, capabilities.join(' · '))])
+            })),
+          ])),
+        ]),
+        h('section', { key: 'actual', className: 'pf-ws-runtime-section', 'aria-label': t('actualFacts') }, [
+          h('h3', { key: 'title' }, t('actualFacts')),
+          facts.length === 0 ? h('p', { key: 'empty', className: 'pf-ws-runtime-empty' }, t('noActualFacts')) : null,
+          ...facts.map(({ surfaceId, event }) => h('article', { key: `${surfaceId}:${event.seq}`, className: 'pf-ws-event-fact' }, [
+            h('button', { key: 'surface', type: 'button', onClick: () => onSurface(surfaceId) }, surfaceTitle(snapshot, surfaceId)),
+            h('strong', { key: 'event' }, event.type.name),
+            h('code', { key: 'seq' }, `#${event.seq}`),
+            h('span', { key: 'producer' }, event.producer.kind),
+            h('span', { key: 'causes' }, `${event.causes.length} ${t('causes')}`),
+          ])),
+        ]),
       ])
     }
 
@@ -463,7 +506,7 @@ window.__ModuleLoader__.load({
     }
     function topologySummary(snapshot) {
       const attention = snapshot.surfaces.filter(surface => ['waiting-user', 'failed', 'conflicted'].includes(surface.lifecycle.phase)).length
-      return { surfaces: snapshot.surfaces.length, paths: snapshot.orchestrations.reduce((sum, inspection) => sum + inspection.definition.subscriptions.length, 0), attention }
+      return { surfaces: snapshot.surfaces.length, paths: snapshot.orchestrations.reduce((sum, inspection) => sum + inspection.definition.subscriptions.length, 0) + (snapshot.codeFirst || []).reduce((sum, inspection) => sum + Object.keys(inspection.routes).length, 0), attention }
     }
     function waitForSession(sessions, sessionId) {
       if (sessions.list.getSnapshot().byId[sessionId]) return Promise.resolve()

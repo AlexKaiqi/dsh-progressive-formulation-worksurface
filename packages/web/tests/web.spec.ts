@@ -23,6 +23,11 @@ describe('native WorkSurface topology view', () => {
     expect(client).toContain('pf-ws-node-roles')
     expect(client).toContain('view?.layout?.groups')
     expect(client).toContain('pf-ws-evidence-rail')
+    expect(client).toContain("function CodeFirstTopology")
+    expect(client).toContain("t('declaredCapabilities')")
+    expect(client).toContain("t('actualFacts')")
+    expect(client).toContain('event.type.name')
+    expect(client).toContain('event.causes.length')
     expect(client).toContain("fetch('/worksurface-map/api/watch'")
     expect(client).not.toContain('setInterval')
     expect(client).toContain('🛡✓')
@@ -46,7 +51,7 @@ describe('native WorkSurface topology view', () => {
   it('has release coverage for topology, view definition, and event lifecycle semantics', async () => {
     const suite = JSON.parse(await readFile(new URL('../evals/suite.json', import.meta.url), 'utf8'))
     expect(validateSuite(suite)).toEqual([])
-    expect(suite.cases.map((item: { id: string }) => item.id)).toEqual(['native-topology', 'native-session-admission', 'condition-semantics', 'publication-event-phases', 'view-definition'])
+    expect(suite.cases.map((item: { id: string }) => item.id)).toEqual(['native-topology', 'native-session-admission', 'condition-semantics', 'publication-event-phases', 'code-first-facts', 'view-definition'])
   })
 
   it('serves one fresh connected topology projection for the current Surface', async () => {
@@ -55,6 +60,8 @@ describe('native WorkSurface topology view', () => {
       anchorSurfaceId: 'a',
       surfaces: [{ surfaceId: 'a', title: 'Review A', lifecycle: { phase: 'published', evidence: [], verified: false, verificationEvidence: [] } }],
       orchestrations: [{ orchestrationId: 'ws-orch', definitionRevision: 'sha256:revision', bindings: { A: 'a' } }],
+      codeFirst: [{ registrationId: 'reg-code', orchestrateRevision: `sha256:${'a'.repeat(64)}`, bindings: { subject: 'a' }, routes: {}, acceptedInputCount: 1, recordedRunCount: 1, pendingRunCount: 0 }],
+      runtimeEvents: { a: [{ seq: 2, type: { name: 'review.completed' }, causes: [{ id: 'root' }], producer: { kind: 'orchestrate' } }] },
     })
     const ctx = fakeContext(routes, { inspectTopology, listSurfaces: vi.fn().mockResolvedValue([{ surfaceId: 'a', title: 'Review A' }]) })
     apply(ctx, {})
@@ -62,7 +69,12 @@ describe('native WorkSurface topology view', () => {
     const response = new MockResponse()
     await api.handler({ method: 'GET', url: '/worksurface-map/api/topology?surface=a', headers: { host: '127.0.0.1:3080' } }, response)
     expect(response.status).toBe(200)
-    expect(response.json()).toMatchObject({ anchorSurfaceId: 'a', surfaces: [{ title: 'Review A' }] })
+    expect(response.json()).toMatchObject({
+      anchorSurfaceId: 'a',
+      surfaces: [{ title: 'Review A' }],
+      codeFirst: [{ registrationId: 'reg-code', acceptedInputCount: 1, recordedRunCount: 1, pendingRunCount: 0 }],
+      runtimeEvents: { a: [{ seq: 2, type: { name: 'review.completed' }, causes: [{ id: 'root' }] }] },
+    })
     expect(inspectTopology).toHaveBeenCalledWith('a', undefined)
   })
 
@@ -87,6 +99,17 @@ describe('native WorkSurface topology view', () => {
     await routes.get('/worksurface-map/api')!.handler({ method: 'POST', url: '/worksurface-map/api/session?surface=a', headers: { host: 'localhost', origin: 'https://attacker.example' } }, response)
     expect(response.status).toBe(403)
     expect(ensureSession).not.toHaveBeenCalled()
+  })
+
+  it('returns an actionable domain error when Session admission fails', async () => {
+    const routes = new Map<string, { handler: (request: unknown, response: MockResponse) => Promise<void> | void }>()
+    const ensureSession = vi.fn().mockRejectedValue(Object.assign(new Error('Workspace attach failed'), { code: 'effect-failed' }))
+    const ctx = fakeContext(routes, { ensureSession })
+    apply(ctx, {})
+    const response = new MockResponse()
+    await routes.get('/worksurface-map/api')!.handler({ method: 'POST', url: '/worksurface-map/api/session?surface=a', headers: { host: 'localhost', origin: 'http://localhost:3080' } }, response)
+    expect(response.status).toBe(500)
+    expect(response.json()).toEqual({ error: 'Workspace attach failed', code: 'effect-failed' })
   })
 
   it('loads a validated immutable YAML View Definition and keeps its revision visible', async () => {

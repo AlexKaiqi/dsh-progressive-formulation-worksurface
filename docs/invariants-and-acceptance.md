@@ -8,7 +8,7 @@ nvm use 24.17.0
 pnpm check
 ```
 
-`pnpm check` 校验：交互概念图必要内容、JSON Schema、目标协议与可执行样例、`WS-01` 至 `WS-23` 注册表、包边界、TypeScript、单元测试、Host RPC 与生成协议。
+`pnpm check` 校验：交互概念图必要内容、JSON Schema、目标协议与可执行样例、`WS-01` 至 `WS-27` 注册表、包边界、TypeScript、单元测试、Host RPC 与生成协议。
 
 当前机器协议包括：
 
@@ -20,16 +20,16 @@ pnpm check
 | `spec/binding.schema.json` | Surface 与 DSH Session 的一对一 Binding |
 | `spec/context.schema.json` | DSH Session facts、Revision files、provider occurrence、Context Plan 与 render manifest |
 | `spec/surface-template.md` | 当前 Surface Revision 强制要求的 `surface.md` 结构 |
-| `spec/invariants.json` | 当前 `WS-01` 至 `WS-23` 的 enforcement/test 索引 |
+| `spec/invariants.json` | 当前 `WS-01` 至 `WS-27` 的 enforcement/test 索引 |
 
-`spec/design/` 只保存尚未进入 Runtime 的目标协议。设计状态由 [`design-baseline.md`](design-baseline.md) 固定，具体定义直接读取：
+`spec/design/` 保存 code-first Runtime 的规范协议；其中部分已进入 Runtime，设计状态由 [`design-baseline.md`](design-baseline.md) 固定。具体定义直接读取：
 
 - namespace 与 Event：[`runtime-authority`](../spec/design/runtime-authority.schema.json)、[`runtime-binding`](../spec/design/runtime-binding.schema.json)、[`runtime-event-contract`](../spec/design/runtime-event-contract.schema.json)、[`runtime-event-envelope`](../spec/design/runtime-event-envelope.schema.json)、[`built-in catalog`](../spec/design/builtin-event-catalog.json) 与 [`event-declaration`](../spec/design/event-declaration.schema.json)；
 - 模型调用：[`session-shell-contract`](../spec/design/session-shell-contract.json) 与 [`surface-turn-brief`](../spec/design/surface-turn-brief.schema.json)；
 - Orchestrate 准入：[`registration source`](../spec/design/orchestrate-registration.schema.json) 与 [`registered record`](../spec/design/orchestrate-registration-record.schema.json)；
 - Orchestrate 运行：[`Input Ledger`](../spec/design/orchestrate-input-ledger-record.schema.json)、[`run-state`](../spec/design/orchestrate-run-state.schema.json)、[`model input`](../spec/design/orchestrate-input-record.schema.json)、[`result`](../spec/design/orchestrate-result.schema.json)、[`recorded batch`](../spec/design/orchestrate-operation-batch.schema.json) 与 [`settlement`](../spec/design/orchestrate-operation-settlement.schema.json)。
 
-准确 Schema allowlist 和跨协议校验在 [`scripts/check.py`](../scripts/check.py) 与 [`scripts/validate-schemas.mjs`](../scripts/validate-schemas.mjs)。目标协议通过门禁不代表 Runtime 已实现；当前 Engine 仍只接收 `definition.schema.json` v1。
+准确 Schema allowlist 和跨协议校验在 [`scripts/check.py`](../scripts/check.py) 与 [`scripts/validate-schemas.mjs`](../scripts/validate-schemas.mjs)。Schema 通过本身不代表 Runtime 已实现；`WS-24` 至 `WS-27` 的 store、admission、recovery 与 Turn Brief 测试给出实现证据。`definition.schema.json` v1 Engine 仅保留为 v4 兼容路径。
 
 ## 2. 当前关键不变量
 
@@ -40,8 +40,10 @@ pnpm check
 - Event append 对同 ID 同内容幂等、同 ID 异内容冲突；`seq` 只在一个 subject stream 内有序，跨 stream 用 EventRef。
 - Registration 固定 Definition Revision、bindings 和历史边界；Activation 由 Registration、Subscription 和业务 key 决定。
 - Operation 在外部效果前记录、之后结算；重启通过 replay 恢复未结算 Operation。
+- Runtime 重启先扫描 durable target Event stream，补收 Event 已落盘但 Input Ledger 尚未 append 的崩溃窗口，再恢复未 recorded input。
 - 执行状态来自 DSH Session/Turn，不写成第二套 Surface 执行生命周期。
 - 模型用普通文件工具工作，唯一领域命令是 `ws emit`；Turn capability 在 Turn 结束后失效。
+- Surface head 是 admitted/applied/published Event 的 replay 结果，不存在独立可变 head 真源。
 - UI 和 projection 可删除，并从持久事实重建。
 
 ## 3. 可执行证据
@@ -55,6 +57,10 @@ pnpm check
 | Engine replay、Operation 恢复、live wakeup 收敛 | `packages/dsh/tests/engine.spec.ts` |
 | Code handler 固定 Revision、授权与输出协议 | `packages/dsh/tests/code-handler.spec.ts` |
 | DSH Session adapter 与 Turn capability | `packages/dsh/tests/session-adapter.spec.ts` |
+| 首 Turn预授权、followup receipt 与真实 Agent loop | `packages/dsh/tests/session-admission-agent-loop.spec.ts` |
+| v5 authority/Contract/Event/Input/Operation 协议与破坏检测 | `packages/core/tests/runtime-protocol.spec.ts` |
+| code-first admission、重启补收崩溃窗口、record/apply/settle | `packages/dsh/tests/code-first-orchestrator.spec.ts` |
+| Event-backed Surface head、CAS apply、DSH tool 安全 projection | `packages/dsh/tests/code-first-surface-port.spec.ts` |
 | Context plan、provider occurrence、render audit | `packages/dsh/tests/context-runtime.spec.ts` |
 | View projection 删除后重建 | `packages/core/tests/view-projection.spec.ts`、`packages/web/tests/web.spec.ts` |
 

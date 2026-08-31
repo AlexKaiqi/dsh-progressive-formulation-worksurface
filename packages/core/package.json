@@ -26,6 +26,10 @@
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1"
+  },
   "scripts": {
     "bundle": "tsdown",
     "prepack": "tsc -b && tsdown"

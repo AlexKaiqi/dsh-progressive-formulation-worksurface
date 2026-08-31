@@ -2,6 +2,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { readFileSync, realpathSync } from 'node:fs'
+import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { asWorkSurfaceError, sha256, WorkSurfaceError } from '@pf-worksurface/core'
 import { WorkSurfaceHostClient } from './client.ts'
@@ -32,8 +33,9 @@ async function emit(args: Args, env: NodeJS.ProcessEnv): Promise<unknown> {
   allowFlags(args, ['surface', 'key', 'payload', 'payload-file', 'socket', 'capability'])
   const target = args.positional[1]!
   const surfaceId = stringFlag(args, 'surface') ?? env.DSH_SURFACE_ID
-  const client = clientFor(args, env)
-  const capability = stringFlag(args, 'capability') ?? env.DSH_WORKSURFACE_CAPABILITY
+  const runtime = turnRuntime(env)
+  const client = clientFor(args, env, runtime?.socketPath)
+  const capability = stringFlag(args, 'capability') ?? runtime?.capability ?? env.DSH_WORKSURFACE_CAPABILITY
   const operationKey = stringFlag(args, 'key')
   const value = parseJson(payload(args), 'payload')
   if (capability !== undefined) {
@@ -49,10 +51,22 @@ async function emit(args: Args, env: NodeJS.ProcessEnv): Promise<unknown> {
   return client.call('event.emit', { surfaceId, name: target, payload: value, eventId })
 }
 
-function clientFor(args: Args, env: NodeJS.ProcessEnv): WorkSurfaceHostClient {
-  const socket = stringFlag(args, 'socket') ?? env.DSH_WORKSURFACE_SOCKET
+function clientFor(args: Args, env: NodeJS.ProcessEnv, turnSocket?: string): WorkSurfaceHostClient {
+  const socket = stringFlag(args, 'socket') ?? turnSocket ?? env.DSH_WORKSURFACE_SOCKET
   if (socket === undefined) throw new WorkSurfaceError('unauthorized', '--socket is required outside a managed DSH Turn')
   return new WorkSurfaceHostClient(socket)
+}
+
+function turnRuntime(env: NodeJS.ProcessEnv): { readonly socketPath: string; readonly capability: string } | undefined {
+  const view = env.DSH_WORKSURFACE_VIEW_DIR
+  if (view === undefined) return undefined
+  let value: unknown
+  try { value = JSON.parse(readFileSync(join(view, '.runtime.json'), 'utf8')) }
+  catch { throw new WorkSurfaceError('unauthorized', 'current WorkSurface Turn Runtime binding is unavailable') }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new WorkSurfaceError('unauthorized', 'current WorkSurface Turn Runtime binding is invalid')
+  const record = value as Record<string, unknown>
+  if (record.version !== 1 || typeof record.socketPath !== 'string' || typeof record.capability !== 'string') throw new WorkSurfaceError('unauthorized', 'current WorkSurface Turn Runtime binding is invalid')
+  return { socketPath: record.socketPath, capability: record.capability }
 }
 
 function parseArgs(argv: readonly string[]): Args {

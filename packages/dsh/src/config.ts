@@ -19,6 +19,8 @@ export interface WorkSurfaceConfig {
   readonly eventRoot: string
   readonly runtimeRoot: string
   readonly socketPath: string
+  /** Authority-scoped target protocol state; v4 remains readable during migration. */
+  readonly targetRoot: string
 }
 
 export const CONFIG_SCHEMA = z.object({
@@ -40,6 +42,7 @@ export function resolveConfig(config: Config): WorkSurfaceConfig {
     eventRoot: join(stateRoot, 'events'),
     runtimeRoot: join(stateRoot, 'runtime'),
     socketPath: resolve(config.socketPath?.trim() ? config.socketPath : defaultSocketPath(root)),
+    targetRoot: join(root, 'v5'),
   }
 }
 

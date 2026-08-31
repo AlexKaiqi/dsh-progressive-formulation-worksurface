@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
-import { SESSION_FORMAT_VERSION, Session, SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
+import { KNOWN_SESSION_EVENT_TYPES, SESSION_FORMAT_VERSION, Session, SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import { FileEventStore, RevisionStore, SURFACE_TEMPLATE } from '@pf-worksurface/core'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SurfaceSessionAdmission } from '../src/session-admission.ts'
@@ -73,10 +73,13 @@ async function fixture() {
   const surfaces = new SurfaceSessionService(events, revisions, work, state)
   await surfaces.init()
   const agents = new FakeAgents()
+  const workspace = { paths: [] as string[], sessions: [] as string[] }
   const runtime = {
     agents,
     agentDefaultModel: { currentSelection: () => ({ provider: 'test', model: 'test-model' }) },
-    get: (name: string) => name === 'sessionPersistence'
+    get: (name: string) => name === 'workspaceRegistry'
+      ? { create: (path: string) => { workspace.paths.push(path); return Promise.resolve({ attachSession: (id: ReturnType<typeof SessionId>) => { workspace.sessions.push(String(id)); return Promise.resolve() } }) } }
+      : name === 'sessionPersistence'
       ? {
           list: () => Promise.resolve([...agents.stored.values()].map(session => ({ id: session.id }))),
           inspect: (id: ReturnType<typeof SessionId>) => {
@@ -88,17 +91,19 @@ async function fixture() {
       : undefined,
   }
   const admission = new SurfaceSessionAdmission(runtime as unknown as Context, surfaces, () => Promise.resolve())
-  return { admission, agents, runtime, surfaces }
+  return { admission, agents, runtime, surfaces, workspace, work }
 }
 
 describe('SurfaceSessionAdmission', () => {
   it('creates the real blank DSH Session and binds it before publication', async () => {
-    const { admission, agents, surfaces } = await fixture()
+    const { admission, agents, surfaces, workspace, work } = await fixture()
     const result = await admission.ensure({ surfaceId: 'surface-a' })
     expect(result).toMatchObject({ surfaceId: 'surface-a', created: true, resumed: false })
     expect(agents.order).toEqual(['setup', 'publish'])
     expect(surfaces.bindingForSurface('surface-a')).toMatchObject({ sessionId: result.sessionId, inputSource: 'authoring' })
     expect(agents.live.get(result.sessionId)?.session.events.map(event => event.type)).toEqual(['worksurface/binding'])
+    expect(workspace.paths).toEqual([work])
+    expect(workspace.sessions).toEqual([result.sessionId])
   })
 
   it('returns the same live Session and refuses to change its fixed input', async () => {
@@ -179,6 +184,7 @@ describe('SurfaceSessionAdmission', () => {
   })
 
   it('declares persistence and Session lifecycle as installation dependencies', () => {
-    expect(WorkSurfaceService.inject).toEqual(expect.arrayContaining(['sessions', 'sessionPersistence']))
+    expect(WorkSurfaceService.inject).toEqual(expect.arrayContaining(['sessions', 'sessionPersistence', 'workspaceRegistry']))
+    expect(KNOWN_SESSION_EVENT_TYPES.has('worksurface/binding')).toBe(true)
   })
 })

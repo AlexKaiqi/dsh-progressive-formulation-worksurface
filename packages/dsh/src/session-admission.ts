@@ -36,6 +36,14 @@ interface SessionPersistencePort {
   }>
 }
 
+interface WorkspacePort {
+  attachSession(id: ReturnType<typeof SessionId>): Promise<void>
+}
+
+interface WorkspaceRegistryPort {
+  create(path: string, title?: string): Promise<WorkspacePort>
+}
+
 interface SurfaceSessionRuntime {
   readonly agents: AgentRegistryPort
   readonly agentDefaultModel: { currentSelection(): ModelSelection }
@@ -80,6 +88,7 @@ export class SurfaceSessionAdmission {
   private readonly runtime: SurfaceSessionRuntime
   private readonly surfaceOperations = new Map<string, Promise<void>>()
   private startupRecovery: Promise<readonly SurfaceSessionRecoveryResult[]> | undefined
+  private workspace: Promise<WorkspacePort> | undefined
 
   constructor(
     ctx: Context,
@@ -205,6 +214,7 @@ export class SurfaceSessionAdmission {
       ? request.source ?? await this.surfaces.defaultInputSource(request.surfaceId)
       : sourceFor(existing)
     const sessionId = SessionId(existing?.sessionId ?? `worksurface-${randomUUID()}`)
+    const workspace = await this.ensureWorkspace()
     let agent = this.runtime.agents.get(sessionId)
     let created = false
     let resumed = false
@@ -235,8 +245,22 @@ export class SurfaceSessionAdmission {
         created = true
       }
     }
+    try {
+      await workspace.attachSession(agent.session.id)
+    } catch (error) {
+      throw new WorkSurfaceError('effect-failed', `DSH Workspace could not attach Surface Session '${agent.session.id}': ${renderError(error)}`)
+    }
     request.signal?.throwIfAborted()
     return { surfaceId: request.surfaceId, sessionId: String(agent.session.id), created, resumed }
+  }
+
+  private ensureWorkspace(): Promise<WorkspacePort> {
+    if (this.workspace !== undefined) return this.workspace
+    const registry = this.runtime.get('workspaceRegistry') as WorkspaceRegistryPort | undefined
+    if (registry === undefined) throw new WorkSurfaceError('effect-failed', 'WorkSurface Session admission requires the DSH Workspace registry')
+    this.workspace = registry.create(this.surfaces.workRoot, 'WorkSurfaces')
+    void this.workspace.catch(() => { this.workspace = undefined })
+    return this.workspace
   }
 
   private async compose(agentCtx: Context, surfaceId: string, source: SurfaceInputSource, preset?: string): Promise<void> {

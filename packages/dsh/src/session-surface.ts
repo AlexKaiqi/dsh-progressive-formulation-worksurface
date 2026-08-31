@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { lstat, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
-import type { Session } from '@deepseek-ai/dsh-session'
+import { KNOWN_SESSION_EVENT_TYPES, SESSION_FORMAT_VERSION, Session as DshSession, SessionId, type Session } from '@deepseek-ai/dsh-session'
 import {
   FileEventStore,
   RevisionStore,
@@ -10,6 +11,7 @@ import {
   registrationSubject,
   sha256,
   stableStringify,
+  surfaceTurnRuntimeBinding,
   surfaceSubject,
   type EventDraft,
   type EventRef,
@@ -17,6 +19,10 @@ import {
   type Revision,
   type RevisionGcResult,
   type WorkSurfaceEvent,
+  type AuthorityId,
+  type ContractDigest,
+  type RuntimeBinding,
+  type RuntimeScope,
 } from '@pf-worksurface/core'
 import type { WorkSurfaceEventPort } from './engine.ts'
 
@@ -26,6 +32,12 @@ declare module '@deepseek-ai/dsh-session/types' {
     'worksurface/binding': SurfaceSessionBinding
   }
 }
+
+// Current DSH releases persist the ignorable marker; the local compatibility
+// host predates that envelope field and instead consults this shared catalog.
+// Register before any bound Session can be resumed so both readers accept the
+// informational binding fact without weakening unknown required events.
+;(KNOWN_SESSION_EVENT_TYPES as Set<string>).add('worksurface/binding')
 
 export type SurfaceInputSource = 'published' | 'authoring' | `revision:${string}`
 
@@ -75,6 +87,8 @@ export interface BoundSurfaceSession {
   readonly surfaceId: string
   readonly cwd: string
   readonly contextFile: string
+  readonly viewDir: string
+  readonly runtimeBinding?: RuntimeBinding
   readonly binding: SurfaceSessionBinding
   readonly revision: SurfaceRevisionState
 }
@@ -89,6 +103,19 @@ interface TurnScope {
   readonly turn: number
   readonly capability: string
   current: BoundSurfaceSession
+}
+
+export interface SurfaceTurnBriefOutput {
+  readonly name: string
+  readonly description: string
+  readonly payloadSchema: Readonly<Record<string, JsonValue>>
+  readonly scope?: RuntimeScope
+  readonly digest?: ContractDigest
+}
+export interface SurfaceTurnBriefDraft {
+  readonly instruction: string
+  readonly inputs?: readonly { readonly label: string; readonly summary: string }[]
+  readonly outputs: readonly SurfaceTurnBriefOutput[]
 }
 
 const RESERVED_EVENTS = new Set(['surface.revision.published', 'surface.publish.conflicted', 'surface.session.bound'])
@@ -106,14 +133,17 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
   private readonly surfaceMutations = new Map<string, Promise<void>>()
   private bindingMutation: Promise<void> = Promise.resolve()
   private initialized = false
-  private followupRouter: ((surfaceId: string, message: string, messageId: string) => Promise<{ readonly sessionId: string; readonly messageId: string }>) | undefined
+  private turnTransport: string
+  private runtimeAuthority?: AuthorityId
+  private readonly pendingBriefs = new Map<string, SurfaceTurnBriefDraft>()
+  private followupRouter: ((surfaceId: string, message: string, messageId: string) => Promise<{ readonly sessionId: string; readonly messageId: string; readonly turnId: string }>) | undefined
 
   constructor(
     readonly eventStore: FileEventStore,
     readonly revisions: RevisionStore,
     readonly workRoot: string,
     readonly stateRoot: string,
-  ) {}
+  ) { this.turnTransport = join(stateRoot, 'run', 'host.sock') }
 
   /** Load the durable one-to-one index and rebuild any missing authoring directory. */
   async init(): Promise<void> {
@@ -143,7 +173,11 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     return () => { if (this.followupRouter === router) this.followupRouter = undefined }
   }
 
-  followupSurface(surfaceId: string, message: string, messageId: string): Promise<{ readonly sessionId: string; readonly messageId: string }> {
+  registerTurnTransport(socketPath: string): void { this.turnTransport = socketPath }
+  registerRuntimeAuthority(authority: AuthorityId): void { this.runtimeAuthority = authority }
+  prepareTurnBrief(surfaceId: string, brief: SurfaceTurnBriefDraft): void { validateSurfaceId(surfaceId); this.pendingBriefs.set(surfaceId, structuredClone(brief)) }
+
+  followupSurface(surfaceId: string, message: string, messageId: string): Promise<{ readonly sessionId: string; readonly messageId: string; readonly turnId: string }> {
     if (this.followupRouter === undefined) throw new WorkSurfaceError('effect-failed', 'DSH Session followup routing is unavailable')
     return this.followupRouter(surfaceId, message, messageId)
   }
@@ -220,7 +254,9 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     // Downstream Session event types must be ignorable to a harness build that
     // does not ship this plugin; when WorkSurface is present the exact payload
     // is still retained and reconciled against binding.json.
-    if (recorded.length === 0) session.append('worksurface/binding', binding, { ignorable: true })
+    if (recorded.length === 0 && supportsPersistedIgnorableSessionEvents(session, binding)) {
+      session.append('worksurface/binding', binding, { ignorable: true })
+    }
     return binding
   }
 
@@ -235,6 +271,7 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     const revision = this.revisionsBySurface.get(binding.surfaceId)
     if (revision === undefined) throw new WorkSurfaceError('effect-failed', `Surface Session '${binding.surfaceId}' has no recovered revision state`)
     const capability = randomUUID()
+    const view = this.createTurnView(binding.surfaceId, sessionId, turn, capability)
     const current: BoundSurfaceSession = {
       capability,
       sessionId,
@@ -244,6 +281,8 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
         ? this.legacyWorktreePath(binding.surfaceId)
         : this.authoringPath(binding.surfaceId),
       contextFile: this.contextPath(binding.surfaceId),
+      viewDir: view.viewDir,
+      ...(view.runtimeBinding === undefined ? {} : { runtimeBinding: view.runtimeBinding }),
       binding,
       revision,
     }
@@ -251,6 +290,37 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     this.capabilities.set(capability, scope)
     this.currentBySession.set(sessionId, scope)
     return capability
+  }
+
+  private createTurnView(surfaceId: string, sessionId: string, turn: number, capability: string): { readonly viewDir: string; readonly runtimeBinding?: RuntimeBinding } {
+    const viewDir = join(this.stateRoot, 'runtime', 'turn-views', sessionId, String(turn))
+    mkdirSync(join(viewDir, 'contracts'), { recursive: true, mode: 0o700 })
+    const draft = this.pendingBriefs.get(surfaceId) ?? { instruction: 'Continue the current Surface objective using its files and acceptance criteria.', outputs: [] }
+    this.pendingBriefs.delete(surfaceId)
+    const outputs = draft.outputs.map(output => {
+      const schemaFile = `contracts/${output.name}.payload.schema.json`
+      writeFileSync(join(viewDir, schemaFile), `${stableStringify(output.payloadSchema)}\n`, { flag: 'w', mode: 0o400 })
+      return {
+        name: output.name,
+        when: `Emit only when ${output.description}`,
+        payloadSummary: output.description,
+        schemaPath: `$DSH_WORKSURFACE_VIEW_DIR/${schemaFile}`,
+        command: { argv: ['ws', 'emit', output.name, '--payload', '<JSON matching schema>'] },
+      }
+    })
+    const brief = {
+      version: 1,
+      surface: { handle: '$DSH_SURFACE_ID', directory: '$DSH_SURFACE_DIR', entryPaths: ['surface.md'] },
+      runtimeView: '$DSH_WORKSURFACE_VIEW_DIR',
+      instruction: draft.instruction,
+      inputs: draft.inputs ?? [],
+      outputs,
+    }
+    writeFileSync(join(viewDir, 'turn-brief.json'), `${stableStringify(brief)}\n`, { flag: 'w', mode: 0o400 })
+    writeFileSync(join(viewDir, '.runtime.json'), `${stableStringify({ version: 1, socketPath: this.turnTransport, capability })}\n`, { flag: 'w', mode: 0o400 })
+    const resolved = Object.fromEntries(draft.outputs.flatMap(output => output.scope === undefined || output.digest === undefined ? [] : [[output.name, { scope: output.scope, digest: output.digest }]]))
+    const runtimeBinding = this.runtimeAuthority === undefined ? undefined : surfaceTurnRuntimeBinding(this.runtimeAuthority, { surfaceId, sessionId, turnId: String(turn) }, resolved)
+    return { viewDir, ...(runtimeBinding === undefined ? {} : { runtimeBinding }) }
   }
 
   endTurn(sessionId: string, turn?: number): void {
@@ -285,6 +355,21 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
   cwdForSurface(surfaceId: string): string {
     validateSurfaceId(surfaceId)
     return this.workRoot
+  }
+
+  /** Make a code-first committed Revision the fact-backed input of later Turns without writing a v4 publication Event. */
+  async adoptRuntimeRevision(surfaceId: string, revision: Revision): Promise<void> {
+    validateSurfaceId(surfaceId)
+    if ((await this.revisions.read(revision)).kind !== 'surface') throw new WorkSurfaceError('canonical-corrupt', `Runtime Revision '${revision}' is not a Surface Revision`)
+    const current = this.revisionsBySurface.get(surfaceId)
+    const binding = this.bindingsBySurface.get(surfaceId)
+    if (current === undefined || binding === undefined) return
+    const adopted: SurfaceRevisionState = { inputSource: 'published', inputRevision: revision, expectedHead: current.expectedHead, outputRevision: revision }
+    this.revisionsBySurface.set(surfaceId, adopted)
+    const scope = this.currentBySession.get(binding.sessionId)
+    if (scope !== undefined) scope.current = { ...scope.current, revision: adopted }
+    await this.revisions.pin(revision)
+    await atomicJson(this.contextPath(surfaceId), contextFor(binding, adopted))
   }
 
   /** Resolve the product default for an unbound Surface without asking the user for protocol vocabulary. */
@@ -546,6 +631,24 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
 
 function bindingEvents(session: Session): SurfaceSessionBinding[] {
   return session.events.flatMap(event => event.type === 'worksurface/binding' ? [event.data as SurfaceSessionBinding] : [])
+}
+
+/**
+ * DSH 0.1.2-alpha.2+ persists `ignorable`; the locally linked alpha.1 host
+ * accepts the third append argument but silently drops it. Probe the concrete
+ * Session constructor so multiple package copies cannot produce a false
+ * capability result. On an older host binding.json remains the authority and
+ * we omit the informational Session event rather than writing an unreadable
+ * log.
+ */
+export function supportsPersistedIgnorableSessionEvents(
+  session: Session,
+  binding: SurfaceSessionBinding,
+): boolean {
+  const id = SessionId(`worksurface-compat-${randomUUID()}`)
+  const constructor = session.constructor as typeof DshSession
+  const probe = constructor.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: 0 })
+  return probe.append('worksurface/binding', binding, { ignorable: true }).ignorable === true
 }
 
 function contextFor(binding: SurfaceSessionBinding, revision: SurfaceRevisionState): SurfaceSessionContext {

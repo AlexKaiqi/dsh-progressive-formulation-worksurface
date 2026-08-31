@@ -1,11 +1,11 @@
-// Invariant assertions: [WS-01] [WS-09] [WS-10] [WS-12] [WS-13] [WS-14] [WS-21]
+// Invariant assertions: [WS-01] [WS-09] [WS-10] [WS-12] [WS-13] [WS-14] [WS-21] [WS-27]
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import { FileEventStore, RevisionStore, SURFACE_TEMPLATE } from '@pf-worksurface/core'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SurfaceSessionService } from '../src/session-surface.ts'
+import { SurfaceSessionService, supportsPersistedIgnorableSessionEvents } from '../src/session-surface.ts'
 
 const roots: string[] = []
 afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))))
@@ -56,6 +56,26 @@ describe('SurfaceSessionService', () => {
     expect(service.bindingForSurface('surface-a')).toEqual(binding)
   })
 
+  it('detects a concrete Host Session implementation that drops ignorable envelopes', async () => {
+    const { service } = await fixture()
+    const current = session('legacy-host', service.cwdForSurface('surface-a'))
+    const binding = {
+      version: 1 as const,
+      surfaceId: 'surface-a',
+      sessionId: 'legacy-host',
+      inputSource: 'authoring' as const,
+      inputRevision: `sha256:${'a'.repeat(64)}` as const,
+      expectedHead: null,
+    }
+    Object.defineProperty(current, 'constructor', {
+      value: {
+        create: () => ({ append: () => ({ type: 'worksurface/binding' }) }),
+      },
+    })
+
+    expect(supportsPersistedIgnorableSessionEvents(current, binding)).toBe(false)
+  })
+
   it('rejects both a second Session for one Surface and a second Surface for one Session', async () => {
     const { service } = await fixture()
     const first = session('session-one', service.cwdForSurface('surface-a'))
@@ -101,8 +121,23 @@ describe('SurfaceSessionService', () => {
     const { service } = await fixture()
     const current = session('session-planner', service.cwdForSurface('surface-a'))
     await service.bindSession(current, 'surface-a', 'authoring')
+    service.prepareTurnBrief('surface-a', {
+      instruction: 'Review the current evidence.',
+      outputs: [{
+        name: 'review.completed',
+        description: 'the review is complete',
+        payloadSchema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object' },
+      }],
+    })
     const capability = start(service, current)
     expect(service.planningSource(capability)).toEqual({ surfaceId: 'surface-a', sessionId: 'session-planner', turn: 1 })
+    const active = service.activeSurface('session-planner')!
+    expect(JSON.parse(await readFile(join(active.viewDir, 'turn-brief.json'), 'utf8'))).toMatchObject({
+      version: 1,
+      runtimeView: '$DSH_WORKSURFACE_VIEW_DIR',
+      instruction: 'Review the current evidence.',
+      outputs: [{ name: 'review.completed', command: { argv: ['ws', 'emit', 'review.completed', '--payload', '<JSON matching schema>'] } }],
+    })
     service.endTurn('session-planner', 1)
     expect(() => service.planningSource(capability)).toThrowError(expect.objectContaining({ code: 'unauthorized' }))
   })

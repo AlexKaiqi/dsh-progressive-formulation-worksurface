@@ -85,6 +85,7 @@ export function apply(ctx, config) {
     } catch (error) {
       if (error?.code === 'not-found') return json(res, 404, { error: error.message })
       ctx.logger.error(error instanceof Error ? error : new Error(String(error)))
+      if (error instanceof Error) return json(res, 500, { error: error.message, ...(typeof error.code === 'string' ? { code: error.code } : {}) })
       return json(res, 500, { error: 'projection unavailable' })
     }
   }

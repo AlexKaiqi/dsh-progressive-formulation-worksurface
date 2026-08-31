@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://worksurface.local/spec/design/runtime-authority.schema.json",
   "title": "WorkSurface Authority Namespace",
-  "$comment": "Stable namespace of one durable WorkSurface storage authority. It is persisted before accepting durable identities, survives Runtime process restarts, and is never a model-authored or model-visible value.",
+  "$comment": "Stable namespace of one durable WorkSurface storage authority. It is persisted before accepting durable identities, survives Runtime process restarts, and is never model-authored or part of the stable model semantic contract. Same-principal filesystem secrecy is not assumed.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "id"],

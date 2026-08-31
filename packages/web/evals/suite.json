@@ -5,6 +5,7 @@
     { "id": "native-session-admission", "testFile": "tests/web.spec.ts", "assertions": ["enter progress delegates the selected Surface to Host admission", "the client opens the admitted real DSH Session without submitting a prompt or creating a browser-side binding"] },
     { "id": "condition-semantics", "testFile": "tests/web.spec.ts", "assertions": ["all, any, count, sequence and code use distinct condition junctions", "possible, matched, activation and emitted evidence remain separate stages"] },
     { "id": "publication-event-phases", "testFile": "tests/web.spec.ts", "assertions": ["Surface publication is replayed from Surface events", "DSH execution state is not inferred from Surface events"] },
+    { "id": "code-first-facts", "testFile": "tests/web.spec.ts", "assertions": ["Registration routes are presented only as declared capabilities", "recorded Runtime Events and their causes are presented separately as actual progress evidence"] },
     { "id": "view-definition", "testFile": "tests/web.spec.ts", "assertions": ["a validated immutable YAML revision supplies titles, groups and stable layout hints", "missing presentation data falls back deterministically without affecting Session or Surface facts"] }
   ]
 }

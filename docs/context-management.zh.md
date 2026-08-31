@@ -69,4 +69,4 @@ Lifetime 支持 `request`、`phase`、`until-revision-change`、`until-event` �
 
 ## 6. DSH 边界
 
-WorkSurface context extension events 被注册为 DSH Session event types，并标记为 downstream-ignorable。压缩、prune 以及 `Session → Turn → Step → Tool Call` 生命周期仍由 DSH 负责。
+WorkSurface context extension events 被注册为 DSH Session event types，并标记为 downstream-ignorable。启用这层前，adapter 会对当前 Agent 使用的具体 Session constructor 做能力探测，而不是假定 linked plugin 与 Host 共享同一份事件注册表：只有 `ignorable` 确实进入持久 envelope 时，才写入 `worksurface/context-revision`、occurrence 和 render facts。旧 Host 若接受 append options 却丢弃该字段，则整层 fact-backed context 都不持久化；模型仍使用 Turn Brief、四个 shell 变量和普通文件能力，Session 重启保持可读。压缩、prune 以及 `Session → Turn → Step → Tool Call` 生命周期仍由 DSH 负责。

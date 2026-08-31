@@ -1,6 +1,6 @@
 # WorkSurface 目标设计基线
 
-> 本文只定义目标定位、所有权和不可违背的边界。协议结构以 [`spec/design/`](../spec/design/) 的 JSON Schema 为准，行为以 [`examples/`](../examples/) 的可执行代码和门禁为准。当前 v1 实现见 [`worksurface-complete-design.md`](worksurface-complete-design.md)。
+> 本文定义默认 code-first 定位、所有权和不可违背的边界。协议结构以 [`spec/design/`](../spec/design/) 的 JSON Schema 为准，行为以 [`examples/`](../examples/) 的可执行代码和门禁为准。旧 v4 兼容实现见 [`worksurface-complete-design.md`](worksurface-complete-design.md)。
 
 ## 定位
 
@@ -15,7 +15,7 @@ WorkSurface 管理可持续维护的工作上下文，以及这些上下文之�
 ## 总原则
 
 1. Runtime 完成可确定的筛选、解析、校验、持久化、并发控制、重试和恢复；模型只承担语义判断。
-2. 完整 namespace 必须存在以隔离并发任务，但由 Runtime-private Binding 解析；模型只使用稳定 local handle。
+2. 完整 namespace 必须存在以隔离并发任务，但由 Runtime-owned Binding 解析；模型只使用稳定 local handle。Binding 不进入稳定模型契约，但同一 OS principal 下的文件可见性不作为安全边界。
 3. 不为模型已经掌握的 Bash、Python、Node 和文件能力再造工具或 DSL。
 4. 模型输入按需提供：短而关键的信息进入 prompt，大内容和完整 Schema 通过普通文件读取。
 5. 任何副作用都必须先有机器协议、完整校验和持久 Operation，再执行和结算。
@@ -36,7 +36,7 @@ WorkSurface 管理可持续维护的工作上下文，以及这些上下文之�
 
 ## 模型可见契约
 
-模型只需要额外知道以下稳定契约，不接触实际 namespace、socket、capability、digest、cursor、CAS 或幂等算法：
+模型只需要额外知道以下稳定契约，不把实际 namespace、socket、capability、digest、cursor、CAS 或幂等算法作为语义输入：
 
 - Surface Session shell 的四个变量和 `ws` 发现方式：[`session-shell-contract.json`](../spec/design/session-shell-contract.json)，结构由 [`session-shell-contract.schema.json`](../spec/design/session-shell-contract.schema.json) 定义；
 - 每次 Turn 的最小任务、受限输入定位和结构化 Event 输出 argv：[`surface-turn-brief.schema.json`](../spec/design/surface-turn-brief.schema.json)；
@@ -56,17 +56,17 @@ WorkSurface 管理可持续维护的工作上下文，以及这些上下文之�
 
 | 状态 | 范围 |
 | --- | --- |
-| 当前 v1 | Event v1、Definition v1、Registration/Activation/Operation、DSH Session binding、Revision、Context Projection、emit/followup |
-| 目标协议 | authority namespace、scoped Event Contract、Runtime-private Binding、四变量 shell Contract、Turn Brief、code-first Registration、staged run view、Event/advance result 与 recoverable Operation batch |
-| 未实现 | 上述目标协议进入 Runtime 的类型、store、fold、adapter、恢复和故障测试 |
+| 当前默认 | authority namespace、scoped Event Contract、四变量 shell Contract、Turn Brief、code-first Registration、Input Ledger、staged run view、Event/advance result 与 recoverable Operation batch |
+| 兼容路径 | `v4` Event/Definition v1/Activation/Operation 与既有 `definition.json` 目录；不与目标 envelope 混写，也不再注入新 authoring 指南 |
+| 尚未收敛 | 旧 v4 数据的显式迁移工具、`dsh.tool.completed` 之外的 DSH 安全 projection |
 
-目标 Schema 通过校验只代表协议内部一致，不代表 Runtime 已实现。
+目标 Schema 仍是结构真源；`WS-24` 至 `WS-27` 和对应故障测试证明已进入 Runtime 的边界。尚未收敛项不得由 Schema 通过冒充为已实现。
 
 ## 明确排除
 
 - Episode；
 - YAML/JSON pattern DSL 或另一套行为 Definition IR；
 - Orchestrate 创建、删除或派生 Surface；
-- 模型可见的全局 Event prefix、qualified identity 或 transport secret；
+- 把全局 Event prefix、qualified identity 或 transport 当作模型语义契约，或把 transport 字符串保密当作授权边界；
 - 通用 context dump、业务环境变量注入和模型必填 Operation plumbing；
 - 在没有类型、持久化、replay、恢复和测试时引入新的一级概念。

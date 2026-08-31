@@ -42,6 +42,19 @@ const snapshot = {
     } }],
     activations: [], pendingOperations: [], actual: [], planned: [], runs: [],
   }],
+  codeFirst: [{
+    registrationId: 'release-code', orchestrateRevision: `sha256:${'c'.repeat(64)}`,
+    bindings: { research: 'research', review: 'review', subject: 'publish' },
+    routes: {
+      'release.requested': { consumeFrom: ['research', 'review'] },
+      'release.bundle.completed': { emitOn: ['subject'], surfaceOutputFrom: ['subject'] },
+    },
+    acceptedInputCount: 2, recordedRunCount: 1, pendingRunCount: 0,
+  }],
+  runtimeEvents: {
+    research: [{ seq: 0, recordedAt: '2026-09-01T00:00:00.000Z', type: { name: 'release.requested' }, producer: { kind: 'surface-session' }, causes: [] }],
+    publish: [{ seq: 1, recordedAt: '2026-09-01T00:00:01.000Z', type: { name: 'release.bundle.completed' }, producer: { kind: 'orchestrate' }, causes: [{ id: 'request', seq: 0 }] }],
+  },
 }
 
 const html = `<!doctype html>

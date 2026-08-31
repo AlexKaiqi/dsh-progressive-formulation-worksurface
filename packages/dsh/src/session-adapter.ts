@@ -1,4 +1,3 @@
-import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { MessageId, freezeMessage } from '@deepseek-ai/dsh-llm'
@@ -7,7 +6,7 @@ import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-ses
 import { WorkSurfaceError } from '@pf-worksurface/core'
 import type { BashEnvContributor, ShellEnvRegistry } from '@deepseek-ai/dsh-shell-env'
 import { workSurfaceInstructions } from './model/session-instructions.ts'
-import type { SurfaceSessionService } from './session-surface.ts'
+import { supportsPersistedIgnorableSessionEvents, type SurfaceSessionService } from './session-surface.ts'
 import type { WorkSurfaceContextRuntime } from './context/runtime.ts'
 import type { RenderedContext } from './context/types.ts'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -23,14 +22,14 @@ declare module '@deepseek-ai/cordis' {
 
 /** Connect one WorkSurface service to the Sessions and Turns DSH already owns. */
 export class DshWorkSurfaceSessionAdapter {
-  private readonly cliPath = fileURLToPath(import.meta.resolve('@pf-worksurface/cli/bin'))
-
+  private readonly followupReceipts = new Map<string, Set<(turnId: string) => void>>()
   constructor(
     private readonly ctx: Context,
     private readonly service: SurfaceSessionService,
     private readonly contextRuntime: WorkSurfaceContextRuntime | undefined,
-    private readonly socketPath: string,
+    _socketPath: string,
     private readonly ensureSurface?: (surfaceId: string) => Promise<{ readonly sessionId: string }>,
+    private readonly prepareNextTurn?: (surfaceId: string) => Promise<void>,
   ) {
     this.registerSessionEvents()
     this.registerShellContext()
@@ -41,7 +40,7 @@ export class DshWorkSurfaceSessionAdapter {
     this.ctx.effect(() => unregister, 'worksurface.sessionFollowupRouter()')
   }
 
-  private async deliverFollowup(surfaceId: string, message: string, messageId: string): Promise<{ readonly sessionId: string; readonly messageId: string }> {
+  private async deliverFollowup(surfaceId: string, message: string, messageId: string): Promise<{ readonly sessionId: string; readonly messageId: string; readonly turnId: string }> {
     let binding = this.service.bindingForSurface(surfaceId)
     let agent = binding === undefined ? undefined : this.ctx.agents.get(SessionId(binding.sessionId))
     if (agent === undefined && this.ensureSurface !== undefined) {
@@ -54,19 +53,28 @@ export class DshWorkSurfaceSessionAdapter {
     }
     if (binding === undefined) throw new WorkSurfaceError('not-found', `Surface '${surfaceId}' has no DSH Session`)
     if (agent === undefined) throw new WorkSurfaceError('effect-failed', `DSH Session '${binding.sessionId}' is not live`)
-    if (hasMessageReceipt(agent.session, messageId)) return { sessionId: binding.sessionId, messageId }
-
-    agent.followup(freezeMessage({
-      id: MessageId(messageId),
-      role: 'user' as const,
-      content: [{ type: 'text' as const, text: message }],
-      source: { kind: 'plugin' as const, plugin: '@pf-worksurface/dsh' },
-    }))
+    let turnId = turnForMessage(agent.session, messageId)
+    if (turnId === undefined) {
+      const receipt = this.waitForFollowupReceipt(binding.sessionId, messageId)
+      try {
+        if (!hasMessageReceipt(agent.session, messageId)) {
+          agent.followup(freezeMessage({
+            id: MessageId(messageId),
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: message }],
+            source: { kind: 'plugin' as const, plugin: '@pf-worksurface/dsh' },
+          }))
+        }
+        turnId = await receipt.promise
+      } finally {
+        receipt.cancel()
+      }
+    }
     const durable = await this.ctx.sessions.flush(agent.session)
-    if (!durable || !hasMessageReceipt(agent.session, messageId)) {
+    if (!durable || !hasMessageReceipt(agent.session, messageId) || turnId === undefined) {
       throw new WorkSurfaceError('effect-failed', `DSH Session '${binding.sessionId}' did not durably accept followup '${messageId}'`)
     }
-    return { sessionId: binding.sessionId, messageId }
+    return { sessionId: binding.sessionId, messageId, turnId }
   }
 
   private adoptLiveAgents(): void {
@@ -80,11 +88,49 @@ export class DshWorkSurfaceSessionAdapter {
   }
 
   private registerSessionEvents(): void {
-    this.ctx.on('session/event', (session, event) => {
+    this.ctx.on('session/event', async (session, event) => {
       if (event.type === 'turn/start') this.service.beginTurn(session, event.data.turn)
-      if (event.type === 'turn/end') this.service.endTurn(String(session.id), event.data.turn)
+      if (event.type === 'user/message') {
+        const messageId = String(event.data.id)
+        const turnId = turnForMessage(session, messageId)
+        if (turnId !== undefined) this.resolveFollowupReceipt(String(session.id), messageId, turnId)
+      }
+      if (event.type === 'turn/end') {
+        const binding = this.service.bindingForSession(String(session.id))
+        this.service.endTurn(String(session.id), event.data.turn)
+        if (binding !== undefined) await this.prepareNextTurn?.(binding.surfaceId)
+      }
     })
     this.ctx.on('session/disposed', session => { this.service.endTurn(String(session.id)) })
+  }
+
+  private waitForFollowupReceipt(sessionId: string, messageId: string): { readonly promise: Promise<string>; readonly cancel: () => void } {
+    const key = `${sessionId}\0${messageId}`
+    let receiver: ((turnId: string) => void) | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const promise = new Promise<string>((resolve, reject) => {
+      receiver = resolve
+      const receivers = this.followupReceipts.get(key) ?? new Set<(turnId: string) => void>()
+      receivers.add(resolve)
+      this.followupReceipts.set(key, receivers)
+      timer = setTimeout(() => reject(new WorkSurfaceError('effect-failed', `timed out waiting for DSH to accept followup '${messageId}'`)), 30_000)
+      timer.unref?.()
+    })
+    const cancel = () => {
+      if (timer !== undefined) clearTimeout(timer)
+      const receivers = this.followupReceipts.get(key)
+      if (receiver !== undefined) receivers?.delete(receiver)
+      if (receivers?.size === 0) this.followupReceipts.delete(key)
+    }
+    return { promise, cancel }
+  }
+
+  private resolveFollowupReceipt(sessionId: string, messageId: string, turnId: string): void {
+    const key = `${sessionId}\0${messageId}`
+    const receivers = this.followupReceipts.get(key)
+    if (receivers === undefined) return
+    this.followupReceipts.delete(key)
+    for (const resolve of receivers) resolve(turnId)
   }
 
   private registerModelContext(): void {
@@ -105,6 +151,12 @@ export class DshWorkSurfaceSessionAdapter {
       const binding = this.service.bindingForSession(String(agent.session.id))
       const active = this.service.activeSurface(String(agent.session.id))
       if (binding === undefined || active === undefined) return transformed
+      // Older DSH Session implementations accept append options but silently
+      // discard `ignorable`. Persisting any plugin extension fact there makes
+      // the Session unreadable after restart when Host and linked plugin use
+      // distinct Session package copies. Turn Brief and shell context remain
+      // available, so omit the optional fact-backed context layer as one unit.
+      if (!supportsPersistedIgnorableSessionEvents(agent.session, binding)) return transformed
       context.signal?.throwIfAborted()
       const revision = active.revision.outputRevision ?? active.revision.inputRevision
       await runtime.publishRevision(agent, binding.surfaceId, revision, null)
@@ -136,13 +188,10 @@ export class DshWorkSurfaceSessionAdapter {
     const contributor: BashEnvContributor = {
       name: 'worksurface-session-v1',
       variables: {
-        DSH_WORKSURFACE_CLI: { description: 'Absolute WorkSurface CLI path for the current DSH Turn.' },
         DSH_WORKSURFACE_ROOT: { description: 'Writable public authoring root containing surfaces/ and orchestrations/.' },
-        DSH_WORKSURFACE_SOCKET: { description: 'Private Host transport selected by the WorkSurface plugin.' },
-        DSH_WORKSURFACE_CAPABILITY: { description: 'Short-lived capability bound to the current DSH Session and Turn.' },
         DSH_SURFACE_ID: { description: 'The one WorkSurface whose progress this DSH Session records.' },
         DSH_SURFACE_DIR: { description: 'Authoring directory of the one Surface bound to this Session.' },
-        DSH_CONTEXT_FILE: { description: 'Structured context for this Surface Session.' },
+        DSH_WORKSURFACE_VIEW_DIR: { description: 'Runtime view containing turn-brief.json and authorized payload schemas.' },
       },
       resolve: execution => {
         if (execution.agent === undefined) return {}
@@ -152,13 +201,10 @@ export class DshWorkSurfaceSessionAdapter {
         const surface = this.service.activeSurface(sessionId)
         if (surface === undefined) return {}
         return {
-          DSH_WORKSURFACE_CLI: this.cliPath,
           DSH_WORKSURFACE_ROOT: this.service.workRoot,
-          DSH_WORKSURFACE_SOCKET: this.socketPath,
-          DSH_WORKSURFACE_CAPABILITY: turn.capability,
           DSH_SURFACE_ID: surface.surfaceId,
           DSH_SURFACE_DIR: surface.cwd,
-          DSH_CONTEXT_FILE: surface.contextFile,
+          DSH_WORKSURFACE_VIEW_DIR: surface.viewDir,
         }
       },
     }
@@ -173,6 +219,7 @@ export function installDshSessionAdapter(
   contextRuntimeOrSocketPath: WorkSurfaceContextRuntime | string,
   socketPathOrEnsureSurface?: string | ((surfaceId: string) => Promise<{ readonly sessionId: string }>),
   ensureSurface?: (surfaceId: string) => Promise<{ readonly sessionId: string }>,
+  prepareNextTurn?: (surfaceId: string) => Promise<void>,
 ): DshWorkSurfaceSessionAdapter {
   const contextRuntime = typeof contextRuntimeOrSocketPath === 'string' ? undefined : contextRuntimeOrSocketPath
   const socketPath = typeof contextRuntimeOrSocketPath === 'string' ? contextRuntimeOrSocketPath : socketPathOrEnsureSurface
@@ -180,7 +227,7 @@ export function installDshSessionAdapter(
   const resolvedEnsure = typeof contextRuntimeOrSocketPath === 'string' && typeof socketPathOrEnsureSurface === 'function'
     ? socketPathOrEnsureSurface
     : ensureSurface
-  return new DshWorkSurfaceSessionAdapter(ctx, service, contextRuntime, socketPath, resolvedEnsure)
+  return new DshWorkSurfaceSessionAdapter(ctx, service, contextRuntime, socketPath, resolvedEnsure, prepareNextTurn)
 }
 
 function agentFromScope(scope: unknown): Agent | undefined {
@@ -195,4 +242,13 @@ function hasMessageReceipt(session: Session, messageId: string): boolean {
     return event.type === 'agent/inbox/spliced'
       && event.data.inserted.some(message => String(message.id) === messageId)
   })
+}
+
+function turnForMessage(session: Session, messageId: string): string | undefined {
+  let turn: number | undefined
+  for (const event of session.events) {
+    if (event.type === 'turn/start') turn = event.data.turn
+    if (event.type === 'user/message' && String(event.data.id) === messageId) return turn === undefined ? undefined : String(turn)
+  }
+  return undefined
 }

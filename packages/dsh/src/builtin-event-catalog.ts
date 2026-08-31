@@ -1,0 +1,35 @@
+import type { BuiltinEventSource } from './code-first-orchestrator.ts'
+
+/** Runtime projection; parity with the normative JSON catalog is a required test. */
+export const BUILTIN_EVENT_CATALOG: Readonly<Record<string, BuiltinEventSource>> = {
+  'dsh.tool.completed': {
+    description: 'The DSH Session recorded a tool/result; the adapter paired it with tool/call by callId and exposed only completion metadata.',
+    exposure: 'orchestrate-input', subjects: ['dsh-session'], producers: ['dsh-adapter'],
+    payloadSchema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', additionalProperties: false, required: ['turn', 'step', 'callId', 'toolName', 'status'], properties: { turn: { type: 'integer', minimum: 0 }, step: { type: 'integer', minimum: 0 }, callId: { type: 'string', minLength: 1 }, toolName: { type: 'string', minLength: 1 }, status: { enum: ['succeeded', 'failed'] }, errorCode: { type: 'string', minLength: 1 } } },
+  },
+  'surface.session.bound': {
+    description: 'A Surface was fixed to one DSH Session before its first Turn.',
+    exposure: 'runtime-only', subjects: ['surface'], producers: ['runtime'],
+    payloadSchema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', additionalProperties: false, required: ['sessionId', 'inputSource', 'inputRevision', 'expectedRevision'], properties: { sessionId: { type: 'string', minLength: 1 }, inputSource: { enum: ['published', 'authoring', 'revision'] }, inputRevision: { type: 'string', pattern: '^sha256:[0-9a-f]{64}$' }, expectedRevision: { anyOf: [{ type: 'string', pattern: '^sha256:[0-9a-f]{64}$' }, { type: 'null' }] } } },
+  },
+  'surface.revision.admitted': {
+    description: 'Runtime admitted the initial immutable Revision of an existing authoring Surface before code-first Registration.',
+    exposure: 'runtime-only', subjects: ['surface'], producers: ['runtime'],
+    payloadSchema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', additionalProperties: false, required: ['revision', 'source'], properties: { revision: { type: 'string', pattern: '^sha256:[0-9a-f]{64}$' }, source: { const: 'authoring' } } },
+  },
+  'surface.revision.applied': {
+    description: 'A recorded code-first Operation batch applied one candidate Revision to a bound Surface.',
+    exposure: 'runtime-only', subjects: ['surface'], producers: ['runtime'],
+    payloadSchema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', additionalProperties: false, required: ['registrationId', 'runId', 'baseRevision', 'revision'], properties: { registrationId: { type: 'string', minLength: 1 }, runId: { type: 'string', minLength: 1 }, baseRevision: { type: 'string', pattern: '^sha256:[0-9a-f]{64}$' }, revision: { type: 'string', pattern: '^sha256:[0-9a-f]{64}$' } } },
+  },
+  'surface.revision.published': {
+    description: 'A candidate Surface Revision became the published head by compare-and-swap.',
+    exposure: 'runtime-only', subjects: ['surface'], producers: ['runtime'],
+    payloadSchema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', additionalProperties: false, required: ['sessionId', 'turn', 'expectedRevision', 'revision'], properties: { sessionId: { type: 'string', minLength: 1 }, turn: { type: 'integer', minimum: 0 }, expectedRevision: { anyOf: [{ type: 'string', pattern: '^sha256:[0-9a-f]{64}$' }, { type: 'null' }] }, revision: { type: 'string', pattern: '^sha256:[0-9a-f]{64}$' }, summary: { type: 'string' } } },
+  },
+  'surface.publish.conflicted': {
+    description: 'A candidate Surface Revision was not published because the head no longer matched its expected Revision.',
+    exposure: 'runtime-only', subjects: ['surface'], producers: ['runtime'],
+    payloadSchema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', additionalProperties: false, required: ['sessionId', 'turn', 'expectedRevision', 'actualRevision', 'candidateRevision'], properties: { sessionId: { type: 'string', minLength: 1 }, turn: { type: 'integer', minimum: 0 }, expectedRevision: { anyOf: [{ type: 'string', pattern: '^sha256:[0-9a-f]{64}$' }, { type: 'null' }] }, actualRevision: { anyOf: [{ type: 'string', pattern: '^sha256:[0-9a-f]{64}$' }, { type: 'null' }] }, candidateRevision: { type: 'string', pattern: '^sha256:[0-9a-f]{64}$' }, summary: { type: 'string' } } },
+  },
+}

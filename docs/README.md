@@ -7,11 +7,12 @@
 | 目标边界 | [目标设计基线](design-baseline.md) | 定位、概念、所有权、模型负担和明确排除项 |
 | 目标 Event 语义 | [Event：身份、Contract 与持久事实](event-type-system.md) | namespace、Contract 生命周期、Event 持久化与 capability |
 | 目标 Orchestrate 语义 | [Orchestrate code 契约](orchestration-code-contract.md) | 已存在 Surface 间的 `when / who / how` 与可恢复执行 |
-| 当前 v1 | [当前实现基线](worksurface-complete-design.md) | 已进入类型、存储、fold、恢复和测试的事实 |
+| v4 兼容路径 | [v4 兼容实现基线](worksurface-complete-design.md) | 旧 Definition/Activation/Operation 的类型、存储、fold 与恢复 |
 | 当前源码 | [实现索引](architecture.md) | 概念到代码位置的映射 |
 | 验证 | [不变量与验收](invariants-and-acceptance.md) | 机器协议、门禁与测试证据 |
+| 本轮实证 | [2026-09-01 重构与验证报告](verification-report-2026-09-01.md) | 设计判断、修复项、文件拆分、自动与真实 profile E2E |
 
-目标与当前实现不得混写。目标协议已被 Schema 和样例约束，但尚未进入 Runtime；判断“现在能否运行”时只看当前 v1 文档和源码。
+目标与当前实现不得混写。code-first Schema 已进入默认 v5 Runtime，准确实现范围以 `WS-24` 至 `WS-27`、实现索引和测试为准；v4 文档只解释兼容 Engine，不能反向定义默认 authoring。
 
 ## 按载体维护
 

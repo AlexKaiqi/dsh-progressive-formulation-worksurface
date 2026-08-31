@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://worksurface.local/spec/design/runtime-binding.schema.json",
   "title": "Runtime Namespace Binding",
-  "$comment": "Runtime-private resolution context. Stable model handles are interpreted only through this binding; the model and model-authored code never construct qualified identities.",
+  "$comment": "Runtime-owned resolution context. Stable model handles are interpreted only through this binding; the model and model-authored code never need to construct qualified identities. Authorization does not depend on hiding this file from the same OS principal.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "kind", "authority", "execution", "surfaces", "contracts"],

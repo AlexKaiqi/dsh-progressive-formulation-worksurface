@@ -26,7 +26,7 @@ afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursi
 class ScriptedAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
 
-  constructor(private readonly replies: string[]) { super() }
+  constructor(private readonly replies: (string | Promise<string>)[]) { super() }
 
   override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     return Promise.resolve({ provider, id: model, name: model })
@@ -34,7 +34,8 @@ class ScriptedAdapter extends LlmAdapter {
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests.push(options)
-    const text = this.replies.shift()
+    const pending = this.replies.shift()
+    const text = await pending
     if (text === undefined) throw new Error('script exhausted')
     yield { type: 'block-start', index: 0, blockType: 'text' }
     yield { type: 'text-delta', index: 0, text }
@@ -44,7 +45,7 @@ class ScriptedAdapter extends LlmAdapter {
   }
 }
 
-async function mountRuntime(root: string, surfaces: SurfaceSessionService, replies: string[], persistenceRoot?: string) {
+async function mountRuntime(root: string, surfaces: SurfaceSessionService, replies: (string | Promise<string>)[], persistenceRoot?: string) {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
@@ -56,6 +57,7 @@ async function mountRuntime(root: string, surfaces: SurfaceSessionService, repli
   await ctx.plugin(AgentDefaultModel, { provider: 'mock', model: 'mock-model' })
   await ctx.plugin(ShellEnvPlugin, { dshHome: join(root, 'dsh-home') })
   if (persistenceRoot !== undefined) await ctx.plugin(JsonlSessionPersistence, { root: persistenceRoot, compression: 'none' })
+  ctx.provide('workspaceRegistry', testWorkspaceRegistry() as never)
   const adapter = new ScriptedAdapter(replies)
   ctx.llm.registerAdapter(['mock'], adapter)
   installDshSessionAdapter(ctx, surfaces, join(root, 'unused.sock'))
@@ -75,6 +77,7 @@ async function mountServiceRuntime(root: string, work: string, replies: string[]
   await ctx.plugin(AgentDefaultModel, { provider: 'mock', model: 'mock-model' })
   await ctx.plugin(ShellEnvPlugin, { dshHome: join(root, 'dsh-home') })
   await ctx.plugin(JsonlSessionPersistence, { root: persistenceRoot, compression: 'none' })
+  ctx.provide('workspaceRegistry', testWorkspaceRegistry() as never)
   ctx.provide('subprocess', {} as never)
   ctx.provide('sandbox', {} as never)
   const adapter = new ScriptedAdapter(replies)
@@ -85,6 +88,10 @@ async function mountServiceRuntime(root: string, work: string, replies: string[]
     socketPath: join(root, 'worksurface.sock'),
   })
   return { adapter, ctx }
+}
+
+function testWorkspaceRegistry() {
+  return { create: () => Promise.resolve({ attachSession: () => Promise.resolve() }) }
 }
 
 async function fixture(options: { persistence?: boolean } = {}) {
@@ -108,6 +115,34 @@ function send(agent: Agent, text: string): void {
 }
 
 describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
+  it('durably receipts a managed followup at Turn admission without waiting for model completion', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ws-followup-receipt-')); roots.push(root)
+    const work = join(root, 'work'); const state = join(root, 'state')
+    await mkdir(join(work, 'surfaces', 'surface-a'), { recursive: true })
+    await writeFile(join(work, 'surfaces', 'surface-a', 'surface.md'), SURFACE_TEMPLATE)
+    const events = new FileEventStore(join(state, 'events')); const revisions = new RevisionStore(join(state, 'revisions'))
+    await Promise.all([events.init(), revisions.init()])
+    const surfaces = new SurfaceSessionService(events, revisions, work, state); await surfaces.init()
+    let release!: (value: string) => void
+    const gated = new Promise<string>(resolve => { release = resolve })
+    const runtime = await mountRuntime(root, surfaces, [gated], join(root, 'sessions'))
+    try {
+      await runtime.admission.ensure({ surfaceId: 'surface-a' })
+      const receipt = await Promise.race([
+        surfaces.followupSurface('surface-a', 'managed work', 'managed-message'),
+        new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('followup waited for model completion')), 1_000)),
+      ])
+      expect(receipt).toMatchObject({ messageId: 'managed-message', turnId: '1' })
+      const agent = runtime.ctx.agents.get(SessionId(receipt.sessionId))!
+      expect(agent.session.events.some(event => event.type === 'turn/end')).toBe(false)
+      release('completed')
+      await agent.whenIdle()
+    } finally {
+      release('completed')
+      await runtime.ctx.fiber.dispose()
+    }
+  })
+
   it('opens blank, then runs two ordinary Turns in one Session and one persistent cwd', async () => {
     const { admission, adapter, ctx, surfaces } = await fixture()
     try {

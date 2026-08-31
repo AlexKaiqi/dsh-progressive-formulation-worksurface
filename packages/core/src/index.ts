@@ -7,6 +7,69 @@
 
 export { WorkSurfaceError, asWorkSurfaceError } from './error.ts'
 export type { WorkSurfaceErrorCode } from './error.ts'
+export {
+  canonicalEventContract,
+  createAuthority,
+  eventContractDigest,
+  operationKey,
+  orchestrateRuntimeBinding,
+  parseOrchestrateRegistration,
+  runtimeEventId,
+  surfaceTurnRuntimeBinding,
+  validateAuthority,
+  validateOperationBatch,
+  validateOperationSettlement,
+  validateOrchestrateResult,
+  validatePayload,
+  validateRegistrationRecord,
+  validateRuntimeEventContract,
+  validateRuntimeBinding,
+  validateRuntimeEventEnvelope,
+  validateRuntimeEventRef,
+} from './runtime-protocol.ts'
+export type {
+  AuthorityId,
+  ContractDigest,
+  EventDeclaration,
+  OrchestrateBatchAdvance,
+  OrchestrateBatchEvent,
+  OrchestrateBatchSurface,
+  OrchestrateEventRouteSource,
+  OrchestrateHistoryBoundary,
+  OrchestrateInputLedgerRecord,
+  OrchestrateInputRecord,
+  OrchestrateOperationBatch,
+  OrchestrateOperationSettlement,
+  OrchestrateRegistrationRecord,
+  OrchestrateRegistrationSource,
+  OrchestrateResolvedRoute,
+  OrchestrateResult,
+  OrchestrateResultAdvance,
+  OrchestrateResultEvent,
+  OrchestrateRunState,
+  RuntimeAuthority,
+  RuntimeBinding,
+  RuntimeBindingContract,
+  RuntimeCapability,
+  RuntimeContractIdentity,
+  RuntimeEventContract,
+  RuntimeEventEnvelope,
+  RuntimeEventRef,
+  RuntimeLocalId,
+  RuntimeProducerKind,
+  RuntimeScope,
+  RuntimeSubjectKind,
+} from './runtime-protocol.ts'
+export {
+  EventContractStore,
+  InputLedgerStore,
+  OperationLedgerStore,
+  RegistrationRecordStore,
+  RuntimeAuthorityStore,
+  RuntimeEventStore,
+  runtimeRef,
+} from './runtime-store.ts'
+export type { RuntimeEventDraft } from './runtime-store.ts'
 export { sha256, stableStringify } from './hash.ts'
 export { DefinitionStore } from './definition-store.ts'
 export { FileEventStore } from './file-event-store.ts'

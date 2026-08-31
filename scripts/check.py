@@ -109,9 +109,9 @@ def static_checks() -> None:
 
     registry = json.loads((SPEC / "invariants.json").read_text())
     entries = registry.get("invariants", [])
-    expected = [f"WS-{number:02d}" for number in range(1, 24)]
+    expected = [f"WS-{number:02d}" for number in range(1, 28)]
     if [entry.get("id") for entry in entries] != expected:
-        fail("invariants registry must contain WS-01 through WS-23 in order")
+        fail("invariants registry must contain WS-01 through WS-27 in order")
     for entry in entries:
         if not entry.get("enforcedAt") or not entry.get("tests"):
             fail(f"{entry.get('id')} lacks an enforcement point or test")
