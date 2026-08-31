@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "WorkSurface：Surface、Episode 与事件驱动推进",
+    "locale": "zh-CN",
+    "output": "worksurface-system.html",
+    "quality_profile": "showcase",
+    "legend": {
+      "mode": "hidden",
+      "entries": {
+        "cloud": { "label": "Surface" },
+        "messagebus": { "label": "Event" },
+        "external": { "label": "当前执行承载" },
+        "backend": { "label": "Episode" },
+        "database": { "label": "Surface 修改" },
+        "security": { "label": "Orchestrate" },
+        "frontend": { "label": "WorkSurface Runtime" }
+      }
+    },
+    "viewBox": [900, 466],
+    "views": [
+      {
+        "id": "core-model",
+        "label": "主模型",
+        "focus": ["surface", "episode", "episode-closed", "surface-next"],
+        "note": "Surface 持续存在；每次有边界的推进沉淀为一个 Episode，多个 Episode 依次推进同一 Surface。"
+      },
+      {
+        "id": "episode-content",
+        "label": "Episode 内容",
+        "focus": ["episode", "surface-change", "custom-event", "episode-closed"],
+        "note": "Episode 包含或引用模型步骤、工具调用、Surface 修改与结果；推进中还可产生自定义 Event。"
+      },
+      {
+        "id": "event-driven-control",
+        "label": "事件驱动控制",
+        "focus": ["episode", "custom-event", "orchestrate", "runtime"],
+        "note": "Episode 推进中产生自定义 Event；Orchestrate 匹配事实，WorkSurface Runtime 据此控制后续推进。"
+      },
+      {
+        "id": "dsh-carrier",
+        "label": "DSH 承载边界",
+        "focus": ["episode", "runtime", "dsh-session"],
+        "note": "DSH Session 是当前 adapter 的执行承载；它不是 Surface、Episode 或 WorkSurface Runtime。"
+      },
+      {
+        "id": "continuous-progress",
+        "label": "持续推进",
+        "focus": ["surface", "surface-change", "episode-closed", "surface-next"],
+        "note": "Episode 的修改进入同一个 Surface；新的可见状态继续成为后续 Episode 的工作上下文。"
+      }
+    ]
+  },
+  "lanes": [
+    { "id": "surface-domain", "label": "Surface：持续工作上下文" },
+    { "id": "episode-record", "label": "Episode：有边界的推进；DSH 是当前承载" },
+    { "id": "progress-control", "label": "推进控制：Event → Orchestrate → Runtime" }
+  ],
+  "phases": [
+    { "id": "begin", "label": "开始推进", "fromCol": 0, "toCol": 1 },
+    { "id": "advance", "label": "推进与修改", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "settle", "label": "沉淀并继续", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "episode-scope", "label": "一次 Episode", "lane": "episode-record", "fromCol": 2, "toCol": 4, "variant": "emphasis" },
+    { "id": "event-control", "label": "事件驱动推进", "lane": "progress-control", "fromCol": 2, "toCol": 5, "variant": "emphasis" },
+    { "id": "dsh-adapter", "label": "当前 adapter", "lane": "episode-record", "fromCol": 0, "toCol": 0, "variant": "dashed" }
+  ],
+  "mainPath": ["surface", "episode", "surface-change", "episode-closed", "surface-next"],
+  "nodes": [
+    { "id": "surface", "lane": "surface-domain", "col": 0, "type": "cloud", "label": "当前 Surface", "sublabel": "可寻址、持续维护", "tag": "工作上下文" },
+    { "id": "episode", "lane": "episode-record", "col": 2, "type": "backend", "label": "Episode", "sublabel": "一次有边界的推进", "tag": "步骤 / 工具 / 修改" },
+    { "id": "surface-change", "lane": "surface-domain", "col": 3, "type": "database", "label": "Surface 修改", "sublabel": "结构化内容的局部变化", "tag": "属于本 Episode" },
+    { "id": "episode-closed", "lane": "episode-record", "col": 4, "type": "backend", "label": "Episode 沉淀", "sublabel": "本次推进的事实边界", "tag": "追加到 Surface" },
+    { "id": "surface-next", "lane": "surface-domain", "col": 5, "type": "cloud", "label": "新的可见状态", "sublabel": "仍是同一个 Surface", "tag": "继续下一 Episode" },
+    { "id": "custom-event", "lane": "progress-control", "col": 2, "type": "messagebus", "label": "自定义 Event", "sublabel": "例如 research.completed", "tag": "inline / content ref" },
+    { "id": "orchestrate", "lane": "progress-control", "col": 4, "type": "security", "label": "Orchestrate", "sublabel": "依赖 Event 决定推进", "tag": "when / target / context" },
+    { "id": "runtime", "lane": "progress-control", "col": 5, "type": "frontend", "label": "推进控制器", "sublabel": "Runtime（暂名）", "tag": "非 DSH 同名概念" },
+    { "id": "dsh-session", "lane": "episode-record", "col": 0, "type": "external", "label": "DSH Session", "sublabel": "暂时承载 Episode 执行", "tag": "当前一对一绑定" }
+  ],
+  "edges": [
+    { "id": "surface-opens-episode", "from": "surface", "to": "episode", "label": "开始一次推进", "variant": "emphasis", "role": "main" },
+    { "id": "work-modifies-surface", "from": "episode", "to": "surface-change", "label": "工具调用与修改", "variant": "emphasis", "role": "main", "labelDx": 60 },
+    { "id": "change-settles-episode", "from": "surface-change", "to": "episode-closed", "label": "纳入本次推进", "variant": "emphasis", "role": "main" },
+    { "id": "episode-updates-surface", "from": "episode-closed", "to": "surface-next", "label": "形成新状态", "variant": "emphasis", "role": "main" },
+    { "id": "episode-emits-event", "from": "episode", "to": "custom-event", "label": "emit", "variant": "emphasis", "role": "async", "fromSide": "bottom", "toSide": "top", "labelAt": [300, 305] },
+    { "id": "event-matches-orchestrate", "from": "custom-event", "to": "orchestrate", "label": "匹配", "variant": "emphasis", "role": "branch" },
+    { "id": "orchestrate-controls-runtime", "from": "orchestrate", "to": "runtime", "label": "控制", "variant": "emphasis", "role": "branch", "labelAt": [563, 415] },
+    { "id": "session-carries-work", "from": "dsh-session", "to": "episode", "variant": "dashed", "role": "branch", "fromSide": "right", "toSide": "left" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Surface", "items": ["持续存在、可寻址且可维护", "不是 DSH Session 的别名", "多个 Episode 依次推进同一个 Surface"] },
+    { "dot": "emerald", "title": "Episode 与 Event", "items": ["Episode 是 Surface 上一次有边界的推进", "推进中可产生自定义 Event", "payload 可内联，也可携带文件等内容引用"] },
+    { "dot": "violet", "title": "控制与承载边界", "items": ["Orchestrate 依赖 Event 形成推进决策", "WorkSurface Runtime 控制 Surface / Episode 推进", "DSH Session 只是当前执行承载"] }
+  ]
+}

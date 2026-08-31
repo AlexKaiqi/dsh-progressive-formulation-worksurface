@@ -17,6 +17,7 @@
     "clean": "tsc -b --clean",
     "generate:schema": "node scripts/verify-protocol.mjs",
     "check:generated": "node scripts/verify-protocol.mjs",
+    "design:domain-labels": "node scripts/apply-interactive-domain-labels.mjs",
     "test": "npm run build && vitest run",
     "typecheck": "tsc -b --pretty false",
     "check": "python3 scripts/check.py"

@@ -1,22 +1,26 @@
 # WorkSurface
 
-WorkSurface 是文件化、事件驱动的多工作面推进层。它解决两个问题：如何把一项工作组织为可独立推进的 Surface，以及多个 Surface 如何依据已经发生的事件继续推进。不可变 Revision 保存内容事实，按 subject 分流的 append-only Event stream 保存过程事实。
+WorkSurface 是 DSH 之上的**工作上下文推进层**。领域主轴先收敛为两个概念：
 
-Surface 不是执行者，也不是任务树节点。它有公开的 `SurfaceId`，工作内容位于平铺的 `surfaces/<surface-id>/`，并且必须包含由标准模板实例化的 `surface.md` 作为目标、验收、事实、假设、问题、决策、领域事件契约和交付证据的主契约。Agent 遇到可独立验收的复杂部分时先规划，用普通文件能力构建这些 Surface，并通过活动 Turn 的 emit 交给 Runtime 推进；依赖写入精确 Orchestrate Definition，而不是目录或通用父子关系。并行探索可以复制相同目录内容；复制后各自修改、发布和推进，不再共享可变演进。
+- **Surface**：可寻址、持续维护的结构化工作上下文。具体包含什么由当前问题决定；目录、文件、外部对象和对话都只是它可能引用的 materialization。模型可定位并维护局部，但每个 Step 只投影当前所需内容。
+- **Episode**：一个 Surface 上一次有边界的推进。一个 Surface 有一系列有序 Episode；每个 Episode 包含或引用本次推进中的模型步骤、工具调用、Surface 修改、结果与证据。
 
-公开工作根只有平铺的 `surfaces/<surface-id>/` 与 `orchestrations/<orchestration-id>/`。前者是 Surface 作者目录，后者保存 Definition、文件化 Registration、handler 与证据；目录不表达依赖。每个 Surface 在开始推进前唯一绑定一个 DSH Session，这个 Session 的 Turn/Step 日志就是该 Surface 的完整推进历史，不能再选择或切换 Surface。Surface Session 以公共作者根为 workspace，当前内容由 `DSH_SURFACE_DIR` 精确定位，并通过 expectedHead CAS 发布。文件由现有 shell/语言工具构造，WorkSurface CLI 只负责 emit。
+Event、Orchestrate 和 WorkSurface Runtime 是围绕这条主轴工作的推进机制：Episode 推进中可以产生自定义 Event；payload 可直接携带信息，也可携带文件等内容引用；Orchestrate 依赖 Event 形成推进决策；WorkSurface Runtime 负责控制 Surface / Episode 如何继续。
 
-用户可以从 WorkSurface 原生 `conversation.view` 手动进入已有 Surface；更常见的复杂任务由当前 Agent 用普通脚本构建完整的 Surface 与 Orchestration 目录，再 emit 一个稳定 root fact。Runtime 在 append 该事件前校验并固定尚未登记的 `registration.json` 与完整 Definition Revision；直接订阅 root fact 的无依赖 Surface 立即由 managed followup 推进，有依赖目标只在精确条件满足后推进。Host 会自动创建或恢复目标 Surface 的唯一 Session，不需要用户逐个点击。模型仍不能 open、切换当前 Session 绑定的 Surface 或直接写私有状态。DSH 重启时，Host 自动续推被中断、因运行时销毁而终止或已有持久 `next-turn` 的绑定 Session；已完成、空闲或等待用户输入的 Session 保持休眠。
+WorkSurface Runtime 是本文对“推进控制器”的暂用名，不是 DSH 术语，也不假设 DSH 存在同名抽象。当前实现只是通过 adapter 借用 DSH Session 承载实际模型与工具执行。
 
-Orchestrate Definition 订阅事件，匹配后通过统一 Event API 向 Surface 发事件，或先 admission、再向目标 Surface 的唯一 DSH Session 提交 durable `followup`。Registration 不保存第二份 Session 绑定。声明式 reaction 与固定 Definition Revision 中的 handler 使用相同语义。Registration 固定 Definition Revision、角色绑定和历史边界；中断恢复就是恢复该 Surface 的 DSH Session，并继续公共作者根中该 Surface 的持久 WIP。WorkSurface 不再定义另一套执行、重试、等待输入或终态生命周期。
+首个 DSH adapter 暂时采用一个 Surface 绑定一个 DSH Session，由该 Session 承载 Episode 的实际执行与权威日志；这是实现策略，不是 Surface 或 Episode 的定义。Episode 不预设与 DSH Turn 或 Step 一一对应。Session、Turn、Step、Tool Call 仍严格沿用 DSH 原义。
 
-不存在 canonical Relation、Relation 写接口或全局 parent-child 模型。Surface 之间的依赖语义由精确的 Orchestrate Definition revision 及其角色绑定解释，而不是由时间或图上的边解释。Definition 中的 `all`、`any`、`count`、`sequence`、payload 条件和代码 reaction 都是依赖语义的一部分。计划路径只是可能事件通路的有损索引；实际路径只是某次 activation 使用了哪些事件并发出了哪个事件的执行证据。它们都不能替代 Definition。fan-out、fan-in、pipeline、race、派生等只是 Definition 可以表达的 pattern。
+模型继续使用 Bash、Zsh、Python、Node 和普通文件能力组合复杂工作。WorkSurface 尽量不增加模型工具；推进控制层只注入少量稳定变量和入口，并自动补齐可信身份、因果与权限字段。`surface.md` 可以作为文件型 Surface 的可选 Profile，但不是通用协议要求。
 
 详见：
 
-- [完整系统设计](docs/worksurface-complete-design.md)：领域、协议、文件布局、DSH Session 集成、Orchestration、恢复、并发与权限的权威规范
-- [UI 设计](docs/ui-design.md)：原生拓扑、视觉语言、证据侧栏、View Definition 与降级的权威规范
-- [文档索引](docs/README.md)：实现映射、机器规范、验证入口与历史材料说明
+- [可交互系统设计图](docs/interactive/worksurface-system.html)：从五个审查视图探索 Surface、Episode、事件驱动控制、持续推进与 DSH 承载边界
+- [完整系统设计](docs/worksurface-complete-design.md)：定位、边界、核心概念、关系、DSH 语义、恢复和不变量
+- [UI 设计](docs/ui-design.md)：上述事实与语义的可删除投影
+- [模型上下文](docs/context-management.zh.md)：开放 Surface 如何投影为一次模型调用的上下文
+- [实现索引](docs/architecture.md)：目标设计与当前代码的对应关系及迁移差距
+- [文档索引](docs/README.md)：规范、实现和验证入口
 
 ```sh
 source ~/.nvm/nvm.sh

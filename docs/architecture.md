@@ -1,42 +1,71 @@
 # WorkSurface 实现索引
 
-> 本文不是第三份设计规范。领域与 DSH Session 集成语义以[完整系统设计](worksurface-complete-design.md)为准，展示语义以 [UI 设计](ui-design.md)为准。
+> 本文不是第三份设计规范。领域与 DSH 集成语义以[完整系统设计](worksurface-complete-design.md)为准，展示语义以 [UI 设计](ui-design.md)为准。
 
-## 设计到实现
+## 实现状态
 
-| 设计范围 | 主要实现 | 协议与测试 |
+目标领域主轴已经统一为 `Surface / Episode`。Event、Orchestrate 与 WorkSurface Runtime 是事件驱动的推进机制，不再与 Surface、Episode 并列。WorkSurface Runtime 是目标设计对推进控制职责的暂用名，不对应一个既有 DSH Runtime。当前代码尚无 Episode 模型，并把一个绑定的 DSH Session 直接当作 Surface 的完整推进历史；可靠性机制大多可保留，但需要在 Surface 与 DSH 执行日志之间增加明确的 Episode 边界与引用。
+
+因此下表中的“已实现”表示该机制存在并有测试，不表示已经满足目标概念边界。
+
+## 目标设计到当前实现
+
+| 目标范围 | 当前主要实现 | 状态与迁移 |
 | --- | --- | --- |
-| Surface、Event、Registration、Definition 原语 | `packages/core/src/event-model.ts` | `spec/event.schema.json`、`spec/definition.schema.json`、`packages/core/tests/event-model-v1.spec.ts` |
-| append-only subject streams、幂等与冲突 | `packages/core/src/file-event-store.ts` | `packages/core/tests/file-event-store.spec.ts` |
-| 不可变 Revision、snapshot、materialize、pin 与 mark-and-sweep GC | `packages/core/src/revision-store.ts` | `packages/core/tests/revision-store.spec.ts` |
-| Definition revision cache 与重建 | `packages/core/src/definition-store.ts` | `packages/core/tests/definition-v1.spec.ts` |
-| 条件、activation、planned/actual 投影 | `packages/core/src/orchestration.ts` | `packages/core/tests/definition-v1.spec.ts` |
-| Surface/Session 唯一绑定、公共 authoring WIP、CAS 与恢复 | `packages/dsh/src/session-surface.ts` | `spec/context.schema.json`、`packages/dsh/tests/session-surface.spec.ts` |
-| 原生产品入口创建/恢复真实 DSH Surface Session；Host 重启后选择性自动续推中断 Session | `packages/dsh/src/session-admission.ts`、`packages/web/client.js` | `packages/dsh/tests/session-admission.spec.ts`、`packages/dsh/tests/session-admission-agent-loop.spec.ts`、`packages/web/tests/web.spec.ts` |
-| Registration replay、managed emit、自动 admission followup 与 operation 对账 | `packages/dsh/src/engine.ts`、`packages/dsh/src/session-adapter.ts` | `packages/dsh/tests/engine.spec.ts`、`packages/dsh/tests/session-admission-agent-loop.spec.ts` |
-| 精确 Definition Revision handler | `packages/dsh/src/code-handler.ts` | `packages/dsh/tests/code-handler.spec.ts` |
-| DSH Session/Turn adapter 与模型环境 | `packages/dsh/src/session-adapter.ts`、`packages/dsh/src/model/session-instructions.ts` | `packages/dsh/tests/session-adapter.spec.ts` |
-| 基于事实的模型上下文、provider occurrence 与 render audit | `packages/dsh/src/context/`、`packages/dsh/src/session-adapter.ts` | `docs/context-management.zh.md`、`packages/dsh/tests/context-runtime.spec.ts` |
-| 普通文件能力构建 Surface/Orchestration、managed `ws emit` 登记与 Host transport | `packages/cli/src/bin.ts`、`packages/dsh/src/host.ts`、`packages/dsh/src/service.ts` | `spec/authoring-registration.schema.json`、`packages/dsh/spec/host-rpc.json`、`packages/cli/tests/`、`packages/dsh/tests/session-admission-agent-loop.spec.ts` |
-| publication 与业务状态 replay projection | `packages/core/src/view-projection.ts` | `packages/core/tests/view-projection.spec.ts` |
-| 原生拓扑、事件唤醒重放与证据侧栏 | `packages/web/client.js`、`packages/web/index.js`、`packages/web/styles.css` | `packages/web/tests/web.spec.ts`、`packages/web/evals/suite.json`、`packages/web/evals/browser-harness.mjs` |
+| Surface、Event、Orchestrate 基础值 | `packages/core/src/event-model.ts` | 部分实现；Surface 已有身份，Event/Orchestrate 仍需按推进机制重新归位 |
+| Episode | 尚无对应领域类型 | 未实现；需定义 EpisodeId、所属 Surface、边界、DSH EventRef、Surface 修改、结果与证据，且不能简单别名为 Turn/Step |
+| Surface Address 与持续维护 | 文件路径、authoring WIP、`packages/dsh/src/context/` | 部分实现；需抽象 adapter locator/boundary，并证明跨 Turn/Step 的局部可定位与可见性 |
+| WorkSurface append-only streams、幂等与冲突 | `packages/core/src/file-event-store.ts` | 可保留；需增加跨来源 EventRef，不能复制 DSH events |
+| 文件 Materialization 的 Revision snapshot | `packages/core/src/revision-store.ts` | 机制已实现；概念上从“Surface 全部内容”降为文件 adapter |
+| Definition revision cache | `packages/core/src/definition-store.ts` | 可保留；需支持 YAML pattern 与 Code 编译到统一 IR |
+| 条件、Activation、planned/actual projection | `packages/core/src/orchestration.ts` | 部分实现；Activation 只能表示条件满足，不能表示 Agent 启动 |
+| WorkSurface Runtime（推进控制） | `packages/dsh/src/engine.ts`、`service.ts`、`session-admission.ts`、context 子系统 | 职责分散，尚无统一目标抽象；`WorkSurfaceContextRuntime` 只负责上下文，不等于本文的推进控制器，也不能据此推断 DSH 有同名 Runtime |
+| Surface 与 DSH Session Binding | `packages/dsh/src/session-surface.ts` | 当前 1:1 adapter 可保留；必须明确是执行策略而非 Surface 定义 |
+| DSH Session admission 与恢复 | `packages/dsh/src/session-admission.ts`、`packages/dsh/src/session-adapter.ts` | 已实现基础机制；术语必须遵守 Session → Turn → Step → Tool Call |
+| Orchestrate effect 执行与对账 | `packages/dsh/src/engine.ts`、`packages/dsh/src/code-handler.ts` | 基础机制已实现；声明式与代码 handler 需输出相同标准 Effect |
+| Context Projection | `packages/dsh/src/context/` | 部分实现；从 Revision-centric 扩展到 materializations、EventRefs、providers 与 included/omitted/required |
+| 模型入口与 CLI transport | `packages/cli/src/bin.ts`、`packages/dsh/src/model/session-instructions.ts` | 保留最小 `ws emit` shell CLI；避免增加模型工具，内部字段由 WorkSurface 推进控制层补齐 |
+| UI projection | `packages/core/src/view-projection.ts`、`packages/web/` | 可删除投影机制可保留；需区分 Turn/Step、上下文发布和 `surface.completed` |
 
-## 包边界
+相关当前协议与测试位于 `spec/`、`packages/*/tests/`、`packages/web/evals/`。完整路径与检查入口见[验证指南](invariants-and-acceptance.md)。
+
+## 目标包边界
 
 ```text
 core
-├── cli
-├── dsh ──uses──> cli protocol
-└── web ──reads──> dsh service projection
+├── Surface / Episode domain rules
+├── Event facts / Orchestrate policies
+├── pure replay / fold / authorization
+└── no DSH, CLI or Web dependency
+
+dsh execution adapter
+├── Binding and admission
+├── DSH Session event references
+├── Effect execution / reconciliation
+└── Context Projection
+
+cli ── transport only; shell entry point, not a new model tool
+web ── reads deletable projections only
 ```
 
-- `core` 只拥有领域值、校验、持久事实实现和纯 replay/fold，不依赖 DSH Session 或 Agent。
-- `cli` 只拥有事件 transport：模型用普通文件能力构建 Surface、Definition 和文件化 Registration，CLI 只 emit 当前 Surface 事实；它不直接打开或修改 authoring、event、revision 或 projection 文件。
-- `dsh` 组装 Host、Surface/Session 唯一绑定、Turn adapter、管理面与持久目录；一个 Surface 的执行历史与恢复身份就是它唯一的 DSH Session。
-- `web` 读取 Host 生成的可删除投影和精确 View Definition Revision；“进入推进”只委托 Host admission 并调用 DSH 原生 Session 导航，浏览器不写关系、binding 或执行状态。
+- `core` 定义 Surface / Episode 领域规则，以及 Event、Orchestrate、Effect IR、校验与纯 replay/fold。
+- `dsh` 桥接真实 DSH Session；DSH 自己拥有 Session、Turn、Step、Tool Call 和 transcript 权威事实。
+- `cli` 只提供稳定 shell transport；模型主要使用现有编程与文件能力。
+- `web` 只读取 WorkSurface 推进机制生成的可删除投影，不写关系、Binding 或执行状态。
 
-## 公开与私有目录
+## 目录边界
 
-公开作者目录只有平铺的 `surfaces/<surface-id>/` 与 `orchestrations/<orchestration-id>/`；Surface Session 的 cwd 就是这个公共根，当前 Surface 由 `DSH_SURFACE_DIR` 精确定位。私有 root 保存 Revision objects、Surface/Registration streams，以及 `surface-sessions/<surface-id>/{binding.json,context.json}`。绑定文件同时保证一个 Surface 只有一个 Session、一个 Session 只有一个 Surface；socket 和短期 capability 仍是可替换 transport 状态，不进入领域协议。
+当前 `surfaces/<surface-id>/`、`orchestrations/<orchestration-id>/` 和私有 `v4/` 布局是文件 materialization adapter 与现有实现组件的存储布局，不是通用 Surface 领域模型。目录层级不表达依赖，`surface.md` 只能作为可选 Surface Profile，文件型 Registration 只能解释为 Orchestrate Instance 的一种装配形式。
 
-旧 `v2` Work Session 数据与错误多对多实现产生的 `v3/sessions/<session>/<surface>` 数据只允许通过 `legacy.report` 检查。当前一对一协议使用隔离的 `v4/`，不自动迁移、修改或删除旧数据。
+旧 `v2` Work Session 数据与错误多对多实现产生的 `v3/sessions/<session>/<surface>` 数据仍只允许通过 `legacy.report` 检查。当前一对一 adapter 使用隔离的 `v4/`，不自动迁移、修改或删除旧数据。
+
+## 迁移顺序
+
+1. 先定义 Surface / Episode 领域类型，并明确 Episode 只引用 DSH 权威日志、不复制 transcript。
+2. 为当前一对一 Session adapter 增加 Episode 边界；先不假设 Episode 与 Turn/Step 一一对应。
+3. 建立 `SurfaceId + adapter + locator + boundary` 地址协议，覆盖 working 与 frozen 引用。
+4. 将 Revision 降级为文件 Materialization snapshot，并移除通用 `surface.md` 强制约束。
+5. 为 DSH Session events 增加稳定 EventRef adapter，保持日志权威性不重复。
+6. 将 JSON/YAML pattern 与 Code 编译到统一 Orchestrate IR 和 Effect API。
+7. 扩展 Context Projection，并让 audit 明确 included/omitted/required 和跨 Episode 的最新内容可见性。
+8. 最后迁移 Web 文案和视觉状态，删除对旧 Registration/Revision 语义的依赖。

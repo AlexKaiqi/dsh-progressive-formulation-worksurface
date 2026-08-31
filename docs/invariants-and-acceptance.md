@@ -1,8 +1,8 @@
 # WorkSurface 验证指南
 
-> 本文是验证入口，不重复定义设计。核心不变量来自[完整系统设计](worksurface-complete-design.md)，UI 约束来自 [UI 设计](ui-design.md)。
+> 本文是验证入口，不重复定义设计。目标不变量来自[完整系统设计](worksurface-complete-design.md)，UI 约束来自 [UI 设计](ui-design.md)。
 
-## 唯一门禁
+## 当前实现兼容性门禁
 
 ```sh
 source ~/.nvm/nvm.sh
@@ -10,61 +10,69 @@ nvm use 24.17.0
 pnpm check
 ```
 
-`pnpm check` 调用 `scripts/check.py`，依次验证：
+`pnpm check` 当前验证交互图规格与生成 HTML 的摘要、9/9 Showcase receipt，以及旧分层实现自身的一致性：Event、JSON Definition、文件化 Registration、Revision-centric Context schema、强制 Surface 模板、`spec/invariants.json`、包边界、TypeScript、单元测试、eval suite、Host RPC 与 CLI protocol。
 
-1. Event、Definition、文件化 Registration、Context schema 和示例；
-2. 标准 `surface.md` 模板；
-3. `spec/invariants.json` 的编号、enforcement point、测试路径与显式不变量断言标签；
-4. Core/Web/CLI 静态边界；
-5. TypeScript、bundle、单元测试和 eval suite；
-6. Host RPC 与 CLI protocol 同步。
+这些检查仍然有价值，但通过只表示当前实现兼容，不表示已经满足新的完整设计。
 
-## 机器可读规范
+## 当前机器协议
 
-| 文件 | 作用 |
-| --- | --- |
-| `spec/invariants.json` | `WS-01` 至 `WS-23` 的规范注册表；每项必须指向 enforcement point 和可执行测试 |
-| `spec/event.schema.json` | Event envelope、subject、EventRef、meta 与 JSON payload |
-| `spec/definition.schema.json` | Definition、role、history、key、条件与 reaction |
-| `spec/binding.schema.json` | SurfaceId 与 DSH SessionId 的一对一绑定文件格式 |
-| `spec/authoring-registration.schema.json` | `orchestrations/<id>/registration.json` 的稳定 ID 与 role bindings |
-| `spec/context.schema.json` | Surface Session 的只读上下文 |
-| `spec/surface-template.md` | Surface 七节主契约的唯一模板 |
-| `packages/dsh/spec/host-rpc.json` | 可替换 Host transport 的方法集合与版本 |
+| 文件 | 当前作用 | 目标迁移 |
+| --- | --- | --- |
+| `spec/invariants.json` | 旧 `WS-01` 至 `WS-23` 实现注册表 | 原子替换为完整设计中的目标不变量与 enforcement/test |
+| `spec/event.schema.json` | WorkSurface Event envelope 与 EventRef | 增加 DSH Session EventRef adapter，不复制 DSH event |
+| `spec/definition.schema.json` | JSON Definition、condition 与 reaction | 支持 YAML pattern/Code 到统一 Orchestrate IR |
+| `spec/binding.schema.json` | Surface 与 DSH Session 的一对一 Binding | 保留为首个 DSH adapter 策略 |
+| `spec/authoring-registration.schema.json` | 文件化 Registration | 收敛为 Orchestrate Instance 的一种装配记录 |
+| `spec/context.schema.json` | Revision-centric Session context | 扩展为 Materialization/EventRef/provider Context Projection |
+| `spec/surface-template.md` | 当前强制 Surface 契约 | 降为可选 Surface Profile/template fixture |
+| `packages/dsh/spec/host-rpc.json` | Host transport 方法与版本 | 保持 transport，不升级为领域模型 |
 
-Markdown 不变量摘要不再单独维护，避免和 `spec/invariants.json` 漂移。设计变化必须先更新权威设计，再同步 registry、schema、实现和测试。
+## 目标迁移验收
 
-## 恢复与并发验收
+完成概念迁移至少必须新增以下可执行门禁：
 
-| 故障边界 | 证明位置 |
+1. 没有 `surface.md` 的 Surface 可以合法存在并被上下文 provider 投影。
+2. 文件 fragment、结构化对象局部、事件范围和外部 artifact 元素都能通过 adapter locator 定位；冻结引用必须携带可重放 boundary。
+3. 一个 Turn/Step 维护的 Surface 内容能在后续 Context Projection 中按同一逻辑地址读取；omitted 内容不会丢失。
+4. Revision 只证明文件 Materialization snapshot，不被当作全部 Surface 内容事实。
+5. WorkSurface 能稳定引用 DSH `turn/*`、`step/*`、`tool/*` 事件而不复制它们。
+6. YAML pattern 与 Code 对相同输入产生相同标准 Effect 语义。
+7. `turn/end`、`step/end`、Tool Call 成功和上下文发布均不会产生 `surface.completed`。
+8. Session、Turn、Step、Tool Call 的 UI、恢复和日志映射与 DSH 定义一致。
+9. Context Plan 明确区分 `included`、`omitted`、`required`，并拒绝把 omitted 描述为已消费。
+10. Runtime 自动补齐可信 Session/Turn/Instance/Activation/causality/capability 字段，模型不需要记忆内部 ID。
+11. 删除 topology、Context Plan cache、UI projection 与 live state 后可以从权威事实重建。
+12. 一个 Surface 可以拥有多个有序 Episode，沉淀 Episode 不改变 SurfaceId。
+13. Episode 能稳定引用实际 DSH Step、Tool Call 与 Surface 修改，且不会复制 transcript。
+14. Episode 边界由显式协议决定，不能通过 `turn/end`、`step/end` 或工具成功隐式推断。
+15. Episode 推进中可以产生自定义 Event，Orchestrate 能按事件名与 payload 可靠匹配，例如 `research.completed`。
+16. Event payload 同时支持 inline JSON 与 content ref；用于重放、跨 Surface 传递或验收证据的 ref 必须固定 boundary。
+17. Orchestrate 只依赖已经可靠接纳的 Event 形成推进决策；Event 重放得到相同 Activation / Effect。
+18. WorkSurface Runtime 的测试只覆盖 Surface / Episode 推进控制，并通过 adapter 验证 DSH 调用；不得要求或伪造 DSH 的同名 Runtime 抽象。
+
+## 当前可靠性证据
+
+下列机制与目标设计兼容，可以作为迁移基础：
+
+| 故障边界 | 当前证明位置 |
 | --- | --- |
 | 同 EventId 重试、同 id 异内容冲突、跨实例锁内决策 | `packages/core/tests/file-event-store.spec.ts` |
-| snapshot/materialize、只读输入、异常目录和不可变对象 | `packages/core/tests/revision-store.spec.ts` |
-| Surface/Session 绑定前产生的孤儿 Revision 由年龄保护并可回收 | `packages/core/tests/revision-store.spec.ts`、`packages/dsh/tests/session-surface.spec.ts` |
-| 唯一 binding 写入后可恢复 authoring WIP、已关闭 Turn 的能力拒绝 | `packages/dsh/tests/session-surface.spec.ts` |
-| publication append 后修复 authoring checkout | `packages/dsh/tests/session-surface.spec.ts` |
-| Session 恢复沿用原执行历史，不创建第二个执行身份 | `packages/dsh/tests/session-surface.spec.ts`、`packages/dsh/tests/session-adapter.spec.ts` |
-| Host 重启自动续推 `interrupted`、`aborted/disposed` 与持久 `next-turn`；完成或空闲 Session 保持休眠 | `packages/dsh/tests/session-admission.spec.ts`、`packages/dsh/tests/session-admission-agent-loop.spec.ts` |
-| 原生产品 admission 在 Agent 发布前绑定并保持 Session 空白，用户 composer 输入后才开始 Turn | `packages/dsh/tests/session-admission.spec.ts`、`packages/dsh/tests/session-admission-agent-loop.spec.ts`、`packages/web/tests/web.spec.ts` |
-| 公共作者目录中的 Session WIP 保守保留；临时 materialization 按 retention 清理 | `packages/dsh/tests/session-surface.spec.ts` |
-| Turn 结束但没有 publication 时不伪造 Surface 状态 | `packages/core/tests/view-projection.spec.ts` |
-| 用户后续输入开启新 Turn，并沿用该 Surface 作者目录中的持久 WIP | `packages/dsh/tests/session-surface.spec.ts` |
-| 第二个 Session 绑定同一 Surface、同一 Session 绑定第二个 Surface均被拒绝 | `packages/dsh/tests/session-surface.spec.ts` |
-| operation record、target append、settlement 分段恢复 | `packages/dsh/tests/engine.spec.ts` |
+| 文件 snapshot/materialize、异常目录与不可变对象 | `packages/core/tests/revision-store.spec.ts` |
+| Surface/Session Binding、authoring WIP 与 publication CAS | `packages/dsh/tests/session-surface.spec.ts` |
+| Host 重启选择性恢复中断 Session 与持久 `next-turn` | `packages/dsh/tests/session-admission.spec.ts`、`packages/dsh/tests/session-admission-agent-loop.spec.ts` |
+| Operation record、target append、settlement 分段恢复 | `packages/dsh/tests/engine.spec.ts` |
 | live wakeup 丢失、重复、乱序后 replay 收敛 | `packages/dsh/tests/engine.spec.ts` |
-| handler operation key、固定 Definition revision 和目标授权 | `packages/dsh/tests/code-handler.spec.ts` |
-| projection 删除后按 Event/Registration 重建 | `packages/core/tests/view-projection.spec.ts`、`packages/web/tests/web.spec.ts` |
+| handler operation key、固定 Definition revision 与目标授权 | `packages/dsh/tests/code-handler.spec.ts` |
+| projection 删除后按事件重建 | `packages/core/tests/view-projection.spec.ts`、`packages/web/tests/web.spec.ts` |
 
 ## 人工集成验收
 
-涉及 Host 装配、Cordis Slot 或真实浏览器布局时，在仓库门禁之外执行：
+涉及真实 DSH、Cordis Slot 或浏览器布局时：
 
 1. 构建并确认 `web` profile 实际链接当前源码包；
 2. Host 变更后重启 DSH，Client-only 变更后强刷浏览器；
-3. 在原生 `conversation.view` 中检查 Surface 选择、循环拓扑、条件/通路侧栏、暗色主题和窄屏布局；
-4. 删除浏览器临时锚点状态并刷新，确认 Host replay 得到等价投影；
-5. 模拟 Surface Session 的 Turn 运行、等待用户、失败、恢复与 publication conflict；执行状态看唯一 Session，Surface 图只显示 publication 与显式业务解释。
+3. 检查 Surface 选择、循环拓扑、条件证据、暗色主题和窄屏布局；
+4. 删除临时锚点与 projection 后刷新，确认 replay 收敛；
+5. 分别观察 Session、Turn、Step、Tool Call、上下文发布和显式 `surface.completed`，确认 UI 没有折叠成一条状态。
 
-真实 profile 不可用时，可运行 `node packages/web/evals/browser-harness.mjs`，使用真实 `client.js` 与 `styles.css` 对原生 Slot 组件执行浏览器布局、键盘与侧栏验收；该测试壳不替代 Host/Cordis 的真实 profile 装配。
-
-人工验收不能替代 `pnpm check`，静态门禁也不能替代真实 profile 与浏览器验证。
+真实 profile 不可用时，可以运行 `node packages/web/evals/browser-harness.mjs` 做布局、键盘和侧栏验收；测试壳不替代真实 DSH 集成。

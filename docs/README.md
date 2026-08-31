@@ -2,26 +2,27 @@
 
 ## 权威设计
 
-当前只有以下两份设计规范：
+当前权威设计由三个互相约束的载体组成：
 
-1. [完整系统设计](worksurface-complete-design.md)：领域边界、Revision/Event 双事实源、文件布局、DSH Session/Turn 集成、Orchestration、恢复、并发、权限和核心不变量。
-2. [UI 设计](ui-design.md)：原生 `conversation.view`、拓扑、视觉编码、证据侧栏、View Definition、重放和降级。
+1. [可交互系统设计图](interactive/worksurface-system.html)：概念、边界和关系的第一审查入口；可编辑源为 [`worksurface-system.workflow.json`](interactive/worksurface-system.workflow.json)。
+2. [完整系统设计](worksurface-complete-design.md)：精确定义 `Surface / Episode` 主轴、Event / Orchestrate / WorkSurface Runtime 推进机制、DSH 承载边界、上下文投影、恢复和核心不变量。
+3. [UI 设计](ui-design.md)：原生 `conversation.view`、拓扑、视觉编码、证据侧栏、View Definition、重放和降级。
 
-系统设计约束 UI；UI 设计只能定义投影与交互，不能改变领域事实、依赖语义或 DSH Session 集成协议。两份文档若出现冲突，以完整系统设计的领域边界为准，并应在同一改动中修正文档冲突。
+交互图负责概念与关系索引，完整系统设计负责精确语义，UI 只能定义投影与交互。新增一级概念、边界或关键关系时，必须在同一变更中同步图规格、生成 HTML 和完整系统设计；出现冲突时不能选择性忽略，必须修复漂移。
 
 ## 实现与验证资料
 
-- [实现索引](architecture.md)：把权威设计章节映射到代码、协议和测试；不另行定义架构。
-- [验证指南](invariants-and-acceptance.md)：机器可读不变量、统一门禁和恢复测试入口。
-- [模型上下文](context-management.zh.md)：不可变 Revision 与 Session 事实到模型输入的重建链路；英文版见 [Fact-backed model context](context-management.md)。
-- [`spec/`](../spec/)：Event、Definition、Surface Session Binding、Context schema，标准 Surface 模板和机器可读不变量注册表。
-- [`examples/`](../examples/)：符合当前 Definition 和 Surface 契约的示例。
+- [实现索引](architecture.md)：将目标设计映射到现有代码，并明确尚未迁移的旧概念；不另行定义架构。
+- [验证指南](invariants-and-acceptance.md)：区分“当前实现兼容性门禁”与“目标设计迁移验收”。
+- [模型上下文](context-management.zh.md)：从 DSH Session、Surface materializations、EventRefs 与 provider 输出构建 Context Projection；英文版见 [Fact-backed model context](context-management.md)。
+- [`spec/`](../spec/)：当前实现使用的 Event、Definition、Binding、Context schema、兼容性模板和机器可读不变量注册表。
+- [`examples/`](../examples/)：符合当前实现协议的示例；不应被解释为 Surface 通用内容模型。
 
-实现、schema 或测试不能静默覆盖权威设计。发现不一致时，应先判断是实现缺陷还是设计变更，再同步修改两份权威文档中的受影响内容、`spec/`、实现和测试。
+目标设计已经先行更新，当前 `spec/`、实现与测试仍含 Revision-centric、强制 `surface.md`、JSON Definition 和公开 Registration 等旧分层。测试通过只证明当前实现自洽，不表示已经完成目标语义。迁移时应原子更新 schema、registry、代码、测试和示例。
 
-## 已移除的历史材料
+## 历史材料
 
-- `work-session-storage.md`：基于旧 Work Session 命名，内容已并入完整系统设计的文件布局与持久化章节。
-- `worksurface-ui-design-revised.md`：历史 UI 草案；其中未与当前 Revision/Event 双事实源、唯一 Surface Session 和当前 projection 契约同步的内容不再适用。
+- `work-session-storage.md`：基于旧 Work Session 命名，内容已经并入完整系统设计。
+- `worksurface-ui-design-revised.md`：历史 UI 草案，未同步当前 Surface / Episode 模型和正确 DSH 层级。
 
-Git 历史仍可用于追溯这些材料，但它们不再留在工作树中，避免被当作当前规范引用。
+Git 历史仍可用于追溯，但这些材料不再是当前规范。

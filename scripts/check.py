@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import pathlib
+import re
 import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SPEC = ROOT / "spec"
+INTERACTIVE_DESIGN = ROOT / "docs" / "interactive"
 
 
 def fail(message: str) -> None:
@@ -17,6 +20,61 @@ def fail(message: str) -> None:
 
 
 def static_checks() -> None:
+    receipt_path = INTERACTIVE_DESIGN / "worksurface-system.receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    for receipt_key, path_key in (
+        ("specificationSha256", "source"),
+        ("artifactSha256", "artifact"),
+    ):
+        artifact_path = INTERACTIVE_DESIGN / receipt[path_key]
+        actual_digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+        if actual_digest != receipt[receipt_key]:
+            fail(
+                f"interactive design {artifact_path.name} does not match "
+                f"{receipt_path.name}; regenerate and validate the diagram"
+            )
+    validation = receipt.get("validation", {})
+    if (
+        validation.get("profile") != "showcase"
+        or validation.get("checksPassed") != 9
+        or validation.get("checkCount") != 9
+        or validation.get("errors") != 0
+        or validation.get("warnings") != 0
+    ):
+        fail("interactive design receipt is not a clean 9/9 Showcase validation")
+
+    design_source = json.loads(
+        (INTERACTIVE_DESIGN / "worksurface-system.workflow.json").read_text()
+    )
+    design_nodes = design_source.get("components", design_source.get("nodes", []))
+    used_kinds = {component["type"] for component in design_nodes}
+    domain_entries = design_source.get("meta", {}).get("legend", {}).get("entries", {})
+    missing_labels = sorted(
+        kind for kind in used_kinds if not domain_entries.get(kind, {}).get("label")
+    )
+    if missing_labels:
+        fail(
+            "interactive design lacks domain passport labels for renderer kinds: "
+            + ", ".join(missing_labels)
+        )
+    html = (INTERACTIVE_DESIGN / "worksurface-system.html").read_text()
+    i18n_match = re.search(
+        r'<script\b(?=[^>]*\bid="archify-i18n-data")'
+        r'(?=[^>]*\btype="application/json")[^>]*>\s*(\{.*?\})\s*</script>',
+        html,
+        re.DOTALL,
+    )
+    if not i18n_match:
+        fail("interactive design lacks the Archify i18n payload")
+    viewer_messages = json.loads(i18n_match.group(1)).get("messages", {})
+    for kind in sorted(used_kinds):
+        expected_label = domain_entries[kind]["label"]
+        if viewer_messages.get(f"viewer.kind.{kind}") != expected_label:
+            fail(
+                f"interactive design exposes renderer kind {kind!r} instead of "
+                f"domain passport label {expected_label!r}; run pnpm design:domain-labels"
+            )
+
     for schema in ("event.schema.json", "definition.schema.json", "context.schema.json", "binding.schema.json", "authoring-registration.schema.json"):
         json.loads((SPEC / schema).read_text())
     template = (SPEC / "surface-template.md").read_text()
