@@ -5,8 +5,8 @@
 当前权威设计由三个互相约束的载体组成：
 
 1. [可交互系统设计图](interactive/worksurface-system.html)：概念、边界和关系的第一审查入口；可编辑源为 [`worksurface-system.workflow.json`](interactive/worksurface-system.workflow.json)。
-2. [完整系统设计](worksurface-complete-design.md)：精确定义 `Surface / Episode` 主轴、Event / Orchestrate / WorkSurface Runtime 推进机制、DSH 承载边界、上下文投影、恢复和核心不变量。
-3. [UI 设计](ui-design.md)：原生 `conversation.view`、拓扑、视觉编码、证据侧栏、View Definition、重放和降级。
+2. [完整系统设计](worksurface-complete-design.md)：精确定义 `Surface / Episode` 主轴、Orchestrate Source → Definition IR → Instance 编译边界、Event / Effect 推进机制、DSH 承载边界、恢复和核心不变量。
+3. [UI 设计](ui-design.md)：原生 `conversation.view`、拓扑、视觉编码、证据侧栏、UI View Spec、重放和降级。
 
 交互图负责概念与关系索引，完整系统设计负责精确语义，UI 只能定义投影与交互。新增一级概念、边界或关键关系时，必须在同一变更中同步图规格、生成 HTML 和完整系统设计；出现冲突时不能选择性忽略，必须修复漂移。
 

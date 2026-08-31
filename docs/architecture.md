@@ -17,12 +17,12 @@
 | Surface Address 与持续维护 | 文件路径、authoring WIP、`packages/dsh/src/context/` | 部分实现；需抽象 adapter locator/boundary，并证明跨 Turn/Step 的局部可定位与可见性 |
 | WorkSurface append-only streams、幂等与冲突 | `packages/core/src/file-event-store.ts` | 可保留；需增加跨来源 EventRef，不能复制 DSH events |
 | 文件 Materialization 的 Revision snapshot | `packages/core/src/revision-store.ts` | 机制已实现；概念上从“Surface 全部内容”降为文件 adapter |
-| Definition revision cache | `packages/core/src/definition-store.ts` | 可保留；需支持 YAML pattern 与 Code 编译到统一 IR |
+| Orchestrate Source → Definition IR | `packages/core/src/definition-store.ts`、`packages/dsh/src/service.ts` | 未形成边界；当前硬编码读取 `definition.json`，同一文件同时是作者 Source、持久 Definition 和 Engine IR；需增加 YAML compiler、Code adapter、SourceRef/provenance 和规范 DefinitionRef |
 | 条件、Activation、planned/actual projection | `packages/core/src/orchestration.ts` | 部分实现；Activation 只能表示条件满足，不能表示 Agent 启动 |
 | WorkSurface Runtime（推进控制） | `packages/dsh/src/engine.ts`、`service.ts`、`session-admission.ts`、context 子系统 | 职责分散，尚无统一目标抽象；`WorkSurfaceContextRuntime` 只负责上下文，不等于本文的推进控制器，也不能据此推断 DSH 有同名 Runtime |
 | Surface 与 DSH Session Binding | `packages/dsh/src/session-surface.ts` | 当前 1:1 adapter 可保留；必须明确是执行策略而非 Surface 定义 |
 | DSH Session admission 与恢复 | `packages/dsh/src/session-admission.ts`、`packages/dsh/src/session-adapter.ts` | 已实现基础机制；术语必须遵守 Session → Turn → Step → Tool Call |
-| Orchestrate effect 执行与对账 | `packages/dsh/src/engine.ts`、`packages/dsh/src/code-handler.ts` | 基础机制已实现；声明式与代码 handler 需输出相同标准 Effect |
+| Orchestrate evaluator 与 Effect | `packages/dsh/src/engine.ts`、`packages/dsh/src/code-handler.ts` | 未统一；声明式 reaction 当前支持 emit/followup，Code handler 只能 emit；目标 evaluator 统一接受 `Definition + Instance + Event[]` 冻结输入并返回标准 `Effect[]` |
 | Context Projection | `packages/dsh/src/context/` | 部分实现；从 Revision-centric 扩展到 materializations、EventRefs、providers 与 included/omitted/required |
 | 模型入口与 CLI transport | `packages/cli/src/bin.ts`、`packages/dsh/src/model/session-instructions.ts` | 保留最小 `ws emit` shell CLI；避免增加模型工具，内部字段由 WorkSurface 推进控制层补齐 |
 | UI projection | `packages/core/src/view-projection.ts`、`packages/web/` | 可删除投影机制可保留；需区分 Turn/Step、上下文发布和 `surface.completed` |
@@ -34,9 +34,14 @@
 ```text
 core
 ├── Surface / Episode domain rules
-├── Event facts / Orchestrate policies
+├── Event facts / immutable Definition IR / Instance rules
+├── evaluator input + Effect output contracts
 ├── pure replay / fold / authorization
 └── no DSH, CLI or Web dependency
+
+authoring adapters
+├── YAML pattern compiler
+└── Code artifact adapter
 
 dsh execution adapter
 ├── Binding and admission
@@ -48,7 +53,8 @@ cli ── transport only; shell entry point, not a new model tool
 web ── reads deletable projections only
 ```
 
-- `core` 定义 Surface / Episode 领域规则，以及 Event、Orchestrate、Effect IR、校验与纯 replay/fold。
+- `core` 定义 Surface / Episode、Event、不可变 Definition IR、Instance、evaluator input 与 Effect output contract，以及校验和纯 replay/fold。
+- `authoring adapters` 把 YAML / Code Source 编译或适配成 Definition IR；推进控制与 DSH adapter 不读取 Source。
 - `dsh` 桥接真实 DSH Session；DSH 自己拥有 Session、Turn、Step、Tool Call 和 transcript 权威事实。
 - `cli` 只提供稳定 shell transport；模型主要使用现有编程与文件能力。
 - `web` 只读取 WorkSurface 推进机制生成的可删除投影，不写关系、Binding 或执行状态。
@@ -66,6 +72,6 @@ web ── reads deletable projections only
 3. 建立 `SurfaceId + adapter + locator + boundary` 地址协议，覆盖 working 与 frozen 引用。
 4. 将 Revision 降级为文件 Materialization snapshot，并移除通用 `surface.md` 强制约束。
 5. 为 DSH Session events 增加稳定 EventRef adapter，保持日志权威性不重复。
-6. 将 JSON/YAML pattern 与 Code 编译到统一 Orchestrate IR 和 Effect API。
+6. 拆分当前 `definition.json` 的三重职责：建立 SourceRef/provenance，令 YAML compiler 与 Code adapter 统一产出不可变 Definition IR，并让所有 evaluator 只返回标准 Effect[]。
 7. 扩展 Context Projection，并让 audit 明确 included/omitted/required 和跨 Episode 的最新内容可见性。
 8. 最后迁移 Web 文案和视觉状态，删除对旧 Registration/Revision 语义的依赖。

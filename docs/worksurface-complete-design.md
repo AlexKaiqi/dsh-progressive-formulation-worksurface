@@ -15,7 +15,7 @@ WorkSurface 是构建在 DSH 之上的工作上下文推进层。
 
 Event 是推进中产生或观察到的事实表达，Orchestrate 是依赖 Event 的推进策略，WorkSurface Runtime（本文暂用名）是落实推进决策的控制器。它们围绕 Surface / Episode 工作，不再与领域对象并列。这里的 Runtime 不是 DSH 术语，也不假设 DSH 存在一个同名抽象。Surface Address、Revision、Context Snapshot、EventRef、Binding、Activation 和 Operation 是支撑定位、固定、重放、幂等与恢复的协议概念。
 
-核心关系不再维护第二份静态图，统一进入[可交互系统设计图](interactive/worksurface-system.html)。图提供五个审查视图：主模型、Episode 内容、事件驱动控制、DSH 承载边界、持续推进。
+核心关系不再维护第二份静态图，统一进入[可交互系统设计图](interactive/worksurface-system.html)。图提供五个审查视图：主模型、Episode 内容、Orchestrate 编译边界、事件驱动推进、执行承载边界。
 
 图与本文共同构成设计：图负责“有哪些概念、边界和关系”，本文负责“这些关系的精确定义、不变量和例外”。新增或修改一级概念、边界、关键关系时，必须在同一变更中同步 JSON 图规格、生成的 HTML 和本文；任一处漂移都表示设计变更未完成。
 
@@ -166,12 +166,13 @@ who     影响哪些 Surface
 context 向目标提供什么上下文
 ```
 
-公开模型只需要两个层次：
+Orchestrate 明确分为一个作者层和两个运行概念：
 
-1. **Orchestrate Definition**：可复用的规则定义；
-2. **Orchestrate Instance**：Definition 与实际 Surface 角色绑定后的运行实例。
+1. **Orchestrate Source**：供人和模型维护的 YAML 或 Code；它是作者源码，不是推进控制层的输入；
+2. **Orchestrate Definition**：Source 经 compile / adapt 得到的规范化、不可变运行 IR；
+3. **Orchestrate Instance**：Definition 与实际 Surface 角色绑定后的运行装配。
 
-Definition 使用角色而不是固定 SurfaceId。Instance 固定：
+Definition 使用角色而不是固定 SurfaceId，并固定 Event inputs、历史要求、activation key 规则、evaluator contract、允许产生的 Effect 类型与 capability requirements。Instance 只固定：
 
 - 精确 Definition 版本；
 - `role -> SurfaceId` bindings；
@@ -181,25 +182,31 @@ Definition 使用角色而不是固定 SurfaceId。Instance 固定：
 
 `Registration` 是当前文件实现对 Orchestrate Instance 固定记录的内部名称，不是一级产品概念。
 
-Orchestrate 可以使用两种作者形式：
+Orchestrate Source 可以使用两种作者形式：
 
 - **YAML**：表达 single、all、any、count、sequence、fan-out、fan-in 等常见 pattern；
 - **Code**：使用 Bash、Zsh、Python 或 Node 表达复杂选择、计算和上下文构造。
 
-两种形式必须编译或适配到同一个 Orchestrate IR 与 Effect 协议：
+两种形式必须经过同一个显式实现边界：
 
 ```text
-Event inputs
-  + explicit history boundary
-  + activation key
-  + role bindings
-    ↓
-condition evaluation
-    ↓
-standard Effect[]
+YAML Source ──compile──┐
+                      ├──> immutable Definition IR
+Code Source ───adapt──┘              │
+                                     ├── + Instance bindings
+                                     ├── + Event[]
+                                     ▼
+                              evaluator contract
+                                     │
+                                     ▼
+                                  Effect[]
 ```
 
-Code 不能直接改写 WorkSurface 推进控制层的私有状态。它读取固定输入并返回标准 Effect；需要外部副作用时，Effect 必须携带稳定幂等键，或明确接受外部系统无法提供 exactly-once 的限制。
+Definition 是唯一运行定义。推进控制层不得读取 YAML、作者目录或 Code 源文件来临时解释规则；它只读取固定的 DefinitionRef。SourceRef、compiler/adapter id 与版本、输入内容摘要必须作为 provenance 固定，使 Definition 可以重建和审计，但 provenance 不改变运行语义。
+
+YAML 编译为规范化条件和 Effect plan。复杂 Code 不能绕过 Definition：Definition 中只保存内容寻址的 evaluator artifact ref、固定入口和输入/输出 contract；受控 evaluator 读取 `Definition + Instance + Event[]` 的冻结投影，并且只能返回标准 `Effect[]`。Code 不能直接改写推进控制层私有状态、Instance 或 Surface；不能使用私有进程状态形成第二套历史。相同 Definition、Instance、Event inputs 和 evaluator 版本必须得到相同 Effect 结果。
+
+当前 `definition.json` 同时充当作者文件、持久 Definition 和 Engine IR，这是旧实现的混层，不是目标设计。目标实现中，JSON 最多是 Definition IR 的一种规范序列化或兼容 Source；文件名不定义边界。
 
 ### 2.5 WorkSurface Runtime（暂用名）
 
@@ -208,7 +215,7 @@ WorkSurface Runtime 只指 **Surface / Episode 的推进控制器**。它接收�
 WorkSurface Runtime 负责：
 
 - 接纳或观察获授权的 Event，并解析稳定 EventRef；
-- 装载固定的 Orchestrate Definition / Instance，匹配 Event inputs；
+- 装载固定的 Orchestrate Definition / Instance，匹配 Event inputs；不得读取 Orchestrate Source；
 - 派生 Activation 与标准 Effect，决定何时、如何、影响谁以及提供什么上下文；
 - 打开、继续或沉淀 Episode 所需的控制记录；
 - 对 Effect 做 durable record、dispatch、settlement 和 reconciliation；
@@ -241,7 +248,7 @@ Materialization 是 Surface 在某种介质中的可访问表现，不是 Surfac
 
 该目录是可变 WIP。它可以包含任意与问题相关的文件，不要求固定章节，也不要求必须存在 `surface.md`。Profile 可以选择提供 `surface.md` 模板、schema 或其他约束，但这些约束属于 Profile，不进入通用 Surface 定义。
 
-`orchestrations/<id>/` 是 Orchestrate 作者 Materialization，可以包含 YAML、代码、测试、fixture 和说明。当前实现使用 `definition.json` 与 `registration.json`，后续目标格式允许 YAML 和 Code adapter；物理文件名不进入一级领域语义。
+`orchestrations/<id>/` 是 Orchestrate Source 的一种作者 Materialization，可以包含 YAML、代码、测试、fixture 和说明。compile / adapt 的输出进入内容寻址的 Definition store；Instance 只引用 DefinitionRef，不把作者目录当运行输入。当前实现使用 `definition.json` 与 `registration.json`，并让 `definition.json` 同时承担 Source、Definition 和 IR；这是待拆分的兼容实现，物理文件名不进入一级领域语义。
 
 ### 3.2 Context Projection
 
@@ -300,13 +307,14 @@ dsh:<session-id>:<event-seq>
 
 Activation 只属于 Orchestrate，不能表示 Agent 启动、Session 恢复或 DSH Turn。
 
-首版 Effect 至少包括：
+首版标准 Effect 至少包括：
 
 ```text
 emit(event)
 advance(targetRole, contextRefs, message)
-run(handler)
 ```
+
+Code 是复杂 Orchestrate 的 evaluator 实现，不是一个绕过 Effect 协议的通用副作用。若以后需要新增外部动作，必须增加显式、可授权、可幂等和可对账的标准 Effect adapter，不能把任意 `run(handler)` 当作逃生口。
 
 `advance` 由 WorkSurface Runtime 解析目标 Surface 和绑定的 DSH Session，再通过当前 DSH adapter 使用稳定 MessageId 调用 `agent.followup()`。它开启新的 DSH Turn，而不是创建 WorkSurface 自己的模型运行对象。
 
@@ -383,7 +391,7 @@ Orchestrate 可以订阅获授权的 DSH 或 WorkSurface 事件，也可以依�
 
 single event 可以用 source EventId 作为 key；join、count、跨 Surface 聚合或重复业务轮次必须给出显式 key/generation。相同 Instance、subscription 和业务 key 最多形成一个 Activation。
 
-### 5.3 YAML 与 Code 同义
+### 5.3 YAML 与 Code 共享运行语义
 
 YAML 只是常见 pattern 的作者语法，Code 是复杂策略的作者语法。两者必须共享：
 
@@ -501,7 +509,7 @@ UI 是以下事实和语义的可删除投影：
 ```text
 facts     = DSH Session Events + WorkSurface Events + Context Snapshots
 semantics = exact Orchestrate Definition + Instance bindings
-view      = optional View Definition
+view      = optional UI View Spec
 ```
 
 UI 可以显示：
@@ -534,7 +542,8 @@ UI 不能：
 
 - Event 是事实；跨来源因果只使用稳定 EventRef，不使用 wall-clock 推断。
 - Event 类型可以自定义；payload 可以混合 inline value 与 content ref，作为重放或证据的 ref 必须固定 boundary。
-- Orchestrate 只通过固定 Definition、Instance bindings、历史边界和 Event inputs 解释。
+- YAML / Code 只属于 Source；二者必须 compile / adapt 到同一种不可变 Definition IR，推进控制层不得直接消费 Source。
+- Orchestrate 只通过固定 Definition、Instance bindings、历史边界和 Event inputs 解释，并且只产生标准 Effect[]。
 - WorkSurface Runtime 只控制 Surface / Episode 推进，不建立第二套 Agent 生命周期，也不宣称是 DSH 的 Runtime。
 
 ### DSH 边界
@@ -553,7 +562,7 @@ UI 不能：
 
 ### Orchestrate 与 Effect
 
-- `WS-13` YAML 和 Code 必须产生同一标准 Effect 语义。
+- `WS-13` YAML / Code Source 必须 compile / adapt 为不可变 Definition IR；推进控制层只接受 `Definition + Instance + Event[]` 并只产生标准 `Effect[]`。
 - `WS-14` Activation 只表示 Orchestrate 条件满足，不表示 Agent 启动或恢复。
 - `WS-15` Effect 先 durable record，再执行，再 settlement；未知结果必须 reconciliation。
 - `WS-16` `advance` 使用 DSH `agent.followup()` 开启目标 Session 的新 Turn。
@@ -572,7 +581,8 @@ UI 不能：
 - `Surface Revision` 当前承担了过多“Surface 内容”语义；目标是把它降为文件 Materialization snapshot；
 - 当前局部定位主要依赖文件路径；目标是形成跨 Materialization 的 `SurfaceId + adapter + locator + boundary` 地址协议；
 - `surface.md` 当前被 schema 强制；目标是改为可选 Profile/template；
-- 当前只接受 JSON Definition；目标是增加 YAML pattern 与 Code adapter，并编译到统一 IR；
+- 当前 `definition.json` 同时是作者 Source、持久 Definition 和 Engine IR；目标是拆分 SourceRef、compile / adapt、不可变 Definition IR 与 DefinitionRef；
+- 当前声明式 reaction 可产生 emit/followup，而 Code handler 只能 emit；目标是让所有 evaluator 通过同一个冻结输入与标准 Effect[] 输出 contract；
 - `Registration` 当前是公开作者文件；目标是把它解释为 Orchestrate Instance 的一种装配记录；
 - 当前 EventRef 只覆盖 WorkSurface subject stream；目标是增加对 DSH Session Event 的稳定引用；
 - 当前 Context Plan 以完整 Surface Revision 为中心；目标是支持开放 Context Snapshot、included/omitted/required 和多 provider 版本；
@@ -587,6 +597,6 @@ UI 不能：
 1. Surface 是可寻址、持续维护的结构化工作上下文，具体内容与 locator 形式由问题和 adapter 决定。
 2. 一个 Surface 有一系列有序 Episode；Episode 是一次有边界的推进，组织本次模型步骤、工具调用、Surface 修改、结果与证据。
 3. 当前 adapter 借用一个绑定的 DSH Session 承载实际执行，但 Session 不是 Surface，Turn/Step 也不自动等于 Episode。
-4. Episode 推进中可以产生自定义 Event；payload 可内联信息或携带稳定内容 ref，Orchestrate 依赖这些 Event 形成推进决策。
-5. WorkSurface Runtime 是推进控制器，通过当前 adapter 使用 DSH 承载模型与工具执行；它不是 DSH 的同名架构概念。
+4. YAML / Code 只是 Orchestrate Source；两者统一形成不可变 Definition IR，Instance 再绑定实际 Surface，求值只接受 Definition、Instance 和 Event。
+5. Orchestrate 只产生标准 Effect[]；WorkSurface Runtime 负责可靠落实 Effect，并通过当前 adapter 使用 DSH 承载模型与工具执行。
 6. DSH 与 WorkSurface 各自保存权威事实；模型继续使用普通编程和文件能力，新的 Surface 状态供后续 Episode 持续推进。

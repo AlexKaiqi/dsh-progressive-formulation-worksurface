@@ -20,7 +20,7 @@ pnpm check
 | --- | --- | --- |
 | `spec/invariants.json` | 旧 `WS-01` 至 `WS-23` 实现注册表 | 原子替换为完整设计中的目标不变量与 enforcement/test |
 | `spec/event.schema.json` | WorkSurface Event envelope 与 EventRef | 增加 DSH Session EventRef adapter，不复制 DSH event |
-| `spec/definition.schema.json` | JSON Definition、condition 与 reaction | 支持 YAML pattern/Code 到统一 Orchestrate IR |
+| `spec/definition.schema.json` | 当前同时描述作者 JSON、持久 Definition 与 Engine IR | 拆成 Source adapter contract、不可变 Definition IR 与 evaluator/Effect contract |
 | `spec/binding.schema.json` | Surface 与 DSH Session 的一对一 Binding | 保留为首个 DSH adapter 策略 |
 | `spec/authoring-registration.schema.json` | 文件化 Registration | 收敛为 Orchestrate Instance 的一种装配记录 |
 | `spec/context.schema.json` | Revision-centric Session context | 扩展为 Materialization/EventRef/provider Context Projection |
@@ -36,7 +36,7 @@ pnpm check
 3. 一个 Turn/Step 维护的 Surface 内容能在后续 Context Projection 中按同一逻辑地址读取；omitted 内容不会丢失。
 4. Revision 只证明文件 Materialization snapshot，不被当作全部 Surface 内容事实。
 5. WorkSurface 能稳定引用 DSH `turn/*`、`step/*`、`tool/*` 事件而不复制它们。
-6. YAML pattern 与 Code 对相同输入产生相同标准 Effect 语义。
+6. YAML 与 Code Source 都只能通过 compile / adapt 产生规范、不可变 Definition IR；推进控制入口拒绝直接消费 Source。
 7. `turn/end`、`step/end`、Tool Call 成功和上下文发布均不会产生 `surface.completed`。
 8. Session、Turn、Step、Tool Call 的 UI、恢复和日志映射与 DSH 定义一致。
 9. Context Plan 明确区分 `included`、`omitted`、`required`，并拒绝把 omitted 描述为已消费。
@@ -49,6 +49,9 @@ pnpm check
 16. Event payload 同时支持 inline JSON 与 content ref；用于重放、跨 Surface 传递或验收证据的 ref 必须固定 boundary。
 17. Orchestrate 只依赖已经可靠接纳的 Event 形成推进决策；Event 重放得到相同 Activation / Effect。
 18. WorkSurface Runtime 的测试只覆盖 Surface / Episode 推进控制，并通过 adapter 验证 DSH 调用；不得要求或伪造 DSH 的同名 Runtime 抽象。
+19. Definition 固定 SourceRef、compiler/adapter id 与版本、内容摘要和 evaluator artifact ref；作者目录变化不会改变既有 Instance 的运行语义。
+20. 声明式 evaluator 与 Code evaluator 对相同的 `Definition + Instance + Event[]` 冻结输入都只能返回标准 `Effect[]`，并受相同 capability、幂等和恢复约束。
+21. Code evaluator 不能直接写 Instance/Runtime 私有状态或产生未记录副作用；同一固定输入和 evaluator 版本重放得到相同 Effect 结果。
 
 ## 当前可靠性证据
 

@@ -3,8 +3,8 @@
   "diagramType": "workflow",
   "source": "worksurface-system.workflow.json",
   "artifact": "worksurface-system.html",
-  "specificationSha256": "0141e512e954988bcb59ed28ac41cc289490b553193b1fc07843aa6625d5e0f4",
-  "artifactSha256": "bcec3a19727295466b1c78127c4f699afd2e07640fec11b389b2fb30839e1cb3",
+  "specificationSha256": "42106ac9de95fb19176f765e394a60fb854cfed0b89518d3b4859d2af5b49808",
+  "artifactSha256": "cbb72003c085a5ec0216b0a3095740c00bf05377e4b60a36a1a107ad52b9380e",
   "validation": {
     "profile": "showcase",
     "checksPassed": 9,

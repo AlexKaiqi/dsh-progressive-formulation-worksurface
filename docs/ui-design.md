@@ -11,7 +11,7 @@ UI 不定义执行事件、不维护编排状态，也不生成依赖语义。�
 ```text
 事实 = DSH Session Events + WorkSurface Events + Context Snapshots
 语义 = exact Orchestrate Definition + Instance bindings
-呈现 = optional View Definition
+呈现 = optional UI View Spec
 UI snapshot = 对以上事实与语义的可删除投影
 ```
 
@@ -93,9 +93,9 @@ subscription 是可点击条件汇合点，不是 Relation 实体：
 
 possible path、matched source、activation、managed operation、DSH Turn/Step 状态、上下文发布与 `surface.completed` 必须分层呈现，不能压成一条“状态”。
 
-## 7. View Definition
+## 7. UI View Spec
 
-可选 View Definition 是不可变 YAML artifact，只维护标题、标题锁定、分组、subscription 文案、业务事件展示解释和稳定布局提示。
+可选 UI View Spec 是不可变 YAML artifact，只维护标题、标题锁定、分组、subscription 文案、业务事件展示解释和稳定布局提示。它只是 UI 投影视图配置，不属于 Orchestrate Source / Definition / Instance。
 
 它不能保存 status、事件计数、activation 结果或当前进度，也不能注册、暂停、恢复或修改 Orchestrate Definition/Instance。后台 Surface 可以持续维护它；维护失败时使用最后有效 revision 或确定性回退，不影响 DSH Agent。
 
@@ -105,4 +105,4 @@ possible path、matched source、activation、managed operation、DSH Turn/Step 
 
 Cordis live event 只触发刷新。通知丢失、重复、页面重载、浏览器离线或 projection 缓存删除都不能改变最终 UI；恢复后通过重放收敛。
 
-View Definition 缺失或无效时显示确定性标题与默认布局。后台 View 维护 Agent 不可用时，核心编排继续正常执行。
+UI View Spec 缺失或无效时显示确定性标题与默认布局。后台 View 维护 Agent 不可用时，核心编排继续正常执行。
