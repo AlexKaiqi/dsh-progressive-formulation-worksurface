@@ -13,7 +13,7 @@
 
 - [UI 设计](ui-design.md)：当前 `WorkSurfaceViewDefinition`、Surface 生命周期投影和 DSH/WorkSurface 证据分层。
 - [模型上下文](context-management.zh.md)：当前 Revision、Session facts、provider occurrence、Context Plan 和 render audit；英文版见 [Fact-backed model context](context-management.md)。
-- [`spec/`](../spec/)：Event、Definition、Binding、Context 和 Registration 的机器 schema。
+- [`spec/`](../spec/)：Event、Definition、Binding、Context、Registration，以及 YAML 表示的 Orchestration Authoring JSON Schema。
 - [`examples/`](../examples/)：当前协议示例，不扩张领域模型。
 
 ## 设计准入

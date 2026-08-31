@@ -1,0 +1,428 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://worksurface.local/spec/orchestration-authoring.schema.yaml
+title: WorkSurface Orchestration Authoring v1
+description: >-
+  YAML authoring protocol for the subset that can lower deterministically to
+  OrchestrationDefinition v1. Roles are logical names and remain separate from
+  Registration role-to-Surface bindings. Delegate, serial, and fanout-join are
+  authoring patterns; rule is the direct event-rule form. Loop, race, dynamic
+  role allocation, and concurrent dispatch are intentionally outside v1.
+type: object
+additionalProperties: false
+required:
+  - version
+  - roles
+  - patterns
+properties:
+  version:
+    const: 1
+  roles:
+    description: Logical participant roles. A Registration binds every role to one Surface.
+    type: array
+    minItems: 1
+    uniqueItems: true
+    items:
+      $ref: '#/$defs/name'
+  patterns:
+    description: >-
+      Named author declarations. Mapping order does not create runtime causality;
+      emitted events and completion selectors do. Each mapping key becomes the
+      stable prefix for generated Subscription ids.
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: '#/$defs/name'
+    additionalProperties:
+      oneOf:
+        - $ref: '#/$defs/rulePattern'
+        - $ref: '#/$defs/delegatePattern'
+        - $ref: '#/$defs/serialPattern'
+        - $ref: '#/$defs/fanoutJoinPattern'
+$defs:
+  name:
+    type: string
+    pattern: '^[A-Za-z0-9][A-Za-z0-9._:/-]*$'
+  relativePath:
+    type: string
+    minLength: 1
+    pattern: '^(?!/)(?!.*(?:^|/)\.\.?/)(?!.*\\)(?!.*//).+$'
+  keyPath:
+    description: >-
+      Correlation path read from every candidate event. Multi-event patterns
+      require all participating events to carry the same value at this path.
+    type: string
+    pattern: '^\$\.(payload|meta)(\.[A-Za-z0-9_-]+)+$'
+  history:
+    enum:
+      - all
+      - from-registration
+  selector:
+    type: object
+    additionalProperties: false
+    required:
+      - from
+      - event
+    properties:
+      from:
+        $ref: '#/$defs/name'
+      event:
+        $ref: '#/$defs/name'
+      payload:
+        $ref: '#/$defs/jsonValue'
+  jsonValue:
+    oneOf:
+      - type: 'null'
+      - type: boolean
+      - type: number
+      - type: string
+      - type: array
+        items:
+          $ref: '#/$defs/jsonValue'
+      - type: object
+        additionalProperties:
+          $ref: '#/$defs/jsonValue'
+  condition:
+    oneOf:
+      - $ref: '#/$defs/selector'
+      - type: object
+        additionalProperties: false
+        required:
+          - all
+        properties:
+          all:
+            type: array
+            minItems: 1
+            items:
+              $ref: '#/$defs/condition'
+      - type: object
+        additionalProperties: false
+        required:
+          - any
+        properties:
+          any:
+            description: >-
+              Deterministic alternative matching in declaration order; this is
+              not a first-completion race.
+            type: array
+            minItems: 1
+            items:
+              $ref: '#/$defs/condition'
+      - type: object
+        additionalProperties: false
+        required:
+          - count
+        properties:
+          count:
+            type: object
+            additionalProperties: false
+            required:
+              - selector
+              - operator
+              - value
+            properties:
+              selector:
+                $ref: '#/$defs/selector'
+              operator:
+                enum:
+                  - eq
+                  - gte
+                  - lte
+              value:
+                type: integer
+                minimum: 0
+      - type: object
+        additionalProperties: false
+        required:
+          - sequence
+        properties:
+          sequence:
+            description: Ordered selectors on one role and therefore one Surface event stream.
+            type: array
+            minItems: 1
+            items:
+              $ref: '#/$defs/selector'
+  emitAction:
+    type: object
+    additionalProperties: false
+    required:
+      - to
+      - event
+      - payload
+      - operation
+    properties:
+      to:
+        $ref: '#/$defs/name'
+      event:
+        $ref: '#/$defs/name'
+      payload:
+        $ref: '#/$defs/jsonValue'
+      operation:
+        type: string
+        minLength: 1
+  followupAction:
+    type: object
+    additionalProperties: false
+    required:
+      - to
+      - message
+      - operation
+    properties:
+      to:
+        $ref: '#/$defs/name'
+      message:
+        type: string
+        minLength: 1
+      operation:
+        type: string
+        minLength: 1
+  handlerAction:
+    type: object
+    additionalProperties: false
+    required:
+      - command
+      - path
+      - reads
+      - emits
+    properties:
+      command:
+        enum:
+          - bash
+          - zsh
+          - python3
+          - node
+      path:
+        $ref: '#/$defs/relativePath'
+      args:
+        type: array
+        items:
+          type: string
+      reads:
+        type: array
+        uniqueItems: true
+        items:
+          $ref: '#/$defs/name'
+      emits:
+        type: array
+        minItems: 1
+        uniqueItems: true
+        items:
+          $ref: '#/$defs/name'
+  effectSet:
+    description: >-
+      One Canonical Definition v1 reaction. emit and followup operations cannot
+      be mixed in one reaction; a handler may only emit to declared roles.
+    oneOf:
+      - type: object
+        additionalProperties: false
+        required:
+          - emit
+        properties:
+          emit:
+            type: array
+            minItems: 1
+            items:
+              $ref: '#/$defs/emitAction'
+      - type: object
+        additionalProperties: false
+        required:
+          - followup
+        properties:
+          followup:
+            type: array
+            minItems: 1
+            items:
+              $ref: '#/$defs/followupAction'
+      - type: object
+        additionalProperties: false
+        required:
+          - handler
+        properties:
+          handler:
+            $ref: '#/$defs/handlerAction'
+  dispatch:
+    description: A single reliable dispatch used by serial and fanout branches.
+    oneOf:
+      - type: object
+        additionalProperties: false
+        required:
+          - emit
+        properties:
+          emit:
+            $ref: '#/$defs/emitAction'
+      - type: object
+        additionalProperties: false
+        required:
+          - followup
+        properties:
+          followup:
+            $ref: '#/$defs/followupAction'
+  patternBase:
+    type: object
+    required:
+      - kind
+      - history
+      - key
+      - when
+    properties:
+      kind:
+        type: string
+      history:
+        $ref: '#/$defs/history'
+      key:
+        $ref: '#/$defs/keyPath'
+      when:
+        $ref: '#/$defs/condition'
+  rulePattern:
+    description: >-
+      Lowers to one Subscription using the pattern mapping key as its id.
+    allOf:
+      - $ref: '#/$defs/patternBase'
+      - type: object
+        additionalProperties: false
+        required:
+          - kind
+          - history
+          - key
+          - when
+          - then
+        properties:
+          kind:
+            const: rule
+          history:
+            $ref: '#/$defs/history'
+          key:
+            $ref: '#/$defs/keyPath'
+          when:
+            $ref: '#/$defs/condition'
+          then:
+            $ref: '#/$defs/effectSet'
+  delegatePattern:
+    description: >-
+      Lowers to one Subscription whose reaction contains one followup. Completion
+      is an explicit later event and can be consumed by another pattern.
+    allOf:
+      - $ref: '#/$defs/patternBase'
+      - type: object
+        additionalProperties: false
+        required:
+          - kind
+          - history
+          - key
+          - when
+          - to
+          - message
+          - operation
+        properties:
+          kind:
+            const: delegate
+          history:
+            $ref: '#/$defs/history'
+          key:
+            $ref: '#/$defs/keyPath'
+          when:
+            $ref: '#/$defs/condition'
+          to:
+            $ref: '#/$defs/name'
+          message:
+            type: string
+            minLength: 1
+          operation:
+            type: string
+            minLength: 1
+  serialStage:
+    type: object
+    additionalProperties: false
+    required:
+      - id
+      - dispatch
+      - completes
+    properties:
+      id:
+        $ref: '#/$defs/name'
+      dispatch:
+        $ref: '#/$defs/dispatch'
+      completes:
+        $ref: '#/$defs/selector'
+  serialPattern:
+    description: >-
+      Lowers to a start Subscription, one Subscription between adjacent stages,
+      and one finish Subscription. Stage order is established only by completion
+      events carrying the shared key.
+    allOf:
+      - $ref: '#/$defs/patternBase'
+      - type: object
+        additionalProperties: false
+        required:
+          - kind
+          - history
+          - key
+          - when
+          - stages
+          - then
+        properties:
+          kind:
+            const: serial
+          history:
+            $ref: '#/$defs/history'
+          key:
+            $ref: '#/$defs/keyPath'
+          when:
+            $ref: '#/$defs/condition'
+          stages:
+            type: array
+            minItems: 1
+            items:
+              $ref: '#/$defs/serialStage'
+          then:
+            $ref: '#/$defs/effectSet'
+  fanoutBranch:
+    type: object
+    additionalProperties: false
+    required:
+      - dispatch
+      - completes
+    properties:
+      dispatch:
+        type: object
+        additionalProperties: false
+        required:
+          - followup
+        properties:
+          followup:
+            $ref: '#/$defs/followupAction'
+      completes:
+        $ref: '#/$defs/selector'
+  fanoutJoinPattern:
+    description: >-
+      Lowers to one dispatch Subscription and one all-condition join Subscription.
+      Dispatch operations are durable and independent but are recorded and sent
+      sequentially by the current Engine; this is not a concurrent-dispatch promise.
+    allOf:
+      - $ref: '#/$defs/patternBase'
+      - type: object
+        additionalProperties: false
+        required:
+          - kind
+          - history
+          - key
+          - when
+          - branches
+          - then
+        properties:
+          kind:
+            const: fanout-join
+          history:
+            $ref: '#/$defs/history'
+          key:
+            $ref: '#/$defs/keyPath'
+          when:
+            $ref: '#/$defs/condition'
+          branches:
+            type: object
+            minProperties: 2
+            propertyNames:
+              $ref: '#/$defs/name'
+            additionalProperties:
+              $ref: '#/$defs/fanoutBranch'
+          then:
+            $ref: '#/$defs/effectSet'
