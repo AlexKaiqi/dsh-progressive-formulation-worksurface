@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "diagramType": "workflow",
-  "source": "worksurface-design.workflow.json",
+  "diagramType": "custom-responsive-svg",
+  "source": "worksurface-system.fragment.html",
   "artifact": "worksurface-system.html",
-  "specificationSha256": "045c3aa085d591c6d05af9f643912cb83a4558708ea526b66081134427dd8464",
-  "artifactSha256": "e30fe4753b228defede7fcdd4a588eb7c48c30e43399a6e0d7f1a402249699e2",
+  "specificationSha256": "2d9cd577b75b6f42dc26ab2768044bb692a66f45226f0700e87323665308568b",
+  "artifactSha256": "2d9cd577b75b6f42dc26ab2768044bb692a66f45226f0700e87323665308568b",
   "validation": {
-    "profile": "showcase",
-    "checksPassed": 9,
-    "checkCount": 9,
+    "profile": "responsive-svg",
+    "checksPassed": 6,
+    "checkCount": 6,
     "errors": 0,
     "warnings": 0
   },
   "visualReview": {
     "status": "passed",
-    "correctionRounds": 2,
+    "correctionRounds": 1,
     "themes": ["light", "dark"],
-    "viewports": ["1440x900", "1600x1000", "1920x1080", "2048x1320"]
+    "viewports": ["360x1200", "736x900", "1440x900"]
   }
 }

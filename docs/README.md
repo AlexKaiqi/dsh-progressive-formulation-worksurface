@@ -2,7 +2,7 @@
 
 ## 当前设计真源
 
-1. [系统设计交互图](interactive/worksurface-system.html)：领域定位、边界、概念状态和推进关系；可编辑源为 [`worksurface-design.workflow.json`](interactive/worksurface-design.workflow.json)。
+1. [系统设计交互图](interactive/worksurface-system.html)：领域定位、边界、概念状态和推进关系；可编辑源为 [`worksurface-system.fragment.html`](interactive/worksurface-system.fragment.html)。
 2. [完整系统设计](worksurface-complete-design.md)：只定义能映射到当前类型、存储、fold、恢复或测试的概念，并把未实现方向单独列出。
 3. [实现索引](architecture.md)：组件、状态和关键流程到源码位置的映射。
 4. [机器协议与不变量](invariants-and-acceptance.md)：`spec/`、`WS-01` 至 `WS-23` 和测试证据。

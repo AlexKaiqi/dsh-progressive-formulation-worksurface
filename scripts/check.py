@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 import hashlib
 import pathlib
-import re
 import subprocess
 import sys
 
@@ -35,45 +34,32 @@ def static_checks() -> None:
             )
     validation = receipt.get("validation", {})
     if (
-        validation.get("profile") != "showcase"
-        or validation.get("checksPassed") != 9
-        or validation.get("checkCount") != 9
+        validation.get("profile") != "responsive-svg"
+        or validation.get("checksPassed") != 6
+        or validation.get("checkCount") != 6
         or validation.get("errors") != 0
         or validation.get("warnings") != 0
     ):
-        fail("interactive design receipt is not a clean 9/9 Showcase validation")
+        fail("interactive design receipt is not a clean 6/6 responsive SVG validation")
 
-    design_source = json.loads(
-        (INTERACTIVE_DESIGN / receipt["source"]).read_text()
+    source = (INTERACTIVE_DESIGN / receipt["source"]).read_text()
+    artifact = (INTERACTIVE_DESIGN / receipt["artifact"]).read_text()
+    if source != artifact:
+        fail("interactive design artifact was not regenerated from its source fragment")
+    forbidden_shell = ("<!doctype", "<html", "<head", "<body", "archify")
+    if any(token in source.lower() for token in forbidden_shell):
+        fail("interactive design source must remain an inline fragment without the old renderer")
+    required_markers = (
+        'id="ws-system-design"',
+        '<svg role="img"',
+        'new ResizeObserver(draw)',
+        'data-lens="surface"',
+        'EPISODE ?',
+        'Canonical Definition',
     )
-    design_nodes = design_source.get("components", design_source.get("nodes", []))
-    used_kinds = {component["type"] for component in design_nodes}
-    domain_entries = design_source.get("meta", {}).get("legend", {}).get("entries", {})
-    missing_labels = sorted(
-        kind for kind in used_kinds if not domain_entries.get(kind, {}).get("label")
-    )
-    if missing_labels:
-        fail(
-            "interactive design lacks domain passport labels for renderer kinds: "
-            + ", ".join(missing_labels)
-        )
-    html = (INTERACTIVE_DESIGN / "worksurface-system.html").read_text()
-    i18n_match = re.search(
-        r'<script\b(?=[^>]*\bid="archify-i18n-data")'
-        r'(?=[^>]*\btype="application/json")[^>]*>\s*(\{.*?\})\s*</script>',
-        html,
-        re.DOTALL,
-    )
-    if not i18n_match:
-        fail("interactive design lacks the Archify i18n payload")
-    viewer_messages = json.loads(i18n_match.group(1)).get("messages", {})
-    for kind in sorted(used_kinds):
-        expected_label = domain_entries[kind]["label"]
-        if viewer_messages.get(f"viewer.kind.{kind}") != expected_label:
-            fail(
-                f"interactive design exposes renderer kind {kind!r} instead of "
-                f"domain passport label {expected_label!r}; run pnpm design:domain-labels"
-            )
+    missing_markers = [marker for marker in required_markers if marker not in source]
+    if missing_markers:
+        fail("interactive design lacks required system-design markers: " + ", ".join(missing_markers))
 
     for schema in ("event.schema.json", "definition.schema.json", "context.schema.json", "binding.schema.json", "authoring-registration.schema.json"):
         json.loads((SPEC / schema).read_text())
