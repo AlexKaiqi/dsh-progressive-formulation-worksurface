@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/definition-v2.schema.json",
+  "title": "WorkSurface Orchestration Definition v2",
+  "$comment": "Target model-authoring protocol. It adds business Event Contracts and structured outputs for followup delivery, without introducing pattern shorthand or YAML-only semantics.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "roles", "events", "subscriptions"],
+  "properties": {
+    "version": { "const": 2 },
+    "roles": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/name" }
+    },
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "event-contract.schema.json" }
+    },
+    "subscriptions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/subscription" }
+    }
+  },
+  "$defs": {
+    "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$" },
+    "selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "event"],
+      "properties": {
+        "role": { "$ref": "#/$defs/name" },
+        "event": { "$ref": "#/$defs/name" },
+        "payload": true
+      }
+    },
+    "condition": {
+      "oneOf": [
+        { "$ref": "#/$defs/selector" },
+        { "type": "object", "additionalProperties": false, "required": ["all"], "properties": { "all": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/condition" } } } },
+        { "type": "object", "additionalProperties": false, "required": ["any"], "properties": { "any": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/condition" } } } },
+        { "type": "object", "additionalProperties": false, "required": ["count"], "properties": { "count": { "type": "object", "additionalProperties": false, "required": ["selector", "operator", "value"], "properties": { "selector": { "$ref": "#/$defs/selector" }, "operator": { "enum": ["eq", "gte", "lte"] }, "value": { "type": "integer", "minimum": 0 } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["sequence"], "properties": { "sequence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/selector" } } } }
+      ]
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event", "required"],
+      "properties": {
+        "event": { "$ref": "#/$defs/name" },
+        "required": { "type": "boolean" }
+      }
+    },
+    "emit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "event", "operationKey", "payload"],
+      "properties": {
+        "role": { "$ref": "#/$defs/name" },
+        "event": { "$ref": "#/$defs/name" },
+        "operationKey": { "type": "string", "minLength": 1 },
+        "payload": true
+      }
+    },
+    "followup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "instruction", "operationKey", "outputs"],
+      "properties": {
+        "role": { "$ref": "#/$defs/name" },
+        "instruction": { "type": "string", "minLength": 1 },
+        "operationKey": { "type": "string", "minLength": 1 },
+        "outputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/output" }
+        }
+      }
+    },
+    "handlerOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "event"],
+      "properties": {
+        "role": { "$ref": "#/$defs/name" },
+        "event": { "$ref": "#/$defs/name" }
+      }
+    },
+    "handler": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "path", "reads", "outputs"],
+      "properties": {
+        "command": { "enum": ["bash", "zsh", "python3", "node"] },
+        "path": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?/)(?!.*\\\\)(?!.*//).+$" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "reads": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/name" } },
+        "outputs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/handlerOutput" } }
+      }
+    },
+    "reaction": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["emit"], "properties": { "emit": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/emit" } } } },
+        { "type": "object", "additionalProperties": false, "required": ["followup"], "properties": { "followup": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/followup" } } } },
+        { "type": "object", "additionalProperties": false, "required": ["handler"], "properties": { "handler": { "$ref": "#/$defs/handler" } } }
+      ]
+    },
+    "subscription": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "history", "when", "reaction"],
+      "properties": {
+        "id": { "$ref": "#/$defs/name" },
+        "history": { "enum": ["all", "from-registration"] },
+        "key": { "type": "string", "pattern": "^\\$\\.(payload|meta)(\\.[A-Za-z0-9_-]+)+$" },
+        "when": { "$ref": "#/$defs/condition" },
+        "reaction": { "$ref": "#/$defs/reaction" }
+      }
+    }
+  }
+}

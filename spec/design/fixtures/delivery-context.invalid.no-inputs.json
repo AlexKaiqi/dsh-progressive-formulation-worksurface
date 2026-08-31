@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "id": "delivery_7",
+  "registration": {
+    "id": "research-flow",
+    "definitionRevision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "targetRole": "researcher"
+  },
+  "activation": {
+    "id": "act_7",
+    "subscriptionId": "delegate-research",
+    "key": "\"task-7\""
+  },
+  "operation": { "key": "assign-research" },
+  "instruction": "Complete the requested research.",
+  "inputs": [],
+  "allowedOutputs": []
+}

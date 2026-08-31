@@ -1,21 +1,22 @@
 {
   "schemaVersion": 1,
-  "diagramType": "custom-responsive-svg",
-  "source": "worksurface-system.fragment.html",
+  "diagramType": "architecture",
+  "source": "worksurface-system.architecture.json",
   "artifact": "worksurface-system.html",
-  "specificationSha256": "c2141cb6eb42f99cfe02737a464a4016a74dc4d7b94e754b8ec10b9e59f1cc93",
-  "artifactSha256": "c2141cb6eb42f99cfe02737a464a4016a74dc4d7b94e754b8ec10b9e59f1cc93",
+  "specificationSha256": "620a6e6dd3d42a390c0512f1550eb6a3452f01d1fb324c93c53de85e0200e913",
+  "specificationBytes": 11372,
+  "artifactSha256": "e1df54eee1018ef4a245c5726a985b025edcd26a0828eee498bd33180ecfaddb",
+  "artifactBytes": 736582,
   "validation": {
-    "profile": "responsive-svg",
-    "checksPassed": 6,
-    "checkCount": 6,
+    "profile": "showcase",
+    "checksPassed": 9,
+    "checkCount": 9,
     "errors": 0,
     "warnings": 0
   },
   "visualReview": {
-    "status": "passed",
-    "correctionRounds": 1,
-    "themes": ["light", "dark"],
-    "viewports": ["360x1200", "736x900", "1440x900"]
+    "status": "skipped",
+    "reason": "Chrome/Chromium unavailable and in-app browser blocks automated file:// navigation",
+    "correctionRounds": 0
   }
 }

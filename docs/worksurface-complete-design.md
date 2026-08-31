@@ -44,22 +44,21 @@ emit / followup
 | WorkSurface Event | 推进过程中产生、可被 Orchestrate 消费的业务事实 | Event envelope、EventRef、stream 已实现；通用 content ref payload 协议未实现 |
 | Orchestrate | 根据固定 Definition、Registration 和 Event history 决定后续影响 | replay、Activation、Operation、emit/followup 已实现 |
 
-### A.1 Orchestrate 的统一实现边界
+### A.1 Orchestrate 的模型 authoring 边界
 
-目标作者层允许多个 source 形式，但它们不能进入推进控制器：
+当前作者就是模型：模型在 Surface Session 中创建 `definition.json` 和
+`registration.json`。因此 authoring 格式本身就是模型必须理解、生成和修复的界面，
+不能以“Runtime 最终都会执行同一个 Definition”为理由忽略这部分负担。
 
-```text
-YAML pattern ─┐
-              ├─ compile / adapt ─→ canonical OrchestrationDefinition
-code builder ─┘                              ↓
-                                  Definition Revision
-                                              ↓
-                       Registration + Event history
-                                              ↓
-                           evaluator → reliable effects
-```
+当前最短路径是模型直接生成由 JSON Schema 约束的
+`OrchestrationDefinition v1`。简单 Definition 直接写 JSON；需要计算或批量构造时，
+模型可以使用它已经掌握的 Python、TypeScript 或 shell 生成同一个 JSON 文件。
+这不引入新的 pattern 语言或 builder API。
 
-这个目标边界已经确定；当前只完成右半段。现在 `definition.json` 直接就是 `OrchestrationDefinition v1`，YAML compiler、code builder adapter 和 provenance 仍未实现。Code handler 是 Definition 固定的运行 artifact，不等同于作者层的 code builder。
+YAML 若只作为同一 JSON 数据的可选阅读表示，不建立新概念；若增加
+`delegate`、`fanout-join`、`loop` 等专有 pattern 语法，就要求模型额外学习字段、
+展开规则和错误语义。除非可执行评测证明它显著降低生成和修复成本，否则不进入协议。
+Code handler 是 Definition 固定的运行 artifact，也不是作者层 DSL。
 
 ### A.2 控制职责而非虚构 Runtime 实体
 
@@ -402,26 +401,27 @@ Engine 按 RegistrationId 串行 reconcile。运行内存中的 `running` map �
 
 “Runtime”可以作为这组组件的泛称，但不能被画成一个有独立状态和 API 的实体。
 
-## 7. YAML / Definition IR：演进项
+## 7. 模型 authoring 形式
 
-当前物理事实是：作者直接写 `definition.json`，其内容就是 `OrchestrationDefinition v1`；Definition Revision 同时固定 JSON 和 handler 文件。
+当前物理事实是：模型直接写 `definition.json`，其内容就是
+`OrchestrationDefinition v1`；Definition Revision 同时固定 JSON 和 handler 文件。
 
-如果未来增加 YAML 或其他作者语法，边界应当是：
+选择 authoring 形式时，评价对象是模型侧总负担：必须注入的说明、额外语法、生成错误、
+诊断与修复轮次，以及能否表达所需语义。Runtime 是否执行统一 Definition 不构成选择依据。
 
-```text
-author source --compile/adapt--> canonical OrchestrationDefinition
-                                      ↓
-                               Definition Revision
-```
+当前设计选择是：
 
-但 compiler、SourceRef、provenance schema 和独立 IR 目前都不存在。它们只能列入迁移计划，不能描述成当前运行链。
+- 以 `definition.schema.json` 约束的 JSON 作为唯一模型 authoring 协议；
+- 复杂构造可以由模型用普通 Python、TypeScript 或 shell 生成该 JSON；
+- 不提供独立 YAML pattern DSL，也不要求模型学习 builder API；
+- YAML 可以由 UI 临时渲染供人阅读，但不成为持久协议或模型必需上下文。
 
 ## 8. 当前限制与下一步设计入口
 
 | 限制 | 当前证据 | 进入设计前需要的物理协议 |
 | --- | --- | --- |
 | 仅文件级 Surface 局部寻址 | `SurfaceId` + relative path | 通用 Address 类型、adapter、working/frozen boundary |
-| 无 YAML compiler | 只读取 `definition.json` | Source schema、compiler、provenance、版本策略 |
+| Definition 仍缺少业务事件契约 | `event.schema.json` 的 payload 无约束 | Event Contract、角色可产生事件与 payload schema |
 | Code handler 只能 emit | `CodeHandlerEmit[]` | 若允许 followup，统一输出 contract 与授权 |
 | WorkSurface 不消费 DSH EventRef | 只在 Event meta 保存 sessionId/turn | 稳定 DSH session-event reference adapter |
 | Context 仍以 Revision 为核心 | `SurfaceSessionContext` | 对文件、事件和外部内容的统一 projection/ref |

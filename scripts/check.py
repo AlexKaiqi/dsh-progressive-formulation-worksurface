@@ -34,33 +34,36 @@ def static_checks() -> None:
             )
     validation = receipt.get("validation", {})
     if (
-        validation.get("profile") != "responsive-svg"
-        or validation.get("checksPassed") != 6
-        or validation.get("checkCount") != 6
+        validation.get("profile") != "showcase"
+        or validation.get("checksPassed") != 9
+        or validation.get("checkCount") != 9
         or validation.get("errors") != 0
         or validation.get("warnings") != 0
     ):
-        fail("interactive design receipt is not a clean 6/6 responsive SVG validation")
+        fail("interactive design receipt is not a clean 9/9 showcase validation")
 
-    source = (INTERACTIVE_DESIGN / receipt["source"]).read_text()
+    source = json.loads((INTERACTIVE_DESIGN / receipt["source"]).read_text())
     artifact = (INTERACTIVE_DESIGN / receipt["artifact"]).read_text()
-    if source != artifact:
-        fail("interactive design artifact was not regenerated from its source fragment")
-    forbidden_shell = ("<!doctype", "<html", "<head", "<body", "archify")
-    if any(token in source.lower() for token in forbidden_shell):
-        fail("interactive design source must remain an inline fragment without the old renderer")
-    required_markers = (
-        'id="ws-system-design"',
-        '<svg role="img"',
-        'new ResizeObserver(draw)',
-        'data-lens="surface"',
-        'DSH SESSION',
-        'WORKSURFACE EVENT',
-        'Canonical Definition',
+    if source.get("diagram_type") != "architecture" or source.get("meta", {}).get("quality_profile") != "showcase":
+        fail("interactive design source is not a showcase Archify architecture")
+    component_ids = {component.get("id") for component in source.get("components", [])}
+    required_components = {
+        "surface", "session", "turn_context", "model", "definition_json",
+        "event_contract", "fixed_definition", "ws_emit", "event_stream",
+        "orchestrate", "activation_operation", "delivery", "target_session",
+    }
+    missing_components = sorted(required_components - component_ids)
+    if missing_components:
+        fail("interactive design lacks required system concepts: " + ", ".join(missing_components))
+    component_vocabulary = "\n".join(
+        str(component.get(field, ""))
+        for component in source.get("components", [])
+        for field in ("id", "label", "sublabel", "tag")
     )
-    missing_markers = [marker for marker in required_markers if marker not in source]
-    if missing_markers:
-        fail("interactive design lacks required system-design markers: " + ", ".join(missing_markers))
+    if "YAML" in component_vocabulary:
+        fail("interactive design reintroduces the rejected YAML pattern authoring model")
+    if "<svg" not in artifact or "WorkSurface" not in artifact:
+        fail("interactive design artifact is not a rendered WorkSurface diagram")
     for schema in ("event.schema.json", "definition.schema.json", "context.schema.json", "binding.schema.json", "authoring-registration.schema.json"):
         json.loads((SPEC / schema).read_text())
     template = (SPEC / "surface-template.md").read_text()

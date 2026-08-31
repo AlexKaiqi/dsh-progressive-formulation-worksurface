@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/event-contract.schema.json",
+  "title": "WorkSurface Business Event Contract v1",
+  "$comment": "Target design. When embedded in a fixed Definition Revision, contract identity is (definitionRevision, name). This schema is not accepted by the current v1 engine yet.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "name", "description", "payloadSchema"],
+  "properties": {
+    "version": { "const": 1 },
+    "name": { "$ref": "#/$defs/name" },
+    "description": { "type": "string", "minLength": 1 },
+    "payloadSchema": { "$ref": "#/$defs/payloadSchema" },
+    "examples": {
+      "type": "array",
+      "items": { "type": "object" }
+    }
+  },
+  "$defs": {
+    "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$" },
+    "payloadSchema": {
+      "type": "object",
+      "required": ["$schema", "type"],
+      "properties": {
+        "$schema": { "const": "https://json-schema.org/draft/2020-12/schema" },
+        "$id": { "type": "string", "format": "uri-reference" },
+        "type": { "const": "object" }
+      }
+    }
+  }
+}

@@ -85,6 +85,53 @@ describe('WorkSurfaceEngine v1', () => {
     expect((await engine.inspect('reg-followup')).pendingOperations).toEqual([])
   })
 
+  it('records and submits fan-out followups sequentially rather than defining parallel execution', async () => {
+    const { engine, surfaces, work } = await fixture()
+    for (const target of ['target-a', 'target-b']) {
+      await mkdir(join(work, 'surfaces', target), { recursive: true })
+      await writeFile(join(work, 'surfaces', target, 'surface.md'), SURFACE_TEMPLATE)
+      const sessionId = SessionId(`session-${target}`)
+      await surfaces.bindSession(Session.create(sessionId, undefined, {
+        version: 0, id: sessionId, createdAt: 0, cwd: surfaces.cwdForSurface(target),
+      }), target, 'authoring')
+    }
+    await surfaces.appendSurface('source', { id: 'fanout-ready', name: 'work.ready', payload: {} })
+    const delivered: string[] = []
+    let releaseFirst: (() => void) | undefined
+    let signalFirst: (() => void) | undefined
+    const firstDelivered = new Promise<void>(resolve => { signalFirst = resolve })
+    surfaces.registerFollowupRouter((surfaceId, _message, messageId) => {
+      delivered.push(surfaceId)
+      const binding = surfaces.bindingForSurface(surfaceId)
+      if (binding === undefined) throw new Error('expected bound target Surface')
+      if (surfaceId === 'target-a') {
+        signalFirst?.()
+        return new Promise(resolve => { releaseFirst = () => resolve({ sessionId: binding.sessionId, messageId }) })
+      }
+      return Promise.resolve({ sessionId: binding.sessionId, messageId })
+    })
+    const fanout: OrchestrationDefinition = {
+      version: 1,
+      roles: ['source', 'a', 'b'],
+      subscriptions: [{
+        id: 'fanout', history: 'all', when: { role: 'source', event: 'work.ready' },
+        reaction: { followup: [
+          { role: 'a', message: 'A', operationKey: 'assign-a' },
+          { role: 'b', message: 'B', operationKey: 'assign-b' },
+        ] },
+      }],
+    }
+    const registering = engine.register({
+      orchestrationId: 'fanout', registrationId: 'reg-fanout', definitionRevision: revision,
+      definition: fanout, bindings: { source: 'source', a: 'target-a', b: 'target-b' },
+    })
+    await firstDelivered
+    expect(delivered).toEqual(['target-a'])
+    releaseFirst?.()
+    await registering
+    expect(delivered).toEqual(['target-a', 'target-b'])
+  })
+
   it('replays historical evidence into one keyed activation and one managed target event', async () => {
     const { engine, surfaces } = await fixture()
     await seedJoin(surfaces)

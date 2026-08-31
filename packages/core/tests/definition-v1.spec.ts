@@ -26,9 +26,9 @@ const definition: OrchestrationDefinition = {
   }],
 }
 
-function observed(role: string, surface: string, id: string, seq: number, caseId: string, afterRegistration = true): ObservedEvent {
+function observed(role: string, surface: string, id: string, seq: number, caseId: string, afterRegistration = true, name = 'review.accepted'): ObservedEvent {
   const event: WorkSurfaceEvent = {
-    version: 1, id, subject: surfaceSubject(surface), seq, name: 'review.accepted', payload: { caseId },
+    version: 1, id, subject: surfaceSubject(surface), seq, name, payload: { caseId },
     causes: [], meta: {}, recordedAt: '2026-08-30T00:00:00.000Z',
   }
   return { role, event, afterRegistration }
@@ -84,6 +84,44 @@ describe('Definition v1', () => {
     const onlyA = [observed('reviewA', 'a', 'a-1', 0, 'case-1')]
     expect(inspectEventCondition(definition.subscriptions[0]!.when, onlyA)).toMatchObject({ kind: 'all', satisfied: false })
     expect(inspectEventCondition(anyDefinition.subscriptions[0]!.when, onlyA)).toMatchObject({ kind: 'any', satisfied: true })
+  })
+
+  it('treats any as declaration-priority matching rather than a temporal race', () => {
+    const priority: OrchestrationDefinition = {
+      version: 1,
+      roles: ['preferred', 'earlier', 'target'],
+      subscriptions: [{
+        id: 'choose', history: 'all', key: '$.payload.caseId',
+        when: { any: [
+          { role: 'preferred', event: 'review.accepted' },
+          { role: 'earlier', event: 'review.accepted' },
+        ] },
+        reaction: { emit: [{ role: 'target', event: 'chosen', operationKey: 'choose', payload: {} }] },
+      }],
+    }
+    const events = [
+      observed('earlier', 'a', 'earlier-event', 0, 'case-1'),
+      observed('preferred', 'z', 'preferred-event', 4, 'case-1'),
+    ]
+    expect(deriveActivations('reg-priority', priority, events, new Set())[0]?.sources)
+      .toEqual([{ role: 'preferred', ref: { subject: 'surface:z', seq: 4, id: 'preferred-event' } }])
+  })
+
+  it('cannot reactivate one subscription for the same loop key', () => {
+    const loopLike: OrchestrationDefinition = {
+      version: 1,
+      roles: ['worker'],
+      subscriptions: [{
+        id: 'iterate', history: 'all', key: '$.payload.caseId',
+        when: { role: 'worker', event: 'iteration.completed' },
+        reaction: { emit: [{ role: 'worker', event: 'iteration.requested', operationKey: 'next', payload: {} }] },
+      }],
+    }
+    const first = observed('worker', 'worker', 'iteration-1', 0, 'case-1', true, 'iteration.completed')
+    const second = observed('worker', 'worker', 'iteration-2', 1, 'case-1', true, 'iteration.completed')
+    const opened = deriveActivations('reg-loop', loopLike, [first], new Set())
+    expect(opened).toHaveLength(1)
+    expect(deriveActivations('reg-loop', loopLike, [first, second], new Set([opened[0]!.id]))).toEqual([])
   })
 
   it('recovers the earliest exact-count activation even after later events arrive', () => {

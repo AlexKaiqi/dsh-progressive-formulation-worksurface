@@ -1,0 +1,56 @@
+{
+  "version": 2,
+  "roles": ["coordinator", "researcher"],
+  "events": [
+    {
+      "version": 1,
+      "name": "research.requested",
+      "description": "Research work is ready to be assigned.",
+      "payloadSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["taskId", "question"],
+        "properties": {
+          "taskId": { "type": "string", "minLength": 1 },
+          "question": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    {
+      "version": 1,
+      "name": "research.completed",
+      "description": "The assigned research is complete and its durable result is available.",
+      "payloadSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["taskId", "resultFile"],
+        "properties": {
+          "taskId": { "type": "string", "minLength": 1 },
+          "resultFile": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  ],
+  "subscriptions": [
+    {
+      "id": "delegate-research",
+      "history": "from-registration",
+      "key": "$.payload.taskId",
+      "when": { "role": "coordinator", "event": "research.requested" },
+      "reaction": {
+        "followup": [
+          {
+            "role": "researcher",
+            "instruction": "Complete the requested research and maintain the researcher Surface.",
+            "operationKey": "assign-research",
+            "outputs": [
+              { "event": "research.completed", "required": true }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

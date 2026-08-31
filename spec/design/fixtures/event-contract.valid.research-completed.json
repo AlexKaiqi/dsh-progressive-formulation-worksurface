@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "name": "research.completed",
+  "description": "The assigned research is complete and its durable result is available.",
+  "payloadSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["taskId", "result"],
+    "properties": {
+      "taskId": { "type": "string", "minLength": 1 },
+      "result": {
+        "oneOf": [
+          { "type": "object", "required": ["text"], "properties": { "text": { "type": "string" } }, "additionalProperties": false },
+          { "type": "object", "required": ["file"], "properties": { "file": { "type": "string", "minLength": 1 } }, "additionalProperties": false }
+        ]
+      }
+    }
+  },
+  "examples": [
+    { "taskId": "task-7", "result": { "file": "research/findings.md" } }
+  ]
+}
