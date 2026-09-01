@@ -31,6 +31,7 @@ Registration 只装配现有 Surface 与 Event route；业务条件、转换、f
 详见：
 
 - [系统设计交互图](docs/interactive/worksurface-system.html)：Surface、DSH 执行、事件与 Orchestrate 的关系
+- [Surface 演化、复用与 Promotion](docs/surface-evolution-and-promotion.md)：实例派生、检索、模板提升和反馈闭环的目标设计提案
 - [完整系统设计](docs/worksurface-complete-design.md)：当前定位、严格概念定义、流程和未实现项
 - [实现索引](docs/architecture.md)：概念到源码与存储的映射
 - [UI 设计](docs/ui-design.md)：基于当前事实的可删除投影

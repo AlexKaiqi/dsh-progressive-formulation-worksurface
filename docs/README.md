@@ -7,6 +7,7 @@
 | 目标边界 | [目标设计基线](design-baseline.md) | 定位、概念、所有权、模型负担和明确排除项 |
 | 目标 Event 语义 | [Event：身份、Contract 与持久事实](event-type-system.md) | namespace、Contract 生命周期、Event 持久化与 capability |
 | 目标 Orchestrate 语义 | [Orchestrate code 契约](orchestration-code-contract.md) | 已存在 Surface 间的 `when / who / how` 与可恢复执行 |
+| 演化与复用提案 | [Surface 演化、复用与 Promotion](surface-evolution-and-promotion.md) | 实例派生、检索、Promotion、Template 和分阶段准入；尚未实现 |
 | v4 兼容路径 | [v4 兼容实现基线](worksurface-complete-design.md) | 旧 Definition/Activation/Operation 的类型、存储、fold 与恢复 |
 | 当前源码 | [实现索引](architecture.md) | 概念到代码位置的映射 |
 | 验证 | [不变量与验收](invariants-and-acceptance.md) | 机器协议、门禁与测试证据 |
@@ -31,4 +32,5 @@
 
 - [模型上下文](context-management.zh.md)：Revision、Session facts、Context Plan 与 render audit；
 - [UI 设计](ui-design.md)：当前 projection、证据层级和交互边界；
+- [Surface 演化、复用与 Promotion](surface-evolution-and-promotion.md)：目标产品闭环和后续协议准入顺序，当前不是可用能力；
 - [交互图维护说明](interactive/README.md)：图的范围和更新纪律。
