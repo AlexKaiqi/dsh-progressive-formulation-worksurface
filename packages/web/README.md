@@ -2,7 +2,7 @@
 
 面向用户的 DSH 原生 `conversation.view` WorkSurface 关系与证据视图。用户从作者目录与持久事实重放出的 Surface 列表显式选择锚点；conversation target 不充当 SurfaceId。
 
-默认 code-first 图面只有 Surface、Orchestrate 与两种通路：Registration route 投影为虚线声明通路，已持久 Runtime Event 的 `producer` 与 `causes` 投影为实线因果通路。两者不互相推断。任意 Orchestrate 代码的内部条件、循环与 fan-out 不会被 UI 伪造成静态关系。
+当前页面明确命名为 **运行证据**，是未来 Design / Run / Evidence 三态中的 Evidence 模式。默认 code-first 图面只有 Surface、Orchestrate 与两种通路：Registration route 投影为虚线声明通路，已持久 Runtime Event 的 `producer` 与 `causes` 投影为实线因果通路。两者不互相推断。任意 Orchestrate 代码的内部条件、循环与 fan-out 不会被 UI 伪造成静态关系。尚未实现的 Template 编辑和参数化 Run 不显示假入口。
 
 默认图面采用 MIT 许可的 React Flow 作为节点编辑器交互底座，并用 MIT 许可的 Dagre 生成首次分层布局。画布支持节点拖动、触控板平移、缩放、适配视图、可切换小地图和显式“自动排版”；刷新投影不会把用户微调的位置重置。节点位置和 viewport 仅按锚点保存在当前浏览器的 `localStorage`，可以删除，也不会进入 Surface、Registration、Event、Revision 或 View Definition。当前 UI 不开放连线创建、删除或改写，所有边仍只是 Host 事实的只读投影。
 

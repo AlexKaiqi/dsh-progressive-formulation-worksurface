@@ -22,7 +22,7 @@ import {
     const h = React.createElement
     const NS = 'worksurfaceWeb'
     const en = {
-      view: 'Relations', title: 'WorkSurface relations', subtitle: 'Dashed paths are declared capabilities. Solid paths are recorded Event evidence.',
+      view: 'WorkSurface', title: 'WorkSurface run evidence', subtitle: 'Evidence mode: dashed paths are declared capabilities; solid paths are recorded Event evidence.',
       refresh: 'Refresh', refreshing: 'Refreshing…', empty: 'No orchestration is connected to this Surface.',
       chooseSurface: 'Surface', noSurfaces: 'No authored or event-backed Surface exists yet.',
       emptyHint: 'The Surface remains valid. Admit an Orchestrate artifact and registration.json to connect it to other work.',
@@ -54,7 +54,7 @@ import {
       localLayout: 'Node positions stay in this browser', canvasHelp: 'Drag nodes to refine the layout. Pan, zoom, select, and fit the view with the canvas controls.',
     }
     const zh = {
-      view: '关系', title: 'WorkSurface 关系', subtitle: '虚线是声明的可能通路，实线是已记录 Event 证明的实际因果。',
+      view: 'WorkSurface', title: 'WorkSurface 运行证据', subtitle: 'Evidence 模式：虚线是声明的可能通路，实线是已记录 Event 证明的实际因果。',
       refresh: '刷新', refreshing: '刷新中…', empty: '当前 Surface 尚未连接任何编排。',
       chooseSurface: 'Surface', noSurfaces: '尚未发现作者目录或事件支持的 Surface。',
       emptyHint: 'Surface 本身仍然有效；准入 Orchestrate artifact 与 registration.json 后会形成事件拓扑。',
