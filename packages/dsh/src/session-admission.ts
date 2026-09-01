@@ -37,6 +37,9 @@ interface SessionPersistencePort {
 }
 
 interface WorkspacePort {
+  /** Current DSH uses `id`; the alpha compatibility line exposed `workspaceId`. */
+  readonly id?: string
+  readonly workspaceId?: string
   attachSession(id: ReturnType<typeof SessionId>): Promise<void>
 }
 
@@ -47,6 +50,7 @@ interface WorkspaceRegistryPort {
 interface SurfaceSessionRuntime {
   readonly agents: AgentRegistryPort
   readonly agentDefaultModel: { currentSelection(): ModelSelection }
+  readonly sessions: { flush(session: Session): Promise<boolean> }
   readonly logger?: { warn(message: string): void }
   get(name: string): unknown
 }
@@ -60,6 +64,7 @@ export interface SurfaceSessionAdmissionRequest {
 export interface SurfaceSessionAdmissionResult {
   readonly surfaceId: string
   readonly sessionId: string
+  readonly workspaceId: string
   readonly created: boolean
   readonly resumed: boolean
 }
@@ -250,8 +255,26 @@ export class SurfaceSessionAdmission {
     } catch (error) {
       throw new WorkSurfaceError('effect-failed', `DSH Workspace could not attach Surface Session '${agent.session.id}': ${renderError(error)}`)
     }
+    // Admission must return an identity that native navigation can rediscover
+    // after a browser reload. New persistence generations materialize an empty
+    // Session explicitly; older ones need the already-injected native inbox
+    // event flushed. This never fabricates a user message or Turn.
+    const durable = await this.runtime.sessions.flush(agent.session)
+    if (this.persistence() !== undefined && !durable) {
+      throw new WorkSurfaceError('effect-failed', `DSH Session '${agent.session.id}' was not durable after Surface admission`)
+    }
     request.signal?.throwIfAborted()
-    return { surfaceId: request.surfaceId, sessionId: String(agent.session.id), created, resumed }
+    const workspaceId = workspace.id ?? workspace.workspaceId
+    if (!workspaceId) {
+      throw new WorkSurfaceError('effect-failed', `DSH Workspace for Surface '${request.surfaceId}' did not expose a stable identity`)
+    }
+    return {
+      surfaceId: request.surfaceId,
+      sessionId: String(agent.session.id),
+      workspaceId,
+      created,
+      resumed,
+    }
   }
 
   private ensureWorkspace(): Promise<WorkspacePort> {

@@ -77,8 +77,9 @@ async function fixture() {
   const runtime = {
     agents,
     agentDefaultModel: { currentSelection: () => ({ provider: 'test', model: 'test-model' }) },
+    sessions: { flush: () => Promise.resolve(true) },
     get: (name: string) => name === 'workspaceRegistry'
-      ? { create: (path: string) => { workspace.paths.push(path); return Promise.resolve({ attachSession: (id: ReturnType<typeof SessionId>) => { workspace.sessions.push(String(id)); return Promise.resolve() } }) } }
+      ? { create: (path: string) => { workspace.paths.push(path); return Promise.resolve({ id: 'workspace-surfaces', attachSession: (id: ReturnType<typeof SessionId>) => { workspace.sessions.push(String(id)); return Promise.resolve() } }) } }
       : name === 'sessionPersistence'
       ? {
           list: () => Promise.resolve([...agents.stored.values()].map(session => ({ id: session.id }))),
@@ -101,16 +102,25 @@ describe('SurfaceSessionAdmission', () => {
     expect(result).toMatchObject({ surfaceId: 'surface-a', created: true, resumed: false })
     expect(agents.order).toEqual(['setup', 'publish'])
     expect(surfaces.bindingForSurface('surface-a')).toMatchObject({ sessionId: result.sessionId, inputSource: 'authoring' })
-    expect(agents.live.get(result.sessionId)?.session.events.map(event => event.type)).toEqual(['worksurface/binding'])
+    expect(agents.live.get(result.sessionId)?.session.events).toEqual([])
     expect(workspace.paths).toEqual([work])
     expect(workspace.sessions).toEqual([result.sessionId])
+  })
+
+  it('does not return a Surface Session that native navigation cannot rediscover', async () => {
+    const { admission, runtime } = await fixture()
+    runtime.sessions.flush = () => Promise.resolve(false)
+    await expect(admission.ensure({ surfaceId: 'surface-a' })).rejects.toMatchObject({
+      code: 'effect-failed',
+      message: expect.stringContaining('was not durable after Surface admission'),
+    })
   })
 
   it('returns the same live Session and refuses to change its fixed input', async () => {
     const { admission } = await fixture()
     const first = await admission.ensure({ surfaceId: 'surface-a' })
     const second = await admission.ensure({ surfaceId: 'surface-a' })
-    expect(second).toEqual({ surfaceId: 'surface-a', sessionId: first.sessionId, created: false, resumed: false })
+    expect(second).toEqual({ surfaceId: 'surface-a', sessionId: first.sessionId, workspaceId: 'workspace-surfaces', created: false, resumed: false })
     await expect(admission.ensure({ surfaceId: 'surface-a', source: 'published' }))
       .rejects.toMatchObject({ code: 'already-exists-conflict' })
   })
@@ -120,7 +130,7 @@ describe('SurfaceSessionAdmission', () => {
     const first = await admission.ensure({ surfaceId: 'surface-a' })
     agents.detach(first.sessionId)
     const resumed = await admission.ensure({ surfaceId: 'surface-a' })
-    expect(resumed).toEqual({ surfaceId: 'surface-a', sessionId: first.sessionId, created: false, resumed: true })
+    expect(resumed).toEqual({ surfaceId: 'surface-a', sessionId: first.sessionId, workspaceId: 'workspace-surfaces', created: false, resumed: true })
     expect(agents.order.slice(-2)).toEqual(['resume-setup', 'resume-publish'])
     expect(agents.live.get(first.sessionId)?.session.events.some(event => event.type === 'turn/start')).toBe(false)
     expect(surfaces.bindingForSurface('surface-a')?.sessionId).toBe(first.sessionId)

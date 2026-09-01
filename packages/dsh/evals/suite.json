@@ -6,6 +6,7 @@
     { "id": "session-turn-authoring-recovery", "testFile": "tests/session-surface.spec.ts" },
     { "id": "turn-capability-and-publication-cas", "testFile": "tests/session-surface.spec.ts" },
     { "id": "handler-event-api-boundary", "testFile": "tests/code-handler.spec.ts" },
-    { "id": "cli-and-service-equivalence", "testFile": "tests/host.spec.ts" }
+    { "id": "cli-and-service-equivalence", "testFile": "tests/host.spec.ts" },
+    { "id": "model-worksurface-readiness", "testFile": "tests/model-readiness.spec.ts" }
   ]
 }

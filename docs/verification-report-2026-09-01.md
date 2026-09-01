@@ -8,7 +8,7 @@
 2. append-only Event/Input/Operation 记录实际发生的过程与因果；
 3. DSH Session/Turn/Step 仍是唯一执行历史，WorkSurface 不复制第二套执行生命周期。
 
-本次审计发现并修复的偏差都位于这些边界上。最终全量门禁为 24 个测试文件、116 个测试全部通过；真实 `web` profile 还完成了崩溃窗口恢复、Python Orchestrate 执行、Revision 应用、下游 Event、关系证据图与抽屉、Workspace attach、原生空白 Session 导航、坏 authoring 单项隔离和旧 Host 的 Session 重启兼容验证。真实模型 Turn 已验证到 Provider 请求边界；用户目录 `.env` 中的 DeepSeek 凭据被实际采用，但 Provider 以 HTTP 402 `Insufficient Balance` 拒绝生成，因此模型工具执行后的 Event 链不能记为通过。
+本次审计发现并修复的偏差都位于这些边界上。真实 `web` profile 已完成崩溃窗口恢复、Python Orchestrate 执行、Revision 应用、下游 Event、React Flow 关系证据图、Workspace attach、原生空白 Session 导航、坏 authoring 单项隔离和旧 Host 的 Session 重启兼容验证。随后又使用用户目录 `.env` 与真实 GPT-5.6 Sol 完成两类 L3 Agent 场景：普通 Session 自主发现 author/coordinate 流程并创建三段 code-first 作者产物；Surface Session 自主读取 Turn Brief、通过稳定 CLI 入口 emit，并触发真实 Orchestrate → Revision apply → completed Event 闭环。原先 DeepSeek route 的 HTTP 402 只保留为历史失败证据，不再是当前验证结论。
 
 ## 第一性原则判断
 
@@ -37,6 +37,9 @@
 11. Host domain error 通过同源、已认证 Web API 返回可操作信息，不再一律压成 `projection unavailable`。
 12. Definition v1 拓扑隔离在独立 `v4 兼容` 模式，不再与默认 code-first 图面混排。
 13. 启动和 Turn Brief 准备按作者目录逐项隔离坏 Orchestrate；已记录的同一旧故障不阻塞其他 Surface 发射，根集合故障或当前 Turn 新出现/变化的坏 authoring 仍保持原子拒绝。
+14. 默认图面改用 React Flow + Dagre：支持拖动节点、平移、缩放、适配视图、小地图、本机布局持久化和用户触发的自动排版；connect/reconnect 保持禁用，不制造第二套执行图真相。
+15. React Flow 的受控 node state 不再在相同事实快照上反复重建；图事实变化时以稳定事实键重挂载并恢复本机位置/viewport，修复长轮询或手动刷新后空画布。
+16. Agent shell 获得稳定的 `DSH_WORKSURFACE_CLI` 绝对入口；提示与 Turn Brief 不再假定 profile `.bin` 已进入 `PATH`。
 
 ## 按变化来源拆分的文件边界
 
@@ -54,7 +57,7 @@
 | Session create/resume/Workspace attach | `packages/dsh/src/session-admission.ts` | Turn capability 和 Surface 内容 |
 | 1:1 binding/Turn Brief/capability/publication | `packages/dsh/src/session-surface.ts` | Agent retry/completion 生命周期 |
 | Host composition/RPC/topology aggregation/authoring scan isolation | `packages/dsh/src/service.ts` | store 内部规则 |
-| Web relation layout/evidence projection | `packages/web/client.js`、`packages/web/index.js` | 写入领域事实或推断代码内部业务边 |
+| Web relation layout/evidence projection | `packages/web/src/client.js`、`packages/web/styles.css`、`packages/web/tsdown.config.mjs`、`packages/web/index.js` | 写入领域事实或推断代码内部业务边 |
 
 ## 可执行验证证据
 
@@ -64,9 +67,9 @@
 pnpm check
   schema / executable examples: passed
   TypeScript build: passed
-  DSH eval: 4 files / 29 tests passed
+  DSH eval: 9 files / 47 tests passed
   Web eval: 1 file / 8 tests passed
-  full Vitest: 24 files / 116 tests passed
+  full Vitest: 25 files / 124 tests passed
 git diff --check: passed
 ```
 
@@ -101,8 +104,9 @@ Web 真实页面显示 `ws-e2e-live` Orchestrate 与关联 Surface：Registratio
 
 ### Web 关系视图端到端验收
 
-- 浏览器 harness 以真实 `client.js` 与 `styles.css` 验证桌面和 560px 窄屏、Surface/Orchestrate/声明通路/实际 Event 四类抽屉、Surface 锚点切换、唯一 Session 导航以及 `v4 兼容` 隔离；
+- 浏览器 harness 以真实 bundle、React Flow CSS 与插件 CSS 验证桌面和 560px 窄屏、Surface/Orchestrate/声明通路/实际 Event 四类抽屉、Surface 锚点切换、唯一 Session 导航以及 `v4 兼容` 隔离；默认 code-first 图支持平移、缩放、节点微调、适配视图、小地图开关和显式 Dagre 自动排版，布局只保留在浏览器；
 - 真实 DSH `web` profile 在原生 `conversation.view` 中展示 `ws-e2e-live` 的虚线声明通路与实线 `verification.live-completed`，并从 Host 投影打开上述实际 Event 证据；
+- 真实浏览器等待一个完整 25 秒 projection watch、执行手动刷新并重复切换 Surface 后，节点与证据边保持存在；此前可复现的空画布已由事实键重挂载修复；
 - 空投影停留在默认关系模式并给出空态，不把“无 v5 数据”误报为 v4 模式。
 
 ### 启动坏 authoring 隔离
@@ -116,20 +120,39 @@ Web 真实页面显示 `ws-e2e-live` Orchestrate 与关联 Surface：Registratio
 - admission 创建唯一 Session，`binding.json` 在首 Turn 前固定；
 - Workspace registry 中 `WorkSurfaces` 包含该 Session；
 - 原生侧栏显示 `WorkSurfaces / 新会话`；
-- 点击“进入推进”打开原生空白 composer，没有提交用户消息，也没有打开第二个 Session；
+- 点击“进入推进”后，Host 返回唯一 Session 与正式 Workspace ID，Client 通过原生 `sessions.create({ sessionId, workspaceId })` 采用该精确身份，再 refresh/open 并验证 current；真实侧栏切到 `WorkSurfaces / 新会话`，没有提交用户消息，也没有打开第二个 Session；
 - 本机旧 Session Host 的持久日志不包含不可恢复的 `worksurface/binding` 外部 Event。
 
-### 真实 profile：模型 Turn 与旧 Host 重启兼容
+### 真实 profile：模型就绪性与完整 Event 闭环
 
-验证对象为 `ws-e2e-model` 与修复后的全新 `ws-e2e-model2`：
+所有真实 Agent Turn 都由携带用户目录 `.env` 的正式 `web` profile 发起，没有把密钥写入工具参数、聊天、普通 Settings、浏览器 payload 或 Git。
 
-1. 从用户目录 `.env` 注入 `DEEPSEEK_API_KEY`，通过正式 `session/modelCatalog` 确认 `deepseek-official` 可路由；
-2. 经 WorkSurface admission 创建唯一 Session，并通过正式 `session/selectModel` 固定 `deepseek-v4-flash`；
-3. 经正式 `session/prompt` 进入真实 Agent Turn；未注入 `.env` 的受管进程准确返回 `MISSING_CREDENTIAL`，改用携带 `.env` 的受控进程后请求到达 Provider，并返回 HTTP 402 `Insufficient Balance`；
-4. 首次尝试同时暴露：旧 Host 会丢弃 `ignorable` 字段，导致 `worksurface/context-revision` 在重启时成为未知必需事件；
-5. 修复后 adapter 对具体 Session constructor 探测能力，旧 Host 整体跳过可选 extension facts。`ws-e2e-model2` 的持久日志只含 Host 已知事件；重启后同一 Session 可再次完成 `session/selectModel`，证明恢复不再被未知事件阻断。
+普通 Session `验收 WorkSurface 模型就绪性` 使用 GPT-5.6 Sol / High：
 
-由于 Provider 额度不足，proof 文件、`verification.model-requested` 和 `verification.model-completed` 没有出现；这是外部模型执行层的明确未通过项，不以静态测试或手工 emit 代替。
+1. Agent 先运行 `"$DSH_WORKSURFACE_CLI" help author` 与 `help coordinate`，没有被告知 CLI 源码路径，也没有发明 create 工具；
+2. 它判断跨多轮、可独立验收、需恢复与重复协调的任务适合 WorkSurface，并以一次性 `dict.get()` 解释作为应留在普通 Session 的反例；
+3. 在公共作者根创建 `ws-readiness-20260901-a-evidence`、`-b-assessment`、`-c-verdict` 三个 Surface；每个 `surface.md` 都按正式顺序包含七个一级标题，并各自包含一个支持文件；
+4. 创建 `ws-readiness-20260901-serial-readiness`：普通 Python entrypoint 拥有 A→B→C 条件、payload 转换、staged 文件写入与推进，`registration.json` 只拥有三个既有 Surface 的精确绑定和 `consumeFrom` / `surfaceOutputFrom` 能力；没有创建 `definition.json` 或通用图 DSL；
+5. 三个 Event declaration、Registration schema 与 Python 编译通过；A 经正式 Web admission 固定唯一 Session、artifact Revision、Registration 与三条历史边界；三个新 Surface 的 Runtime Event 数均为 0，证明没有手工伪造 Event 或 run fixture。
+
+Surface Session `ws-e2e-nav` 随后完成两次真实 Turn。第一次在旧提示仍写 `ws help emit` 时暴露 shell `PATH` 不含 profile `.bin`，人工提供源码 CLI 路径后闭环成功；实现随即改为注入稳定的 `DSH_WORKSURFACE_CLI`。第二次模型只依赖新契约，完成：
+
+```text
+verification.browser-requested
+  root Event: evt_966f676b435a4965edd5ba9327b6b121781556ea (#4)
+  payload: {"evidence":"real-dsh-cli-variable"}
+  ↓
+Orchestrate run: run_72072a0e3184492793d7813605d4e5e4
+  ↓
+surface.revision.applied
+  revision: sha256:268bf54466888edd343fd1d1f6e3ebe1da7cf7cb07ca43952c9b655453381ff8
+  ↓
+verification.browser-completed
+  Event: evt_a5fbd732d75e5871c41dd203211b780235250244
+  payload: {"evidence":"orchestrate-code-ran"}
+```
+
+关系 UI 重放为 `7 Event`、`2 输入 · 2 运行`，两条 completed 实际因果边均可见。目标 Surface Session 的持久事件类型只有 DSH 原生 `session`、policy、sandbox、inbox、Turn/Step/Tool/Message 类事件；全新空白目标 Session 只有 `session`、`session/end-seed`、policy、sandbox 与 inbox 事件，均不含自定义必需 `worksurface/*` 事件。旧 Host 因而能在重启后恢复，同一绑定继续通过外部 immutable `binding.json`、Turn Brief 与 shell capability 工作。
 
 ## 当前仍明确未实现
 

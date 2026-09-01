@@ -49,14 +49,14 @@ describe('SurfaceSessionService', () => {
     expect(current.header.cwd).toBe(work)
     const binding = await service.bindSession(current, 'surface-a', 'authoring')
     expect(binding).toMatchObject({ sessionId: 'session-a', surfaceId: 'surface-a', inputSource: 'authoring' })
-    expect(current.events.find(event => event.type === 'worksurface/binding')).toMatchObject({ data: binding, ignorable: true })
+    expect(current.events).toEqual([])
     expect(JSON.parse(await readFile(join(state, 'surface-sessions', 'surface-a', 'context.json'), 'utf8')))
       .toMatchObject({ execution: { sessionId: 'session-a' }, surface: { id: 'surface-a' }, capabilities: { targetSurfaces: ['surface-a'] } })
     expect(service.bindingForSession('session-a')).toEqual(binding)
     expect(service.bindingForSurface('surface-a')).toEqual(binding)
   })
 
-  it('detects a concrete Host Session implementation that drops ignorable envelopes', async () => {
+  it('requires compatible live Session and persistence implementations for extension facts', async () => {
     const { service } = await fixture()
     const current = session('legacy-host', service.cwdForSurface('surface-a'))
     const binding = {
@@ -73,7 +73,10 @@ describe('SurfaceSessionService', () => {
       },
     })
 
-    expect(supportsPersistedIgnorableSessionEvents(current, binding)).toBe(false)
+    const currentPersistence = { borrowSession() {}, ensureMaterialized() {} }
+    expect(supportsPersistedIgnorableSessionEvents(current, binding, currentPersistence)).toBe(false)
+    expect(supportsPersistedIgnorableSessionEvents(session('modern-host'), binding, {})).toBe(false)
+    expect(supportsPersistedIgnorableSessionEvents(session('modern-host'), binding, currentPersistence)).toBe(true)
   })
 
   it('rejects both a second Session for one Surface and a second Surface for one Session', async () => {
@@ -117,6 +120,7 @@ describe('SurfaceSessionService', () => {
     expect(service.activeSurface('ordinary')).toBeUndefined()
   })
 
+  // Model-readiness evidence: [MR-TURN-BRIEF-L1]
   it('authorizes planning only for the current live Turn capability', async () => {
     const { service } = await fixture()
     const current = session('session-planner', service.cwdForSurface('surface-a'))
@@ -136,12 +140,13 @@ describe('SurfaceSessionService', () => {
       version: 1,
       runtimeView: '$DSH_WORKSURFACE_VIEW_DIR',
       instruction: 'Review the current evidence.',
-      outputs: [{ name: 'review.completed', command: { argv: ['ws', 'emit', 'review.completed', '--payload', '<JSON matching schema>'] } }],
+      outputs: [{ name: 'review.completed', command: { argv: ['$DSH_WORKSURFACE_CLI', 'emit', 'review.completed', '--payload', '<JSON matching schema>'] } }],
     })
     service.endTurn('session-planner', 1)
     expect(() => service.planningSource(capability)).toThrowError(expect.objectContaining({ code: 'unauthorized' }))
   })
 
+  // Model-readiness evidence: [MR-SURFACE-AUTHORING-L2]
   it('preserves unpublished WIP across later Turns of the same Surface Session', async () => {
     const { service } = await fixture()
     const current = session('session-wip', service.cwdForSurface('surface-a'))
@@ -158,6 +163,7 @@ describe('SurfaceSessionService', () => {
     expect(await readFile(join(second.cwd, 'notes.md'), 'utf8')).toBe('unpublished\n')
   })
 
+  // Model-readiness evidence: [MR-AUTHORIZED-OUTPUT-L2]
   it('publishes with Session/Turn evidence and revokes authority at Turn end', async () => {
     const { service } = await fixture()
     const current = session('session-publish', service.cwdForSurface('surface-a'))
@@ -171,7 +177,7 @@ describe('SurfaceSessionService', () => {
       name: 'surface.revision.published',
       meta: { sessionId: 'session-publish', turn: 1, outputRevision: expect.stringMatching(/^sha256:/) },
     })
-    expect(current.events.filter(event => event.type === 'worksurface/binding')).toHaveLength(1)
+    expect(current.events.filter(event => event.type === 'worksurface/binding')).toHaveLength(0)
     service.endTurn('session-publish', 1)
     await expect(service.emitTurn(capability, 'review.accepted', {})).rejects.toMatchObject({ code: 'unauthorized' })
   })

@@ -1,4 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
+import { fileURLToPath } from 'node:url'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { MessageId, freezeMessage } from '@deepseek-ai/dsh-llm'
 import type SessionStore from '@deepseek-ai/dsh-session'
@@ -10,6 +11,8 @@ import { supportsPersistedIgnorableSessionEvents, type SurfaceSessionService } f
 import type { WorkSurfaceContextRuntime } from './context/runtime.ts'
 import type { RenderedContext } from './context/types.ts'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+
+const WORKSURFACE_CLI = fileURLToPath(import.meta.resolve('@pf-worksurface/cli/bin'))
 
 declare module '@deepseek-ai/cordis' {
   interface Context { shellEnv: ShellEnvRegistry; sessions: SessionStore }
@@ -156,7 +159,10 @@ export class DshWorkSurfaceSessionAdapter {
       // the Session unreadable after restart when Host and linked plugin use
       // distinct Session package copies. Turn Brief and shell context remain
       // available, so omit the optional fact-backed context layer as one unit.
-      if (!supportsPersistedIgnorableSessionEvents(agent.session, binding)) return transformed
+      const persistence = (this.ctx as unknown as {
+        readonly sessionPersistence?: { readonly borrowSession?: unknown; readonly ensureMaterialized?: unknown }
+      }).sessionPersistence
+      if (!supportsPersistedIgnorableSessionEvents(agent.session, binding, persistence ?? {})) return transformed
       context.signal?.throwIfAborted()
       const revision = active.revision.outputRevision ?? active.revision.inputRevision
       await runtime.publishRevision(agent, binding.surfaceId, revision, null)
@@ -188,6 +194,7 @@ export class DshWorkSurfaceSessionAdapter {
     const contributor: BashEnvContributor = {
       name: 'worksurface-session-v1',
       variables: {
+        DSH_WORKSURFACE_CLI: { description: 'Absolute executable path for WorkSurface help and Runtime-authorized emit commands.' },
         DSH_WORKSURFACE_ROOT: { description: 'Writable public authoring root containing surfaces/ and orchestrations/.' },
         DSH_SURFACE_ID: { description: 'The one WorkSurface whose progress this DSH Session records.' },
         DSH_SURFACE_DIR: { description: 'Authoring directory of the one Surface bound to this Session.' },
@@ -195,13 +202,14 @@ export class DshWorkSurfaceSessionAdapter {
       },
       resolve: execution => {
         if (execution.agent === undefined) return {}
+        const authoring = { DSH_WORKSURFACE_CLI: WORKSURFACE_CLI, DSH_WORKSURFACE_ROOT: this.service.workRoot }
         const sessionId = String(execution.agent.id)
         const turn = this.service.activeTurn(sessionId)
-        if (turn === undefined) return {}
+        if (turn === undefined) return authoring
         const surface = this.service.activeSurface(sessionId)
-        if (surface === undefined) return {}
+        if (surface === undefined) return authoring
         return {
-          DSH_WORKSURFACE_ROOT: this.service.workRoot,
+          ...authoring,
           DSH_SURFACE_ID: surface.surfaceId,
           DSH_SURFACE_DIR: surface.cwd,
           DSH_WORKSURFACE_VIEW_DIR: surface.viewDir,

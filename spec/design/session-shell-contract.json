@@ -1,31 +1,41 @@
 {
-  "version": 1,
+  "version": 3,
   "injection": "each-model-shell-execution",
   "variables": {
+    "DSH_WORKSURFACE_CLI": {
+      "valueType": "absolute-executable-path",
+      "availability": "all-agent-shell-executions",
+      "consumers": ["model-shell", "child-process"],
+      "purpose": "Invoke WorkSurface help and exact Runtime-authorized emit argv even when the profile bin directory is absent from PATH."
+    },
     "DSH_WORKSURFACE_ROOT": {
       "valueType": "absolute-directory-path",
+      "availability": "all-agent-shell-executions",
       "consumers": ["model-shell", "child-process"],
       "purpose": "Locate Surface and Orchestrate authoring directories."
     },
     "DSH_SURFACE_ID": {
       "valueType": "local-surface-handle",
+      "availability": "active-surface-turn",
       "consumers": ["model-shell", "ws"],
       "purpose": "Identify the one Surface bound to the current DSH Session."
     },
     "DSH_SURFACE_DIR": {
       "valueType": "absolute-directory-path",
+      "availability": "active-surface-turn",
       "consumers": ["model-shell", "child-process"],
       "purpose": "Read and maintain the current Surface files."
     },
     "DSH_WORKSURFACE_VIEW_DIR": {
       "valueType": "absolute-directory-path",
+      "availability": "active-surface-turn",
       "consumers": ["model-shell", "child-process"],
       "purpose": "Read turn-brief.json plus the current Turn's filtered input details and Event Contracts."
     }
   },
   "commands": {
     "ws": {
-      "discovery": "PATH",
+      "discovery": "$DSH_WORKSURFACE_CLI",
       "purpose": "Submit Runtime-authorized WorkSurface events; exact argv comes from the Turn Brief."
     }
   }

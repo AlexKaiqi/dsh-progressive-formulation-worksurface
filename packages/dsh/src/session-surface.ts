@@ -33,10 +33,8 @@ declare module '@deepseek-ai/dsh-session/types' {
   }
 }
 
-// Current DSH releases persist the ignorable marker; the local compatibility
-// host predates that envelope field and instead consults this shared catalog.
-// Register before any bound Session can be resumed so both readers accept the
-// informational binding fact without weakening unknown required events.
+// Read compatibility for Sessions created by WorkSurface releases that wrote
+// an informational binding fact. New bindings use only binding.json.
 ;(KNOWN_SESSION_EVENT_TYPES as Set<string>).add('worksurface/binding')
 
 export type SurfaceInputSource = 'published' | 'authoring' | `revision:${string}`
@@ -251,12 +249,11 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     if (recorded.some(candidate => !sameBinding(candidate, binding)) || recorded.length > 1) {
       throw new WorkSurfaceError('already-exists-conflict', `DSH Session '${session.id}' contains more than one WorkSurface binding`)
     }
-    // Downstream Session event types must be ignorable to a harness build that
-    // does not ship this plugin; when WorkSurface is present the exact payload
-    // is still retained and reconciled against binding.json.
-    if (recorded.length === 0 && supportsPersistedIgnorableSessionEvents(session, binding)) {
-      session.append('worksurface/binding', binding, { ignorable: true })
-    }
+    // binding.json is the only durable identity fact. Older releases also
+    // wrote an informational worksurface/binding event; reconcile it when
+    // present, but never create another plugin-private fact in the DSH log.
+    // A Host can persist through a different @deepseek-ai/dsh-session copy and
+    // strip an extension envelope that the live Session object preserved.
     return binding
   }
 
@@ -305,7 +302,7 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
         when: `Emit only when ${output.description}`,
         payloadSummary: output.description,
         schemaPath: `$DSH_WORKSURFACE_VIEW_DIR/${schemaFile}`,
-        command: { argv: ['ws', 'emit', output.name, '--payload', '<JSON matching schema>'] },
+        command: { argv: ['$DSH_WORKSURFACE_CLI', 'emit', output.name, '--payload', '<JSON matching schema>'] },
       }
     })
     const brief = {
@@ -634,17 +631,21 @@ function bindingEvents(session: Session): SurfaceSessionBinding[] {
 }
 
 /**
- * DSH 0.1.2-alpha.2+ persists `ignorable`; the locally linked alpha.1 host
- * accepts the third append argument but silently drops it. Probe the concrete
- * Session constructor so multiple package copies cannot produce a false
- * capability result. On an older host binding.json remains the authority and
- * we omit the informational Session event rather than writing an unreadable
- * log.
+ * Extension facts require both a Session implementation that retains the
+ * `ignorable` envelope and the matching persistence generation. The latter
+ * introduced borrowed Session sources and explicit empty materialization in
+ * the same compatibility generation. Testing both sides avoids a false
+ * positive when a linked plugin and Host resolve different package copies.
  */
 export function supportsPersistedIgnorableSessionEvents(
   session: Session,
   binding: SurfaceSessionBinding,
+  persistence: {
+    readonly borrowSession?: unknown
+    readonly ensureMaterialized?: unknown
+  },
 ): boolean {
+  if (typeof persistence.borrowSession !== 'function' || typeof persistence.ensureMaterialized !== 'function') return false
   const id = SessionId(`worksurface-compat-${randomUUID()}`)
   const constructor = session.constructor as typeof DshSession
   const probe = constructor.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: 0 })

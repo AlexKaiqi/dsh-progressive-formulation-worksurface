@@ -93,7 +93,7 @@ WorkSurface 不建立第二套 Agent、Session、Turn、Step 或 Tool Call。
 one SurfaceId <-> one DSH SessionId
 ```
 
-这由 `SurfaceSessionService.bindSession()` 在第一个 `turn/start` 前固定，并同时保存在 WorkSurface binding 文件与 DSH Session 的 `worksurface/binding` 事件中。
+这由 `SurfaceSessionService.bindSession()` 在第一个 `turn/start` 前固定，并只保存在 WorkSurface 权威 binding 文件中。新绑定不再把同一事实复制到 DSH Session；旧 Session 中已有的 `worksurface/binding` 仅用于恢复时一致性校验。
 
 ## 2. 物理布局
 
@@ -308,7 +308,7 @@ work/surfaces/<id>/
         ↓ validate / snapshot input
 SurfaceSessionService.bindSession()
         ↓ before first turn/start
-binding.json + 可选 ignorable DSH worksurface/binding event
+binding.json（唯一绑定事实；旧 worksurface/binding event 只读兼容）
         ↓
 DSH Session Turn / Step / Tool execution
         ↓ ordinary file writes

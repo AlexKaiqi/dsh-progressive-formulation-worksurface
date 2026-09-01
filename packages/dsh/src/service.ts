@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { lstat, mkdir, readFile, readdir } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import type { Session } from '@deepseek-ai/dsh-session'
 import {
   DefinitionStore,
@@ -42,6 +43,7 @@ import { BUILTIN_EVENT_CATALOG } from './builtin-event-catalog.ts'
 import { CodeFirstOrchestrator, type CodeFirstRegistrationInspection } from './code-first-orchestrator.ts'
 import { DshCodeFirstSurfacePort } from './code-first-surface-port.ts'
 import { SubprocessOrchestrateCodeRunner } from './orchestrate-code-runner.ts'
+import { WORKSURFACE_GLOBAL_INSTRUCTIONS, WORKSURFACE_PROMPT_ORDER, WORKSURFACE_PROMPT_SECTION } from './model/global-instructions.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context { workSurfaces: WorkSurfaceService }
@@ -131,6 +133,11 @@ export class WorkSurfaceService extends Service {
   constructor(ctx: Context, config: Config) {
     super(ctx, 'workSurfaces')
     this.config = resolveConfig(config)
+    ctx.systemPrompt.section({
+      name: WORKSURFACE_PROMPT_SECTION,
+      order: WORKSURFACE_PROMPT_ORDER,
+      text: WORKSURFACE_GLOBAL_INSTRUCTIONS,
+    })
     this.eventStore = new FileEventStore(this.config.eventRoot)
     this.revisions = new RevisionStore(this.config.revisionRoot)
     this.surfaces = new SurfaceSessionService(this.eventStore, this.revisions, this.config.workRoot, this.config.root)

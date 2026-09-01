@@ -5,6 +5,15 @@ import { WorkSurfaceHostClient } from '../src/client.ts'
 afterEach(() => vi.restoreAllMocks())
 
 describe('ws emit', () => {
+  it('prints scenario help and rejects unknown topics', async () => {
+    const output = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const error = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    expect(await main(['help', 'author'])).toBe(0)
+    expect(output).toHaveBeenCalledWith(expect.stringContaining('WORKSURFACE AUTHORING'))
+    expect(await main(['help', 'invented'])).toBe(15)
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("Unknown WorkSurface help topic 'invented'"))
+  })
+
   it('uses the current DSH Turn capability for publication', async () => {
     const call = vi.spyOn(WorkSurfaceHostClient.prototype, 'call').mockResolvedValue({ subject: 'surface:a', seq: 2, id: 'terminal' })
     const code = await main(['emit', 'surface.revision.published', '--payload', '{"summary":"ok"}'], {

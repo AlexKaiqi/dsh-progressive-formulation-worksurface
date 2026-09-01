@@ -36,7 +36,7 @@
 | Registration | `Registration` | Registration stream 的首条 registered record | `foldOrchestration()` |
 | Activation | `OrchestrationActivation` | `registration.activation-opened` | `foldOrchestration()` |
 | Operation | `operation-recorded/settled` records | Registration stream | `foldOrchestration()` + `recoverRecorded()` |
-| Session binding | `SurfaceSessionBinding`、`binding.schema.json` | 权威 `binding.json` + 支持持久 `ignorable` 时的可选 DSH `worksurface/binding` | `SurfaceSessionService.init()/attachSession()` |
+| Session binding | `SurfaceSessionBinding`、`binding.schema.json` | 权威 `binding.json`；旧 Session 中的 `worksurface/binding` 仅作兼容校验 | `SurfaceSessionService.init()/attachSession()` |
 | DSH execution | DSH `SessionEventMap` | DSH Session Log | DSH Session replay/projection |
 | v5 Surface head | `Revision` | `surface.revision.admitted/applied/published` Event | `DshCodeFirstSurfacePort.head()` replay；没有可变 head 文件 |
 | v5 Registration | `OrchestrateRegistrationRecord` | 首次 admission 固定的 authoring Revision、bindings、routes、history boundary | 直接读取 immutable record；重复扫描只验证 authoring-derived facts，不重算首次 history boundary |

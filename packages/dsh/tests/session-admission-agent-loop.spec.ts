@@ -1,4 +1,4 @@
-// Invariant assertions: [WS-01] [WS-09] [WS-10] [WS-13] [WS-20] [WS-21]
+// Invariant assertions: [WS-01] [WS-09] [WS-10] [WS-13] [WS-20] [WS-21] [WS-27]
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,7 +21,12 @@ import { SurfaceSessionService } from '../src/session-surface.ts'
 import { WorkSurfaceService } from '../src/service.ts'
 
 const roots: string[] = []
-afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))))
+afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, {
+  recursive: true,
+  force: true,
+  maxRetries: 5,
+  retryDelay: 20,
+}))))
 
 class ScriptedAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
@@ -91,7 +96,7 @@ async function mountServiceRuntime(root: string, work: string, replies: string[]
 }
 
 function testWorkspaceRegistry() {
-  return { create: () => Promise.resolve({ attachSession: () => Promise.resolve() }) }
+  return { create: () => Promise.resolve({ id: 'workspace-surfaces', attachSession: () => Promise.resolve() }) }
 }
 
 async function fixture(options: { persistence?: boolean } = {}) {
@@ -115,6 +120,42 @@ function send(agent: Agent, text: string): void {
 }
 
 describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
+  // Model-readiness evidence: [MR-GLOBAL-ASSEMBLY-AND-ROOT-L1] [MR-FIRST-SURFACE-DISCOVERY-L2]
+  it('exposes WorkSurface discovery and the public authoring root to an ordinary Agent before any Surface exists', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ws-global-discovery-')); roots.push(root)
+    const work = join(root, 'work')
+    const runtime = await mountServiceRuntime(root, work, [], join(root, 'sessions'))
+    try {
+      const assembly = await runtime.ctx.systemPrompt.assemble()
+      const prompt = assembly.sections.map(section => section.text).join('\n')
+      expect(prompt).toContain('WorkSurface is available for durable work')
+      expect(prompt).toContain('`"$DSH_WORKSURFACE_CLI" help`')
+
+      const ordinary = await runtime.ctx.agents.create({
+        sessionId: SessionId('ordinary-session'),
+        meta: { cwd: root },
+        agentOptions: { provider: 'mock', model: 'mock-model' },
+        setup: () => Promise.resolve(),
+      })
+      const environment = runtime.ctx.shellEnv.collect({ agent: ordinary.agent } as never)
+      expect(environment.DSH_WORKSURFACE_CLI).toMatch(/packages[\\/]cli[\\/]lib[\\/]bin\.js$/)
+      expect(environment.DSH_WORKSURFACE_ROOT).toBe(work)
+      expect(environment.DSH_SURFACE_ID).toBeUndefined()
+      expect(environment.DSH_SURFACE_DIR).toBeUndefined()
+      expect(environment.DSH_WORKSURFACE_VIEW_DIR).toBeUndefined()
+      expect(await runtime.ctx.workSurfaces.listSurfaces()).toEqual([])
+
+      const first = join(environment.DSH_WORKSURFACE_ROOT!, 'surfaces', 'first-surface')
+      await mkdir(first, { recursive: true })
+      await writeFile(join(first, 'surface.md'), SURFACE_TEMPLATE.replace('# Goal\n', '# Goal\n\nProve first-Surface bootstrap.\n'))
+      expect(await runtime.ctx.workSurfaces.listSurfaces()).toEqual([
+        { surfaceId: 'first-surface', title: 'Prove first-Surface bootstrap.' },
+      ])
+    } finally {
+      await runtime.ctx.fiber.dispose()
+    }
+  })
+
   it('isolates one broken authoring Orchestration while admitting the remaining valid Registration', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ws-authoring-isolation-')); roots.push(root)
     const work = join(root, 'work')
@@ -201,13 +242,13 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
     try {
       const opened = await admission.ensure({ surfaceId: 'surface-a' })
       const agent = ctx.agents.get(SessionId(opened.sessionId))!
-      expect(agent.session.events[0]?.type).toBe('worksurface/binding')
+      expect(agent.session.events.some(event => event.type === 'worksurface/binding')).toBe(false)
       expect(agent.session.events.some(event => event.type === 'turn/start' || event.type === 'user/message')).toBe(false)
 
       send(agent, 'start from the contract')
       await agent.whenIdle()
       const eventTypes = agent.session.events.map(event => event.type)
-      expect(eventTypes.indexOf('worksurface/binding')).toBeLessThan(eventTypes.indexOf('turn/start'))
+      expect(eventTypes).not.toContain('worksurface/binding')
       expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
       expect(agent.session.header.cwd).toBe(surfaces.cwdForSurface('surface-a'))
       expect(adapter.requests[0]?.messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('complete progress history of WorkSurface')))).toBe(true)
@@ -251,7 +292,7 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
       const resumed = second.ctx.agents.get(SessionId(opened.sessionId))!
       await resumed.whenIdle()
       expect(recovery).toEqual([{ surfaceId: 'surface-a', sessionId: opened.sessionId, cause: 'interrupted' }])
-      expect(resumed.session.events.filter(event => event.type === 'worksurface/binding')).toHaveLength(1)
+      expect(resumed.session.events.filter(event => event.type === 'worksurface/binding')).toHaveLength(0)
       expect(resumed.session.events.filter(event => event.type === 'turn/start')).toHaveLength(3)
       expect(resumed.session.events.filter(event => event.type === 'turn/end').map(event => event.type === 'turn/end' && event.data.reason.kind))
         .toEqual(['completed', 'interrupted', 'completed'])
@@ -423,8 +464,9 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
       const childBinding = runtime.ctx.workSurfaces.surfaces.bindingForSurface('dependent-child')!
       await vi.waitFor(() => expect(runtime.ctx.agents.get(SessionId(childBinding.sessionId))).toBeDefined())
       const child = runtime.ctx.agents.get(SessionId(childBinding.sessionId))!
+      await vi.waitFor(() => expect(child.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1))
       await child.whenIdle()
-      expect(child.session.events.filter(event => event.type === 'worksurface/binding')).toHaveLength(1)
+      expect(child.session.events.filter(event => event.type === 'worksurface/binding')).toHaveLength(0)
       expect(child.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
       expect(child.session.deriveMessages().some(message => message.content.some(block => block.type === 'text'
         && block.text === 'Read surface.md and execute the dependent deliverable.'))).toBe(true)

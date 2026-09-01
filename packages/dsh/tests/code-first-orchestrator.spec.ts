@@ -22,6 +22,7 @@ const roots: string[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
 
 describe('code-first Orchestrate Runtime', () => {
+  // Model-readiness evidence: [MR-COORDINATION-RUNTIME-L2]
   it('admits an exact artifact then records, applies, advances, and settles one input', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ws-code-first-')); roots.push(root)
     const revisions = new RevisionStore(join(root, 'revisions')); await revisions.init()

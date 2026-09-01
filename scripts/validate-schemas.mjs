@@ -107,17 +107,29 @@ async function validateSessionShellContract() {
   const expected = [
     'DSH_SURFACE_DIR',
     'DSH_SURFACE_ID',
+    'DSH_WORKSURFACE_CLI',
     'DSH_WORKSURFACE_ROOT',
     'DSH_WORKSURFACE_VIEW_DIR',
   ]
   if (!sameJson(Object.keys(contract.variables).sort(), expected)) {
-    throw new Error('Session shell Contract must expose exactly four stable variables')
+    throw new Error('Session shell Contract must expose exactly five stable variables')
   }
   if (!contract.variables.DSH_WORKSURFACE_VIEW_DIR.purpose.includes('turn-brief.json')) {
     throw new Error('Session shell Contract does not expose the fixed Turn Brief locator')
   }
+  if (contract.variables.DSH_WORKSURFACE_ROOT.availability !== 'all-agent-shell-executions') {
+    throw new Error('WorkSurface authoring root must be discoverable from ordinary Agent shell executions')
+  }
+  if (contract.variables.DSH_WORKSURFACE_CLI.availability !== 'all-agent-shell-executions') {
+    throw new Error('WorkSurface CLI must be discoverable from ordinary Agent shell executions')
+  }
+  for (const key of ['DSH_SURFACE_DIR', 'DSH_SURFACE_ID', 'DSH_WORKSURFACE_VIEW_DIR']) {
+    if (contract.variables[key].availability !== 'active-surface-turn') {
+      throw new Error(`${key} must remain scoped to the active Surface Turn`)
+    }
+  }
   const serialized = JSON.stringify(contract)
-  for (const forbidden of ['SOCKET', 'CAPABILITY', 'CONTEXT_FILE', 'WORKSURFACE_CLI', 'EVENT_NAMESPACE']) {
+  for (const forbidden of ['SOCKET', 'CAPABILITY', 'CONTEXT_FILE', 'EVENT_NAMESPACE']) {
     if (serialized.includes(forbidden)) throw new Error(`Session shell Contract exposes Runtime transport ${forbidden}`)
   }
 }
@@ -256,7 +268,7 @@ async function validateTurnBrief(runtimeBinding) {
   }
   for (const output of brief.outputs) {
     const [command, verb, name, payloadFlag, payloadText] = output.command.argv
-    if (command !== 'ws' || verb !== 'emit' || name !== output.name || payloadFlag !== '--payload') {
+    if (command !== '$DSH_WORKSURFACE_CLI' || verb !== 'emit' || name !== output.name || payloadFlag !== '--payload') {
       throw new Error(`Turn Brief command does not exactly name ${output.name}`)
     }
     let payload
@@ -283,7 +295,7 @@ async function validateTurnBrief(runtimeBinding) {
     outputs: [{
       ...brief.outputs[0],
       name: 'ghost.completed',
-      command: { argv: ['ws', 'emit', 'ghost.completed', '--payload', '{}'] },
+      command: { argv: ['$DSH_WORKSURFACE_CLI', 'emit', 'ghost.completed', '--payload', '{}'] },
     }],
   }
   assertFailure(() => validateTurnBriefBinding(ghost, runtimeBinding), 'Turn Brief accepts an unbound Event output')

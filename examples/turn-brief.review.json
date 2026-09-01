@@ -25,7 +25,7 @@
       "payloadSummary": "{ caseId: string, resultRef: string }",
       "schemaPath": "$DSH_WORKSURFACE_VIEW_DIR/contracts/review.completed.json",
       "command": {
-        "argv": ["ws", "emit", "review.completed", "--payload", "{\"caseId\":\"case-7\",\"resultRef\":\"review.md\"}"]
+        "argv": ["$DSH_WORKSURFACE_CLI", "emit", "review.completed", "--payload", "{\"caseId\":\"case-7\",\"resultRef\":\"review.md\"}"]
       }
     }
   ]

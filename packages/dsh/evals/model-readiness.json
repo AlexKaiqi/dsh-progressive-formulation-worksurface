@@ -1,0 +1,291 @@
+{
+  "version": 2,
+  "layers": [
+    {
+      "id": "L0",
+      "name": "model-visible knowledge",
+      "proves": "The required concept, boundary, or procedure is present in delivered prompt or scenario help."
+    },
+    {
+      "id": "L1",
+      "name": "real plugin assembly",
+      "proves": "A real plugin Context assembles the prompt, environment, Session guidance, or Turn Brief."
+    },
+    {
+      "id": "L2",
+      "name": "mechanism execution",
+      "proves": "The real local mechanism accepts valid actions and rejects invalid ones without relying on model judgment."
+    },
+    {
+      "id": "L3",
+      "name": "real Agent behavior",
+      "proves": "A real model in a fresh profile understands the request, discovers help, acts, and leaves the expected durable result."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "global-guidance-l0",
+      "layer": "L0",
+      "kind": "automated-test",
+      "file": "packages/dsh/tests/session-adapter.spec.ts",
+      "marker": "[MR-GLOBAL-GUIDANCE-L0]",
+      "proves": "The fixed prompt states the WorkSurface concept, ordinary-Session boundary, and stable DSH_WORKSURFACE_CLI help discovery entry."
+    },
+    {
+      "id": "scenario-help-l0",
+      "layer": "L0",
+      "kind": "automated-test",
+      "file": "packages/cli/tests/help.spec.ts",
+      "marker": "[MR-SCENARIO-HELP-L0]",
+      "proves": "Author, coordinate, emit, and recover help expose model-owned procedures without invented commands or Runtime internals."
+    },
+    {
+      "id": "surface-session-guidance-l0",
+      "layer": "L0",
+      "kind": "automated-test",
+      "file": "packages/dsh/tests/session-adapter.spec.ts",
+      "marker": "[MR-SURFACE-SESSION-GUIDANCE-L0]",
+      "proves": "A bound Surface Session tells the Agent to read its Turn Brief and use the relevant scenario help."
+    },
+    {
+      "id": "global-assembly-and-root-l1",
+      "layer": "L1",
+      "kind": "automated-test",
+      "file": "packages/dsh/tests/session-admission-agent-loop.spec.ts",
+      "marker": "[MR-GLOBAL-ASSEMBLY-AND-ROOT-L1]",
+      "proves": "A real DSH Context assembles the global prompt and gives an ordinary Agent only the public authoring root before any Surface exists."
+    },
+    {
+      "id": "turn-brief-l1",
+      "layer": "L1",
+      "kind": "automated-test",
+      "file": "packages/dsh/tests/session-surface.spec.ts",
+      "marker": "[MR-TURN-BRIEF-L1]",
+      "proves": "A bound live Turn receives a concrete turn-brief.json with instruction, allowed output, payload schema path, and exact argv."
+    },
+    {
+      "id": "first-surface-discovery-l2",
+      "layer": "L2",
+      "kind": "automated-test",
+      "file": "packages/dsh/tests/session-admission-agent-loop.spec.ts",
+      "marker": "[MR-FIRST-SURFACE-DISCOVERY-L2]",
+      "proves": "A valid first Surface authored under the injected root is discovered by the real WorkSurface service."
+    },
+    {
+      "id": "surface-authoring-l2",
+      "layer": "L2",
+      "kind": "automated-test",
+      "file": "packages/dsh/tests/session-surface.spec.ts",
+      "marker": "[MR-SURFACE-AUTHORING-L2]",
+      "proves": "The service admits valid Surface authoring, preserves WIP, and retains the required Surface content boundary."
+    },
+    {
+      "id": "coordination-runtime-l2",
+      "layer": "L2",
+      "kind": "automated-test",
+      "file": "packages/dsh/tests/code-first-orchestrator.spec.ts",
+      "marker": "[MR-COORDINATION-RUNTIME-L2]",
+      "proves": "Ordinary Orchestrate code plus Registration over existing Surfaces is admitted, executed, applied, advanced, and settled."
+    },
+    {
+      "id": "authorized-output-l2",
+      "layer": "L2",
+      "kind": "automated-test",
+      "file": "packages/dsh/tests/session-surface.spec.ts",
+      "marker": "[MR-AUTHORIZED-OUTPUT-L2]",
+      "proves": "A live Turn capability can publish an authorized output and is rejected after the Turn ends."
+    },
+    {
+      "id": "real-model-readiness-l3",
+      "layer": "L3",
+      "kind": "profile-run",
+      "file": "docs/verification-report-2026-09-01.md",
+      "marker": "ws-readiness-20260901-serial-readiness",
+      "status": "passed",
+      "proves": "Fresh real GPT-5.6 Sol Turns in the installed web profile discover stable CLI help, distinguish capability fit, author three valid Surfaces plus code-first coordination, read a live Turn Brief, emit an authorized Event, and leave the expected durable result."
+    }
+  ],
+  "cases": [
+    {
+      "id": "capability-fit",
+      "question": "WorkSurface solves what kind of problem? Give one task that should use it and one that should stay in an ordinary DSH Session.",
+      "mustDemonstrate": "Choose WorkSurface for durable, independently assessable work or explicit coordination, and avoid it when the structure does not improve a simple task.",
+      "requirements": [
+        {
+          "id": "knowledge",
+          "layer": "L0",
+          "observable": "The delivered fixed guidance contains the capability concept and ordinary-Session boundary.",
+          "evidence": ["global-guidance-l0"]
+        },
+        {
+          "id": "agent-choice",
+          "layer": "L3",
+          "observable": "A fresh real Agent selects WorkSurface for a suitable example and rejects it for an unsuitable example.",
+          "evidence": ["real-model-readiness-l3"]
+        }
+      ]
+    },
+    {
+      "id": "first-surface",
+      "question": "There are no Surfaces yet. Create a WorkSurface for this objective. What is your first executable step?",
+      "mustDemonstrate": "Read the author help, use the real DSH_WORKSURFACE_ROOT exposed to the Agent shell, and author a valid Surface directory without inventing a create command or model tool.",
+      "requirements": [
+        {
+          "id": "author-procedure",
+          "layer": "L0",
+          "observable": "Author help states the first-Surface path, required surface.md headings, and UI discovery step.",
+          "evidence": ["scenario-help-l0"]
+        },
+        {
+          "id": "ordinary-agent-root",
+          "layer": "L1",
+          "observable": "Before any Surface exists, an ordinary Agent receives DSH_WORKSURFACE_ROOT without Surface-Turn-only variables.",
+          "evidence": ["global-assembly-and-root-l1"]
+        },
+        {
+          "id": "service-discovery",
+          "layer": "L2",
+          "observable": "The service discovers a valid first Surface authored under that root.",
+          "evidence": ["first-surface-discovery-l2"]
+        },
+        {
+          "id": "agent-bootstrap",
+          "layer": "L3",
+          "observable": "A fresh real Agent runs author help and creates the valid first Surface without an invented tool.",
+          "evidence": ["real-model-readiness-l3"]
+        }
+      ]
+    },
+    {
+      "id": "turn-entry",
+      "question": "You entered a Surface Session and were told to continue. What do you inspect before changing anything, and what does it tell you you may output?",
+      "mustDemonstrate": "Read the current turn-brief.json for the instruction, bounded inputs, allowed outputs, payload schemas, and exact argv, then work in DSH_SURFACE_DIR.",
+      "requirements": [
+        {
+          "id": "session-guidance",
+          "layer": "L0",
+          "observable": "The Surface Session guidance directs the Agent to the current Turn Brief and scenario help.",
+          "evidence": ["surface-session-guidance-l0"]
+        },
+        {
+          "id": "brief-assembly",
+          "layer": "L1",
+          "observable": "The live Turn exposes a concrete Brief with instruction, allowed output, schema, and exact argv.",
+          "evidence": ["turn-brief-l1"]
+        },
+        {
+          "id": "agent-inspection",
+          "layer": "L3",
+          "observable": "A real Agent reads the Brief before modifying files and identifies only Brief-authorized outputs.",
+          "evidence": ["real-model-readiness-l3"]
+        }
+      ]
+    },
+    {
+      "id": "decomposition",
+      "question": "The objective has three independently assessable parts. How do you represent and maintain them in WorkSurface?",
+      "mustDemonstrate": "Author separate valid Surfaces with their own goal, acceptance criteria, files, deliverables, and evidence instead of drawing a generic task graph.",
+      "requirements": [
+        {
+          "id": "decomposition-guidance",
+          "layer": "L0",
+          "observable": "Scenario help distinguishes independent Surface authoring from coordination over existing Surfaces.",
+          "evidence": ["scenario-help-l0"]
+        },
+        {
+          "id": "multi-surface-mechanism",
+          "layer": "L2",
+          "observable": "The Runtime can coordinate multiple existing Surfaces without creating a generic relationship DSL.",
+          "evidence": ["coordination-runtime-l2"]
+        },
+        {
+          "id": "agent-decomposition",
+          "layer": "L3",
+          "observable": "A real Agent creates one independently assessable Surface per part and does not substitute a generic graph.",
+          "evidence": ["real-model-readiness-l3"]
+        }
+      ]
+    },
+    {
+      "id": "surface-authoring",
+      "question": "What is the minimum valid authored Surface, and where does its supporting work belong?",
+      "mustDemonstrate": "Create surface.md with the seven required ordered headings and keep that Surface's code, materials, fixtures, deliverables, and evidence in its directory.",
+      "requirements": [
+        {
+          "id": "authoring-contract",
+          "layer": "L0",
+          "observable": "Author help states the seven ordered headings and co-location boundary for supporting work.",
+          "evidence": ["scenario-help-l0"]
+        },
+        {
+          "id": "authoring-mechanism",
+          "layer": "L2",
+          "observable": "Valid Surface content is admitted and authoring WIP remains in the Surface directory across Turns.",
+          "evidence": ["surface-authoring-l2"]
+        },
+        {
+          "id": "agent-authoring",
+          "layer": "L3",
+          "observable": "A real Agent creates a valid surface.md and places supporting work inside the same Surface directory.",
+          "evidence": ["real-model-readiness-l3"]
+        }
+      ]
+    },
+    {
+      "id": "coordination",
+      "question": "Two existing Surfaces need conditional transfer, transformation, fan-out, join, or iteration. Where do you express that behavior and what must remain outside it?",
+      "mustDemonstrate": "Use ordinary Orchestrate code plus a Registration over existing Surfaces; do not invent a workflow DSL or let Orchestrate create, delete, or rebind Surfaces.",
+      "requirements": [
+        {
+          "id": "coordination-contract",
+          "layer": "L0",
+          "observable": "Coordinate help places behavior in ordinary code, routing in Registration, and forbids Surface creation, deletion, or rebinding.",
+          "evidence": ["scenario-help-l0"]
+        },
+        {
+          "id": "coordination-execution",
+          "layer": "L2",
+          "observable": "The code-first Runtime admits and executes the exact artifact and Registration through settlement.",
+          "evidence": ["coordination-runtime-l2"]
+        },
+        {
+          "id": "agent-coordination",
+          "layer": "L3",
+          "observable": "A real Agent authors working Orchestrate code and Registration without inventing a DSL or mutating Surface identity.",
+          "evidence": ["real-model-readiness-l3"]
+        }
+      ]
+    },
+    {
+      "id": "authorized-output",
+      "question": "You finished the current work. How do you decide what may be emitted and how, and are waiting, failure, retry, or execution completion WorkSurface Events?",
+      "mustDemonstrate": "Use only an allowed Turn Brief output, validate against its schema, run its exact command argv, and emit domain facts rather than DSH execution lifecycle state.",
+      "requirements": [
+        {
+          "id": "output-contract",
+          "layer": "L0",
+          "observable": "Emit help distinguishes authorized domain output from DSH execution lifecycle and requires exact Brief argv.",
+          "evidence": ["scenario-help-l0", "surface-session-guidance-l0"]
+        },
+        {
+          "id": "output-assembly",
+          "layer": "L1",
+          "observable": "The Turn Brief exposes only the allowed output, payload schema, and exact command argv.",
+          "evidence": ["turn-brief-l1"]
+        },
+        {
+          "id": "output-enforcement",
+          "layer": "L2",
+          "observable": "A current Turn capability accepts its output and the same capability is rejected after Turn end.",
+          "evidence": ["authorized-output-l2"]
+        },
+        {
+          "id": "agent-output",
+          "layer": "L3",
+          "observable": "A real Agent selects a satisfied Brief output, validates the payload, runs exact argv, and does not emit lifecycle state.",
+          "evidence": ["real-model-readiness-l3"]
+        }
+      ]
+    }
+  ]
+}

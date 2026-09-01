@@ -6,13 +6,20 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { asWorkSurfaceError, sha256, WorkSurfaceError } from '@pf-worksurface/core'
 import { WorkSurfaceHostClient } from './client.ts'
-import { HELP, VERSION } from './help.ts'
+import { HELP, VERSION, helpFor } from './help.ts'
 
 interface Args { readonly flags: Map<string, string | true>; readonly positional: readonly string[] }
 
 export async function main(argv = process.argv.slice(2), env = process.env): Promise<number> {
   if (argv.length === 0 || argv.includes('--help')) { process.stdout.write(HELP); return 0 }
   if (argv.length === 1 && argv[0] === '--version') { process.stdout.write(`${VERSION}\n`); return 0 }
+  if (argv[0] === 'help') {
+    if (argv.length > 2) { process.stderr.write(helpFor(argv[1])); return 15 }
+    const output = helpFor(argv[1])
+    if (argv[1] !== undefined && output.startsWith('Unknown WorkSurface help topic')) { process.stderr.write(output); return 15 }
+    process.stdout.write(output)
+    return 0
+  }
   try {
     const result = await execute(parseArgs(argv), env)
     process.stdout.write(`${JSON.stringify(result)}\n`)

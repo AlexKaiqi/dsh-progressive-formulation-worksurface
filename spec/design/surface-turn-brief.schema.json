@@ -82,7 +82,7 @@
           "minItems": 5,
           "maxItems": 5,
           "prefixItems": [
-            { "const": "ws" },
+            { "const": "$DSH_WORKSURFACE_CLI" },
             { "const": "emit" },
             { "$ref": "runtime-event-contract.schema.json#/$defs/eventName" },
             { "const": "--payload" },

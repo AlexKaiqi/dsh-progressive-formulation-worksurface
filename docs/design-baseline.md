@@ -38,17 +38,19 @@ WorkSurface 管理可持续维护的工作上下文，以及这些上下文之�
 
 模型只需要额外知道以下稳定契约，不把实际 namespace、socket、capability、digest、cursor、CAS 或幂等算法作为语义输入：
 
-- Surface Session shell 的四个变量和 `ws` 发现方式：[`session-shell-contract.json`](../spec/design/session-shell-contract.json)，结构由 [`session-shell-contract.schema.json`](../spec/design/session-shell-contract.schema.json) 定义；
+- 普通 Agent shell 可见的公共作者根、活动 Surface Turn 追加的三个 Scope 变量和 `ws` 发现方式：[`session-shell-contract.json`](../spec/design/session-shell-contract.json)，结构由 [`session-shell-contract.schema.json`](../spec/design/session-shell-contract.schema.json) 定义；
 - 每次 Turn 的最小任务、受限输入定位和结构化 Event 输出 argv：[`surface-turn-brief.schema.json`](../spec/design/surface-turn-brief.schema.json)；
 - 模型维护的 Event 语义声明：[`event-declaration.schema.json`](../spec/design/event-declaration.schema.json)；
 - Orchestrate Registration、run view 和 result：见 [`orchestration-code-contract.md`](orchestration-code-contract.md) 中的协议链接。
 
 环境变量只提供稳定间接引用，实际值不进入 prompt。业务值只持久化在 Surface、Event payload 或 Registration binding 中；不存在另一套业务变量存储。
 
-模型额外上下文只有两层：
+模型额外上下文分为四层：
 
-1. Surface Session 的稳定短说明：四个 shell 变量名、`ws` 通过 `PATH` 使用、当前 Turn Brief 固定为 `$DSH_WORKSURFACE_VIEW_DIR/turn-brief.json`；变量值由 Runtime 注入每次模型 shell 的进程环境，不复制进 prompt；
-2. 当前 Turn 的任务专用 Brief：本次 instruction、需要读取的 Surface 路径、被筛选输入的摘要/详情路径，以及本次允许输出的 Event 和精确 argv；Runtime 或宿主按 argv 调用，不把它重新拼成 shell 字符串。
+1. 所有 Agent 的稳定短说明：WorkSurface 的适用边界和 `"$DSH_WORKSURFACE_CLI" help` 入口；
+2. 按模型动作读取的场景 help：`author`、`coordinate`、`emit`、`recover`，只包含模型可执行步骤，不包含 Runtime 内部；
+3. 普通 Agent shell 的稳定 CLI 入口与公共作者根，以及 Surface Session 的稳定短说明和活动 Turn 追加的 `DSH_SURFACE_ID`、`DSH_SURFACE_DIR`、`DSH_WORKSURFACE_VIEW_DIR`；变量值由 Runtime 注入模型 shell，不复制进 prompt；
+4. 当前 Turn 的任务专用 Brief：本次 instruction、需要读取的 Surface 路径、被筛选输入的摘要/详情路径，以及本次允许输出的 Event 和精确 argv；模型按 argv 调用，不把它重新拼成 shell 字符串。
 
 只有当前任务要求 author Orchestrate 时，Brief 才提供 Registration Schema、run/result Schema 和代码样例的文件路径；不把完整协议常驻模型上下文。Orchestrate code 执行时没有模型调用，不注入另一套业务环境变量；Runtime 只设置隔离 cwd，并物化 run view 中的普通文件。
 

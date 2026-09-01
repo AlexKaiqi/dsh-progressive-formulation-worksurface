@@ -26,7 +26,7 @@ authority-global Operation batch → apply → Event / advance → settlement
 
 Registration 只装配现有 Surface 与 Event route；业务条件、转换、fan-out、join 和 loop 都是普通代码。没有 YAML/JSON pattern DSL、独立 Definition IR 或模型编写的 effect plumbing。
 
-模型继续使用 Bash、Zsh、Python、Node 和普通文件能力。稳定模型面只有四个 WorkSurface 变量与每 Turn 的 `turn-brief.json`；唯一领域命令是 Brief 中给出的 `ws emit` argv。namespace、digest、cause resolution 与 Operation 由 Runtime 补齐。一次性 transport 是 Host 的执行材料而非语义契约；它不进入 prompt、Brief 或稳定环境变量，但同一 OS 用户下的模型 shell 可能读取运行目录，因此安全边界是当前 Turn capability 的绑定与失效，不是 transport 字符串保密。
+模型继续使用 Bash、Zsh、Python、Node 和普通文件能力。普通 Agent 收到精简的 WorkSurface 适用边界、`$DSH_WORKSURFACE_CLI help` 入口和公共作者根，可从零 author 首个 Surface；`help author|coordinate|emit|recover` 按模型动作渐进披露具体协议。稳定的 CLI 环境变量避免依赖 profile `.bin` 是否进入模型 shell 的 `PATH`；存在 `ws` shim 时它只是等价便捷入口。活动 Surface Turn 再获得 `DSH_SURFACE_ID`、`DSH_SURFACE_DIR`、`DSH_WORKSURFACE_VIEW_DIR` 与 `turn-brief.json`；唯一领域命令是 Brief 中给出的精确 emit argv。namespace、digest、cause resolution 与 Operation 由 Runtime 补齐。一次性 transport 是 Host 的执行材料而非语义契约；它不进入 prompt、Brief 或稳定环境变量，但同一 OS 用户下的模型 shell 可能读取运行目录，因此安全边界是当前 Turn capability 的绑定与失效，不是 transport 字符串保密。
 
 详见：
 
@@ -36,6 +36,7 @@ Registration 只装配现有 Surface 与 Event route；业务条件、转换、f
 - [UI 设计](docs/ui-design.md)：基于当前事实的可删除投影
 - [模型上下文](docs/context-management.zh.md)：当前 Context Runtime 的事实模型
 - [验证指南](docs/invariants-and-acceptance.md)：机器不变量、测试证据和新概念准入门槛
+- [模型用例覆盖矩阵](docs/model-readiness-coverage.md)：七个使用用例的 L0–L3 可观察要求、证据映射与真实 Agent 缺口
 - [重构与验证报告](docs/verification-report-2026-09-01.md)：设计判断、文件责任拆分与真实 profile E2E 证据
 
 ```sh

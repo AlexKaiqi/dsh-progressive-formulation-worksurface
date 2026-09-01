@@ -35,6 +35,10 @@
         "layer": "L0"
       },
       {
+        "file": "packages/dsh/tests/model-readiness.spec.ts",
+        "layer": "L0"
+      },
+      {
         "file": "packages/dsh/tests/session-admission.spec.ts",
         "layer": "L1"
       },

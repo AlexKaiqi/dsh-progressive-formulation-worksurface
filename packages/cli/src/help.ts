@@ -1,3 +1,23 @@
-export const VERSION = '0.2.0-rc.1'
+import { AUTHOR_HELP } from './help/author.ts'
+import { COORDINATE_HELP } from './help/coordinate.ts'
+import { EMIT_HELP } from './help/emit.ts'
+import { overviewHelp } from './help/overview.ts'
+import { RECOVER_HELP } from './help/recover.ts'
 
-export const HELP = `ws ${VERSION}\n\nAdvance file-native WorkSurfaces through the WorkSurface Host.\n\nUsage:\n  ws emit <event-name> [--surface <surface-id>] [--key <operation-key>]\n     [--payload <json> | --payload-file <path>]\n\nRules:\n  A Surface Session is bound before its first Turn; the Agent cannot open or switch the current Session to another Surface.\n  Build Surface and Orchestration directories with ordinary file and script capabilities under DSH_WORKSURFACE_ROOT.\n  Each orchestration directory contains registration.json beside artifact/; artifact/ holds ordinary code, Event Contracts, and support files.\n  A managed emit fixes pending authoring registrations before appending the requested Event, so root facts cannot outrun their Registrations.\n  DSH_SURFACE_ID, DSH_SURFACE_DIR, DSH_WORKSURFACE_ROOT, and DSH_WORKSURFACE_VIEW_DIR are the four stable WorkSurface variables.\n  Read DSH_WORKSURFACE_VIEW_DIR/turn-brief.json and run its exact command argv; Runtime-private binding and transport are not authoring inputs.\n  ws emit uses the bound Surface inside a Turn; outside a Turn, --surface and --socket are required.\n  surface.revision.published snapshots DSH_SURFACE_DIR and publishes it with compare-and-swap.\n  DSH waiting, failure, cancellation, retry, and completion are not WorkSurface events.\n`
+export const VERSION = '0.2.0-rc.1'
+export const HELP = overviewHelp(VERSION)
+
+const TOPICS = {
+  author: AUTHOR_HELP,
+  coordinate: COORDINATE_HELP,
+  emit: EMIT_HELP,
+  recover: RECOVER_HELP,
+} as const
+
+export type HelpTopic = keyof typeof TOPICS
+
+export function helpFor(topic?: string): string {
+  if (topic === undefined) return HELP
+  if (Object.hasOwn(TOPICS, topic)) return TOPICS[topic as HelpTopic]
+  return `Unknown WorkSurface help topic '${topic}'. Choose: ${Object.keys(TOPICS).join(', ')}.\n`
+}
