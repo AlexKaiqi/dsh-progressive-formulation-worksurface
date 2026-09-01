@@ -34,6 +34,7 @@ Registration 只装配现有 Surface 与 Event route；业务条件、转换、f
 - [完整系统设计](docs/worksurface-complete-design.md)：当前定位、严格概念定义、流程和未实现项
 - [实现索引](docs/architecture.md)：概念到源码与存储的映射
 - [UI 设计](docs/ui-design.md)：基于当前事实的可删除投影
+- [可重复管线方向](docs/repeatable-pipeline-direction.md)：Template、Invocation、参数、多模态 ArtifactRef 与 Design/Run/Evidence 边界
 - [模型上下文](docs/context-management.zh.md)：当前 Context Runtime 的事实模型
 - [验证指南](docs/invariants-and-acceptance.md)：机器不变量、测试证据和新概念准入门槛
 - [模型用例覆盖矩阵](docs/model-readiness-coverage.md)：七个使用用例的 L0–L3 可观察要求、证据映射与真实 Agent 缺口

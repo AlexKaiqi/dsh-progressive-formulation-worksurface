@@ -70,7 +70,8 @@ Template draft
 
 同一画布可以复用节点、端口和导航，但 UI 必须明确分为：
 
-- **Design**：编辑 Template 草稿和布局，尚未形成运行事实；
-- **Run / Evidence**：只读重放精确 Revision、Registration 与 Runtime Event，不能悄悄修改模板。
+- **Design**：编辑 Template 草稿、参数 Schema、类型端口和布局，尚未形成运行事实；
+- **Run**：选择精确 Template Revision，绑定参数与多模态 ArtifactRef，preflight 后创建新的 Invocation、Surface 实例与 Registration；
+- **Evidence**：只读重放精确 Revision、Invocation bindings、Registration 与 Runtime Event，不能悄悄修改模板。
 
-Template 是可复用定义，Surface 是一次具体工作实例，Orchestrate 是普通代码与精确 Registration，运行结果仍由 append-only facts 和不可变 Revision 证明。这个边界保留 ComfyUI 式 node workflow 的可理解性，同时避免把 WorkSurface 降格为另一套图 DSL。
+Template 是可复用定义，Invocation 固定一次运行的参数与输入，Surface 是一次具体工作实例，Orchestrate 是普通代码与精确 Registration，运行结果仍由 append-only facts 和不可变 Revision 证明。当前 UI 只实现 Evidence；不会为尚未实现的 Design/Run 放置假入口。参数、变量、多模态 ArtifactRef、重放/恢复/重跑/fork 的完整目标边界见[可重复管线方向](repeatable-pipeline-direction.md)。

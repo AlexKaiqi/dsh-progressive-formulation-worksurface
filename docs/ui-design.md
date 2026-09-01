@@ -43,7 +43,9 @@ UI 不允许换绑，也不允许为同一 Surface 创建第二个 Session。
 
 ## 3. 拓扑与证据
 
-正式页面由顶部导航、关系图和右侧证据抽屉组成。顶部只保留当前 Surface 选择、投影阶段、“进入推进”和刷新。不在主页堆叠 Registration 卡片、Event 列表和统计仪表。
+当前正式页面是未来三态中的 **Evidence** 模式，由顶部导航、关系图和右侧证据抽屉组成。顶部只保留当前 Surface 选择、投影阶段、“进入推进”和刷新。不在主页堆叠 Registration 卡片、Event 列表和统计仪表，也不显示尚未实现的 Design/Run 假入口。
+
+未来 **Design** 编辑 Template 草稿、参数 Schema 与类型端口，**Run** 绑定参数和多模态 ArtifactRef 并创建一次新的 Invocation；三态边界见[可重复管线方向](repeatable-pipeline-direction.md)。当前事实图的节点、画布、Inspector 与布局适配应可被复用，但 Evidence 不能因 UI 复用而获得模板写权限。
 
 ### 3.1 默认 code-first 关系图
 

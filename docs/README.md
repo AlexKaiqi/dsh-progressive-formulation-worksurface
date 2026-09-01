@@ -12,6 +12,7 @@
 | 验证 | [不变量与验收](invariants-and-acceptance.md) | 机器协议、门禁与测试证据 |
 | 模型用例 | [模型用例覆盖矩阵](model-readiness-coverage.md) | 七个用例的 L0–L3 要求、evidence 映射与真实 Agent 状态 |
 | 本轮实证 | [2026-09-01 重构与验证报告](verification-report-2026-09-01.md) | 设计判断、修复项、文件拆分、自动与真实 profile E2E |
+| 可重复管线 | [参数与多模态方向](repeatable-pipeline-direction.md) | Template、Invocation、参数绑定、ArtifactRef 与 Design/Run/Evidence 边界 |
 
 目标与当前实现不得混写。code-first Schema 已进入默认 v5 Runtime，准确实现范围以 `WS-24` 至 `WS-27`、实现索引和测试为准；v4 文档只解释兼容 Engine，不能反向定义默认 authoring。
 
