@@ -10,14 +10,23 @@
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
-  "files": ["index.js", "client.js", "styles.css", "cordis.patch.yml", "README.md", "evals"],
+  "files": [
+    "index.js",
+    "client.js",
+    "styles.css",
+    "cordis.patch.yml",
+    "README.md",
+    "evals"
+  ],
   "license": "MIT",
   "scripts": {
-    "bundle": "node --check index.js && node --check client.js && node --check evals/browser-harness.mjs && npm run eval:check",
+    "bundle": "tsdown -c tsdown.config.mjs && node --check index.js && node --check client.js && node --check evals/browser-harness.mjs && npm run eval:check",
     "eval:check": "node evals/validate-suite.mjs",
     "prepack": "npm run bundle"
   },
-  "engines": { "node": "^22.19.0 || >=24.0.0" },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
   "peerDependencies": {
     "@deepseek-ai/dsh-client-locale": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-runtime": ">=0.1.0-rc.6 <0.2.0",
@@ -28,6 +37,9 @@
     "react": "^18.2.0"
   },
   "dependencies": {
+    "@dagrejs/dagre": "3.1.1",
+    "@xyflow/react": "12.11.5",
+    "react-dom": "18.3.1",
     "yaml": "^2.9.0"
   },
   "dsh": {
@@ -36,14 +48,34 @@
         "zh": "在 DSH 原生会话视图中展示 WorkSurface 关系图，区分声明通路与已记录因果证据。",
         "en": "Shows the WorkSurface relation graph with separate declared paths and recorded causal evidence in the native DSH conversation view."
       },
-      "tags": ["visualization", "web", "events", "orchestration"],
-      "dependencies": ["@pf-worksurface/dsh", "@deepseek-ai/dsh-host-webserver", "@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-ui-conversation"]
+      "tags": [
+        "visualization",
+        "web",
+        "events",
+        "orchestration"
+      ],
+      "dependencies": [
+        "@pf-worksurface/dsh",
+        "@deepseek-ai/dsh-host-webserver",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
     },
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
-      "inject": ["@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-ui-conversation"],
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
       "immediately": false
     }
+  },
+  "devDependencies": {
+    "tsdown": "0.22.14"
   }
 }

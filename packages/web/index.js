@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises'
 import { defineWorkSurfaceView } from '@pf-worksurface/core'
 import { parse } from 'yaml'
 
+const reactFlowStyles = new URL(import.meta.resolve('@xyflow/react/dist/style.css'))
+
 export const name = 'pf-worksurface-web'
 export const inject = ['webServer', 'workSurfaces']
 
@@ -89,6 +91,7 @@ export function apply(ctx, config) {
       return json(res, 500, { error: 'projection unavailable' })
     }
   }
+  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/worksurface-map/react-flow.css', handler: async (_req, res) => send(res, 200, 'text/css; charset=utf-8', await readFile(reactFlowStyles, 'utf8')) }), 'worksurface-map.react-flow-styles')
   ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/worksurface-map/styles.css', handler: async (_req, res) => send(res, 200, 'text/css; charset=utf-8', await readFile(new URL('./styles.css', import.meta.url), 'utf8')) }), 'worksurface-map.styles')
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/worksurface-map/api', handler: api }), 'worksurface-map.api')
 }

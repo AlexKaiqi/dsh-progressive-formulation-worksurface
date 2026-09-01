@@ -8,6 +8,9 @@ const react = join(dirname(require.resolve('react/package.json')), 'umd', 'react
 const reactDom = join(dirname(require.resolve('react-dom/package.json')), 'umd', 'react-dom.development.js')
 const client = new URL('../client.js', import.meta.url)
 const styles = new URL('../styles.css', import.meta.url)
+const reactFlowStyles = require.resolve('@xyflow/react/dist/style.css')
+const upstream = process.env.PF_WORKSURFACE_E2E_UPSTREAM?.replace(/\/$/, '')
+const upstreamSurface = process.env.PF_WORKSURFACE_E2E_SURFACE?.trim()
 
 const ref = (subject, seq, id) => ({ subject, seq, id })
 const authority = 'wsa_browser_acceptance'
@@ -63,7 +66,7 @@ const html = `<!doctype html>
 <html lang="zh-CN" data-ds-dark-theme><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WorkSurface UI acceptance</title><style>html,body,#root{margin:0;width:100%;height:100%;overflow:hidden}</style></head>
 <body><main id="root"></main><script src="/react.js"></script><script src="/react-dom.js"></script><script>
 window.__ModuleLoader__={load(spec){window.__worksurfacePlugin=spec.factory(name=>{if(name==='react')return React;throw new Error('unknown module '+name)})}};
-window.__renderWorkSurface=()=>{const locale={subscribe:()=>()=>{},getSnapshot:()=>({active:'zh'}),register:()=>()=>{},bind:()=>key=>key};const sessionId='worksurface-research';const sessions={list:{getSnapshot:()=>({byId:{[sessionId]:{sessionId}}}),subscribe:()=>()=>{}},open:id=>{document.body.dataset.openedSession=id}};const ctx={locale,sessions,effect:fn=>fn(),slots:{inject:(_name,fn)=>fn(),register:(_options,Component)=>ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(Component,{ctx}))}};window.__worksurfacePlugin.apply(ctx)};
+window.__renderWorkSurface=()=>{const locale={subscribe:()=>()=>{},getSnapshot:()=>({active:'zh'}),register:()=>()=>{},bind:()=>key=>key};const sessionId='worksurface-research';let current;const sessions={list:{getSnapshot:()=>({byId:{[sessionId]:{sessionId}},current}),subscribe:()=>()=>{}},create:async({sessionId:id})=>id,refresh:async()=>{},open:id=>{current=id;document.body.dataset.openedSession=id}};const ctx={locale,sessions,effect:fn=>fn(),slots:{inject:(_name,fn)=>fn(),register:(_options,Component)=>ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(Component,{ctx}))}};window.__worksurfacePlugin.apply(ctx)};
 </script><script src="/client.js" onload="window.__renderWorkSurface()"></script></body></html>`
 
 const server = createServer(async (request, response) => {
@@ -72,10 +75,21 @@ const server = createServer(async (request, response) => {
   if (path === '/react.js') return send(response, 'text/javascript; charset=utf-8', await readFile(react))
   if (path === '/react-dom.js') return send(response, 'text/javascript; charset=utf-8', await readFile(reactDom))
   if (path === '/client.js') return send(response, 'text/javascript; charset=utf-8', await readFile(client))
-  if (path === '/worksurface-map/styles.css') return send(response, 'text/css; charset=utf-8', await readFile(styles))
-  if (path === '/worksurface-map/api/surfaces') return json(response, { surfaces: snapshot.surfaces.map(({ surfaceId, title }) => ({ surfaceId, title })) })
-  if (request.method === 'POST' && path === '/worksurface-map/api/session') return json(response, { surfaceId: 'research', sessionId: 'worksurface-research', created: true, resumed: false })
-  if (path === '/worksurface-map/api/topology') return json(response, snapshot)
+  if (path === '/worksurface-map/react-flow.css') return upstream ? proxy(response, `${upstream}${path}`) : send(response, 'text/css; charset=utf-8', await readFile(reactFlowStyles))
+  if (path === '/worksurface-map/styles.css') return upstream ? proxy(response, `${upstream}${path}`) : send(response, 'text/css; charset=utf-8', await readFile(styles))
+  if (path === '/worksurface-map/api/surfaces') {
+    if (!upstream) return json(response, { surfaces: snapshot.surfaces.map(({ surfaceId, title }) => ({ surfaceId, title })) })
+    const result = await fetch(`${upstream}${path}`)
+    const value = await result.json()
+    const surfaces = upstreamSurface ? value.surfaces.filter(item => item.surfaceId === upstreamSurface) : value.surfaces
+    return json(response, { surfaces })
+  }
+  if (request.method === 'POST' && path === '/worksurface-map/api/session') return upstream ? proxy(response, `${upstream}${request.url}`, { method: 'POST' }) : json(response, { surfaceId: 'research', sessionId: 'worksurface-research', workspaceId: 'workspace-surfaces', created: true, resumed: false })
+  if (path === '/worksurface-map/api/topology') {
+    if (!upstream) return json(response, snapshot)
+    const surface = upstreamSurface || new URL(request.url ?? '/', 'http://localhost').searchParams.get('surface')
+    return proxy(response, `${upstream}${path}?surface=${encodeURIComponent(surface || '')}`)
+  }
   if (path === '/worksurface-map/api/watch') {
     await new Promise(resolve => setTimeout(resolve, 10_000))
     return json(response, { changed: false })
@@ -93,3 +107,8 @@ function send(response, type, body) {
   response.end(body)
 }
 function json(response, body) { send(response, 'application/json; charset=utf-8', JSON.stringify(body)) }
+async function proxy(response, url, init) {
+  const result = await fetch(url, init)
+  response.writeHead(result.status, { 'content-type': result.headers.get('content-type') || 'application/octet-stream', 'cache-control': 'no-store' })
+  response.end(Buffer.from(await result.arrayBuffer()))
+}

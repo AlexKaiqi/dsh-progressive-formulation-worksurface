@@ -1,7 +1,7 @@
 {
   "version": 1,
   "cases": [
-    { "id": "native-topology", "testFile": "tests/web.spec.ts", "assertions": ["the relation view occupies the native conversation.view ring without iframe or fixed overlay", "Surface and Orchestrate nodes form one directional graph whose path labels open evidence inside DSH"] },
+    { "id": "native-topology", "testFile": "tests/web.spec.ts", "assertions": ["the relation view occupies the native conversation.view ring without iframe or fixed overlay", "React Flow provides pan, zoom, node movement, fit controls and accessible evidence labels while Dagre supplies the initial layout", "browser-local positions remain deletable presentation state and never become domain relations"] },
     { "id": "native-session-admission", "testFile": "tests/web.spec.ts", "assertions": ["enter progress delegates the selected Surface to Host admission", "the client opens the admitted real DSH Session without submitting a prompt or creating a browser-side binding"] },
     { "id": "condition-semantics", "testFile": "tests/web.spec.ts", "assertions": ["the v4 compatibility view preserves all, any, count, sequence and code junctions", "legacy possible, matched, activation and emitted evidence remains isolated from the default code-first relation view"] },
     { "id": "publication-event-phases", "testFile": "tests/web.spec.ts", "assertions": ["Surface publication is replayed from Surface events", "DSH execution state is not inferred from Surface events"] },
