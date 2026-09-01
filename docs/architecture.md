@@ -6,7 +6,7 @@
 
 | 组件 | 代码 | 当前责任 | 持久化结果 |
 | --- | --- | --- | --- |
-| `WorkSurfaceService` | `packages/dsh/src/service.ts` | Cordis 装配、Host RPC、作者目录扫描、Definition/Registration admission | 间接写 Definition、Revision、Event streams |
+| `WorkSurfaceService` | `packages/dsh/src/service.ts` | Cordis 装配、Host RPC、逐项隔离的作者目录扫描、Definition/Registration admission | 间接写 Definition、Revision、Event streams |
 | `SurfaceSessionService` | `packages/dsh/src/session-surface.ts` | 1:1 binding、Turn capability、Surface emit、Revision publication、恢复 | `binding.json`、`context.json`、Surface events |
 | `SurfaceSessionAdmission` | `packages/dsh/src/session-admission.ts` | 创建/恢复唯一 DSH Session，把公共作者根注册为 Workspace 并在返回 Web 前 attach Session | DSH Session + Workspace registry membership |
 | `DshWorkSurfaceSessionAdapter` | `packages/dsh/src/session-adapter.ts` | 消费 DSH Turn 边界、注入 env/instructions、探测可持久 `ignorable` 后装配 fact-backed context、路由 `agent.followup()` | 可选 DSH extension facts 与 followup message |

@@ -8,7 +8,7 @@
 2. append-only Event/Input/Operation 记录实际发生的过程与因果；
 3. DSH Session/Turn/Step 仍是唯一执行历史，WorkSurface 不复制第二套执行生命周期。
 
-本次审计发现并修复的偏差都位于这些边界上。最终全量门禁为 24 个测试文件、115 个测试全部通过；真实 `web` profile 还完成了崩溃窗口恢复、Python Orchestrate 执行、Revision 应用、下游 Event、Web 投影、Workspace attach、原生空白 Session 导航和旧 Host 的 Session 重启兼容验证。真实模型 Turn 已验证到 Provider 请求边界；用户目录 `.env` 中的 DeepSeek 凭据被实际采用，但 Provider 以 HTTP 402 `Insufficient Balance` 拒绝生成，因此模型工具执行后的 Event 链不能记为通过。
+本次审计发现并修复的偏差都位于这些边界上。最终全量门禁为 24 个测试文件、116 个测试全部通过；真实 `web` profile 还完成了崩溃窗口恢复、Python Orchestrate 执行、Revision 应用、下游 Event、关系证据图与抽屉、Workspace attach、原生空白 Session 导航、坏 authoring 单项隔离和旧 Host 的 Session 重启兼容验证。真实模型 Turn 已验证到 Provider 请求边界；用户目录 `.env` 中的 DeepSeek 凭据被实际采用，但 Provider 以 HTTP 402 `Insufficient Balance` 拒绝生成，因此模型工具执行后的 Event 链不能记为通过。
 
 ## 第一性原则判断
 
@@ -31,10 +31,12 @@
 5. 首次 admission 后立即准备下一 Turn 输出契约；Turn 内新增 Registration 不追溯授权当前 Turn。
 6. managed followup 只等待 durable Turn receipt，不等待完整 Agent Turn。
 7. DSH `tool/result` adapter 只持久 EventRef；按需从原 Session Log 解析安全 projection，不复制工具参数或结果正文。
-8. Web 增加 v5 Registration/Event 投影，并把 declared capability 与 actual Event/causes 分栏。
+8. Web 重构为 v5 关系证据图：虚线只表示 declared capability，实线只表示持久 Runtime Event producer/causes；精确事实进入统一抽屉。
 9. 公共作者根注册为 `WorkSurfaces` Workspace；新建/恢复 Session 返回 Web 前 attach。
 10. 兼容本机仍链接的 DSH Session `0.1.2-alpha.1`：对具体 Session constructor 探测 `ignorable` envelope 能力。旧 Host 不写 binding 或 context extension facts，以外部 immutable `binding.json`、Turn Brief 与 shell context 为兼容面；支持新 envelope 的 Host 才启用全部 ignorable facts。
 11. Host domain error 通过同源、已认证 Web API 返回可操作信息，不再一律压成 `projection unavailable`。
+12. Definition v1 拓扑隔离在独立 `v4 兼容` 模式，不再与默认 code-first 图面混排。
+13. 启动和 Turn Brief 准备按作者目录逐项隔离坏 Orchestrate；已记录的同一旧故障不阻塞其他 Surface 发射，根集合故障或当前 Turn 新出现/变化的坏 authoring 仍保持原子拒绝。
 
 ## 按变化来源拆分的文件边界
 
@@ -51,8 +53,8 @@
 | Event-backed head/CAS apply/DSH EventRef bridge | `packages/dsh/src/code-first-surface-port.ts` | Registration 业务条件 |
 | Session create/resume/Workspace attach | `packages/dsh/src/session-admission.ts` | Turn capability 和 Surface 内容 |
 | 1:1 binding/Turn Brief/capability/publication | `packages/dsh/src/session-surface.ts` | Agent retry/completion 生命周期 |
-| Host composition/RPC/topology aggregation | `packages/dsh/src/service.ts` | store 内部规则 |
-| Web projection | `packages/web/client.js`、`packages/web/index.js` | 写入领域事实 |
+| Host composition/RPC/topology aggregation/authoring scan isolation | `packages/dsh/src/service.ts` | store 内部规则 |
+| Web relation layout/evidence projection | `packages/web/client.js`、`packages/web/index.js` | 写入领域事实或推断代码内部业务边 |
 
 ## 可执行验证证据
 
@@ -64,7 +66,7 @@ pnpm check
   TypeScript build: passed
   DSH eval: 4 files / 29 tests passed
   Web eval: 1 file / 8 tests passed
-  full Vitest: 24 files / 115 tests passed
+  full Vitest: 24 files / 116 tests passed
 git diff --check: passed
 ```
 
@@ -73,8 +75,8 @@ git diff --check: passed
 - `runtime-protocol.spec.ts`：authority、Contract digest、Binding、Event、batch/settlement 的正负契约；
 - `code-first-orchestrator.spec.ts`：admission、重复扫描、run、record/apply/settle、未接纳 durable Event 的 restart recovery；
 - `code-first-surface-port.spec.ts`：Event-backed head、CAS apply、published bridge、DSH tool 安全 projection；
-- `session-admission-agent-loop.spec.ts`：真实 DSH Agent Loop、首 Turn 边界、followup receipt 不等待模型结束、restart recovery；
-- `web.spec.ts`：同源 admission、domain error、v4/v5 projection passthrough、声明/事实分层。
+- `session-admission-agent-loop.spec.ts`：真实 DSH Agent Loop、首 Turn 边界、followup receipt 不等待模型结束、restart recovery、坏 authoring 单项隔离；
+- `web.spec.ts`：同源 admission、domain error、v4/v5 projection passthrough、声明/事实分层、统一证据抽屉与兼容模式隔离。
 
 ### 真实 profile：崩溃窗口与完整执行
 
@@ -95,7 +97,17 @@ git diff --check: passed
 #3 verification.live-completed     causes=1 (#1)
 ```
 
-Web 真实页面显示 `1 输入 · 1 运行 · 0 待结算`，并分别展示 Registration routes 与上述四条实际 Event。
+Web 真实页面显示 `ws-e2e-live` Orchestrate 与关联 Surface：Registration routes 是虚线，`verification.live-completed` 的 producer/causes 是实线。点击实线标签后的抽屉展示精确 Event id、Surface、producer run、时间、operation key、Contract digest、Registration 与 cause；没有从 Python 代码猜测额外业务边。
+
+### Web 关系视图端到端验收
+
+- 浏览器 harness 以真实 `client.js` 与 `styles.css` 验证桌面和 560px 窄屏、Surface/Orchestrate/声明通路/实际 Event 四类抽屉、Surface 锚点切换、唯一 Session 导航以及 `v4 兼容` 隔离；
+- 真实 DSH `web` profile 在原生 `conversation.view` 中展示 `ws-e2e-live` 的虚线声明通路与实线 `verification.live-completed`，并从 Host 投影打开上述实际 Event 证据；
+- 空投影停留在默认关系模式并给出空态，不把“无 v5 数据”误报为 v4 模式。
+
+### 启动坏 authoring 隔离
+
+本机保留数据中存在一个缺少 `orchestrate.py` 的 artifact，以及一个与已 admission 不可变事实冲突的可变作者目录。修复前任一项都会使整个 WorkSurface 插件初始化失败；修复后扫描按目录记录一次可操作告警并继续装配其他 Registration。定向集成测试同时放置排序靠前的坏 code-first artifact 与排序靠后的有效 v4 Registration，证明服务启动、有效项可检查且其他 Surface 可继续发射；新出现或错误形态变化的坏作者配置仍会使当前发射在 Event append 前失败。
 
 ### 真实 profile：空白 Session admission 与导航
 
@@ -128,4 +140,4 @@ Web 真实页面显示 `1 输入 · 1 运行 · 0 待结算`，并分别展示 R
 
 ## 本地验收数据说明
 
-真实 E2E 采用了 `~/.dsh/pf-worksurface/work` 下的 `ws-e2e-*` Surface/Orchestration、v5 Registration/Event/Operation facts 和对应 Session binding。它们已经被持久事实引用，按 WorkSurface 保留规则未自动删除。`ws-e2e-live` 的早期空白 Session 和 `ws-e2e-model` 的首次模型 Session 是在兼容探测完整修复前由本机旧 Host 写入，因缺少持久 `ignorable` 标记不能恢复；修复后的 `ws-e2e-nav` 与 `ws-e2e-model2` 分别证明空白 admission 和失败 Turn 重启不会再产生该问题。工作区根下误建、未被采用的 `surfaces/ws-e2e-verify` 已删除。
+真实 E2E 采用了 `~/.dsh/pf-worksurface/work` 下的 `ws-e2e-*` Surface/Orchestration、v5 Registration/Event/Operation facts 和对应 Session binding。它们已经被持久事实引用，按 WorkSurface 保留规则未自动删除。为定位启动隔离问题，作者 Orchestration 曾整体移入临时目录，真实 profile 启动后已逐项原样恢复并删除临时目录；没有删除或改写用户作者数据。`ws-e2e-live` 的早期空白 Session 和 `ws-e2e-model` 的首次模型 Session 是在兼容探测完整修复前由本机旧 Host 写入，因缺少持久 `ignorable` 标记不能恢复；修复后的 `ws-e2e-nav` 与 `ws-e2e-model2` 分别证明空白 admission 和失败 Turn 重启不会再产生该问题。工作区根下误建、未被采用的 `surfaces/ws-e2e-verify` 已删除。

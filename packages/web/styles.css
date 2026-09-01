@@ -25,6 +25,10 @@
 .pf-ws-summary > span { padding: 4px 8px; border: 1px solid var(--ws-border); border-radius: 999px; color: var(--ws-muted); background: color-mix(in srgb, var(--ws-panel) 88%, transparent); font-size: 10px; white-space: nowrap; }
 .pf-ws-summary b { color: var(--ws-text); }
 .pf-ws-summary .attention { color: var(--ws-attention); border-color: color-mix(in srgb, var(--ws-attention) 35%, var(--ws-border)); }
+.pf-ws-anchor-phase { justify-self: end; padding: 4px 9px; border: 1px solid var(--ws-border); border-radius: 999px; color: var(--ws-neutral); background: var(--ws-panel); font-size: 10px; font-weight: 700; white-space: nowrap; }
+.pf-ws-anchor-phase.positive { color: var(--ws-positive); border-color: color-mix(in srgb, var(--ws-positive) 38%, var(--ws-border)); }
+.pf-ws-anchor-phase.attention { color: var(--ws-attention); border-color: color-mix(in srgb, var(--ws-attention) 38%, var(--ws-border)); }
+.pf-ws-anchor-phase.danger { color: var(--ws-danger); border-color: color-mix(in srgb, var(--ws-danger) 38%, var(--ws-border)); }
 .pf-ws-head-actions { display: flex; align-items: center; gap: 9px; }
 .pf-ws-surface-choice { display: flex; align-items: center; gap: 6px; color: var(--ws-muted); font-size: 11px; }
 .pf-ws-surface-choice select { max-width: 220px; padding: 6px 8px; border: 1px solid var(--ws-border); border-radius: 8px; color: var(--ws-text); background: var(--ws-panel); }
@@ -37,6 +41,9 @@
 .pf-ws-body { position: relative; min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; }
 .pf-ws-body.has-drawer { grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); }
 .pf-ws-canvas { position: relative; min-width: 0; min-height: 0; overflow: hidden; background-image: radial-gradient(circle, color-mix(in srgb, var(--ws-border) 56%, transparent) .7px, transparent .7px); background-size: 20px 20px; }
+.pf-ws-modes { position: absolute; z-index: 4; top: 14px; left: 14px; padding: 3px; display: flex; gap: 3px; border: 1px solid var(--ws-border); border-radius: 10px; background: color-mix(in srgb, var(--ws-panel) 95%, transparent); box-shadow: 0 8px 24px rgba(15,23,42,.06); }
+.pf-ws-modes button { padding: 5px 9px; border: 0; border-radius: 7px; color: var(--ws-muted); background: transparent; font: inherit; font-size: 11px; cursor: pointer; }
+.pf-ws-modes button.active { color: var(--ws-text); background: color-mix(in srgb, var(--ws-active) 11%, var(--ws-panel)); font-weight: 700; }
 .pf-ws-graph { display: block; width: 100%; height: 100%; min-height: 460px; }
 .pf-ws-group rect { fill: color-mix(in srgb, var(--ws-panel) 40%, transparent); stroke: color-mix(in srgb, var(--ws-border) 78%, transparent); stroke-width: 1; stroke-dasharray: 3 5; vector-effect: non-scaling-stroke; }
 .pf-ws-group text { fill: var(--ws-muted); font-size: 11px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
@@ -46,6 +53,7 @@
 .pf-ws-node strong { display: -webkit-box; min-width: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 13px; line-height: 1.35; }
 .pf-ws-node-roles { margin-bottom: 5px; display: flex; min-width: 0; gap: 3px; }
 .pf-ws-node-roles > span { max-width: 84px; overflow: hidden; padding: 1px 5px; border-radius: 999px; color: var(--ws-active); background: color-mix(in srgb, var(--ws-active) 9%, transparent); font-size: 8px; font-weight: 700; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
+.pf-ws-node-group { display: block; max-width: 120px; margin-bottom: 4px; overflow: hidden; color: var(--ws-muted); font-size: 8px; font-weight: 700; letter-spacing: .05em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 .pf-ws-node-icon { position: absolute; left: 13px; top: 50%; width: 19px; height: 19px; transform: translateY(-50%); display: grid; place-items: center; border: 1.5px solid currentColor; border-radius: 50%; color: var(--ws-neutral); font-size: 10px; font-weight: 800; }
 .pf-ws-node.current { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ws-active) 12%, transparent), 0 8px 24px rgba(15, 23, 42, .1); }
 .pf-ws-node.current::after { content: ''; position: absolute; inset: -4px; pointer-events: none; border: 1px solid color-mix(in srgb, var(--ws-active) 40%, transparent); border-radius: 17px; }
@@ -59,16 +67,29 @@
 .pf-ws-node.failed .pf-ws-node-icon, .pf-ws-node.conflicted .pf-ws-node-icon { color: var(--ws-danger); }
 .pf-ws-verified { position: absolute; right: 9px; top: 9px; color: var(--ws-positive); font-size: 10px; }
 .pf-ws-current { position: absolute; right: 8px; bottom: 7px; color: var(--ws-active); font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.pf-ws-event-count { position: absolute; right: 8px; top: 8px; color: var(--ws-muted); font-size: 8px; }
+.pf-ws-code-graph .pf-ws-node { width: 212px; height: 84px; }
+.pf-ws-orchestrate { width: 184px; height: 72px; padding: 9px 12px; display: flex; flex-direction: column; justify-content: center; border: 1.5px solid var(--ws-active); border-radius: 18px; color: var(--ws-text); background: color-mix(in srgb, var(--ws-active) 7%, var(--ws-panel)); box-shadow: 0 7px 20px rgba(15,23,42,.08); cursor: pointer; text-align: center; }
+.pf-ws-orchestrate:hover, .pf-ws-orchestrate:focus-visible { outline: 3px solid color-mix(in srgb, var(--ws-active) 20%, transparent); outline-offset: 2px; }
+.pf-ws-orchestrate > span { color: var(--ws-active); font-size: 8px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.pf-ws-orchestrate > strong { display: block; overflow: hidden; margin: 2px 0; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.pf-ws-orchestrate > small { color: var(--ws-muted); font-size: 9px; }
+.pf-ws-orchestrate.pending { border-color: var(--ws-attention); background: color-mix(in srgb, var(--ws-attention) 7%, var(--ws-panel)); }
 .pf-ws-edge { vector-effect: non-scaling-stroke; pointer-events: none; }
 .pf-ws-graph marker path { fill: context-stroke; }
 .pf-ws-edge.possible { stroke: color-mix(in srgb, var(--ws-neutral) 55%, transparent); stroke-width: 1.3; stroke-dasharray: 6 6; fill: none; }
 .pf-ws-edge.actual { stroke: var(--ws-active); stroke-width: 2.5; stroke-dasharray: none; fill: none; }
 .pf-ws-edge.actual.target { stroke: var(--ws-positive); }
 .pf-ws-edge-hit { cursor: pointer; outline: none; }
+.pf-ws-path-hit { cursor: pointer; outline: none; }
+.pf-ws-path-hit:focus-visible .pf-ws-edge, .pf-ws-path-hit:hover .pf-ws-edge.possible { stroke: var(--ws-active); stroke-width: 2.5px; }
 .pf-ws-edge-target { stroke: transparent; stroke-width: 14px; vector-effect: non-scaling-stroke; pointer-events: stroke; }
 .pf-ws-event-dot { fill: var(--ws-active); stroke: var(--ws-panel); stroke-width: 2px; vector-effect: non-scaling-stroke; pointer-events: none; }
 .pf-ws-edge-label { fill: var(--ws-muted); paint-order: stroke; stroke: var(--ws-bg); stroke-width: 5px; stroke-linejoin: round; font-size: 9px; pointer-events: none; }
 .pf-ws-edge-label.actual { fill: var(--ws-text); font-weight: 650; }
+.pf-ws-path-label { width: 100%; height: 22px; overflow: hidden; padding: 0 5px; border: 0; border-radius: 6px; color: var(--ws-muted); background: color-mix(in srgb, var(--ws-bg) 88%, transparent); font: inherit; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.pf-ws-path-label:hover, .pf-ws-path-label:focus-visible { color: var(--ws-active); outline: 1px solid color-mix(in srgb, var(--ws-active) 45%, transparent); }
+.pf-ws-path-label.actual { color: var(--ws-text); background: color-mix(in srgb, var(--ws-active) 12%, var(--ws-bg)); font-weight: 700; }
 .pf-ws-edge-hit:focus-visible .pf-ws-edge.possible { stroke: var(--ws-active); stroke-width: 3px; }
 .pf-ws-gate { cursor: pointer; outline: none; }
 .pf-ws-gate circle { fill: var(--ws-panel); stroke: var(--ws-neutral); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
@@ -95,6 +116,9 @@
 .pf-ws-drawer-meta { padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--ws-border); }
 .pf-ws-drawer-meta .status { padding: 3px 7px; border-radius: 999px; color: var(--ws-active); background: color-mix(in srgb, var(--ws-active) 10%, transparent); font-size: 10px; font-weight: 700; }
 .pf-ws-drawer-meta .status.paused, .pf-ws-drawer-meta .status.retired { color: var(--ws-neutral); background: color-mix(in srgb, var(--ws-neutral) 10%, transparent); }
+.pf-ws-drawer-meta .status.pending { color: var(--ws-attention); background: color-mix(in srgb, var(--ws-attention) 10%, transparent); }
+.pf-ws-drawer-meta .status.declared { color: var(--ws-neutral); background: color-mix(in srgb, var(--ws-neutral) 10%, transparent); }
+.pf-ws-drawer-meta .status.recorded { color: var(--ws-positive); background: color-mix(in srgb, var(--ws-positive) 10%, transparent); }
 .pf-ws-drawer-meta code { color: var(--ws-muted); font-size: 10px; }
 .pf-ws-evidence-rail { margin: 0; padding: 13px 16px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; list-style: none; border-bottom: 1px solid var(--ws-border); }
 .pf-ws-evidence-rail li { position: relative; min-width: 0; color: var(--ws-neutral); text-align: center; }
@@ -138,32 +162,34 @@
 .pf-ws-raw-definition { margin: 14px 16px 24px; }
 .pf-ws-raw-definition summary { color: var(--ws-muted); cursor: pointer; }
 .pf-ws-raw-definition pre { max-height: 320px; overflow: auto; padding: 10px; border: 1px solid var(--ws-border); border-radius: 8px; background: var(--ws-bg); font-size: 10px; white-space: pre-wrap; }
+.pf-ws-drawer-action { padding: 12px 16px; border-bottom: 1px solid var(--ws-border); }
+.pf-ws-drawer-action button.primary { width: 100%; padding: 8px 10px; border: 1px solid var(--ws-active); border-radius: 8px; color: #fff; background: var(--ws-active); cursor: pointer; font-weight: 700; }
+.pf-ws-drawer-note { margin: 0; padding: 12px 16px; color: var(--ws-muted); font-size: 11px; }
+.pf-ws-event-row { width: 100%; margin: 3px 0; padding: 7px 8px; display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: center; gap: 3px 7px; border: 1px solid var(--ws-border); border-radius: 8px; color: var(--ws-text); background: transparent; cursor: pointer; text-align: left; }
+.pf-ws-event-row .dot { width: 6px; height: 6px; grid-row: 1 / span 2; border-radius: 50%; background: var(--ws-positive); }
+.pf-ws-event-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-ws-event-row code, .pf-ws-event-row small { color: var(--ws-muted); font-size: 9px; }
+.pf-ws-event-row small { grid-column: 2 / -1; }
+.pf-ws-route-evidence { margin: 7px 0; padding: 8px; border: 1px solid var(--ws-border); border-radius: 8px; }
+.pf-ws-route-evidence > strong { overflow-wrap: anywhere; }
+.pf-ws-route-evidence ul { margin: 5px 0 0; padding-left: 18px; color: var(--ws-muted); font-size: 10px; }
+.pf-ws-cause { margin: 4px 0; padding: 6px 7px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 7px; border: 1px solid var(--ws-border); border-radius: 7px; }
+.pf-ws-cause > span, .pf-ws-cause > code, .pf-ws-cause > small { color: var(--ws-muted); font-size: 9px; }
+.pf-ws-cause > small { grid-column: 2 / -1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pf-ws-muted { margin: 0; color: var(--ws-muted); }
 .pf-ws-blank { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; padding: 30px; color: var(--ws-muted); text-align: center; }
 .pf-ws-blank strong { color: var(--ws-text); font-size: 15px; } .pf-ws-blank p { max-width: 470px; }
 .pf-ws-empty-mark { margin-bottom: 10px; color: var(--ws-active); font-size: 36px; }
 .pf-ws-danger strong, .pf-ws-danger span { color: var(--ws-danger); }
-.pf-ws-code-first { min-height: 100%; padding: 18px; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, .8fr); gap: 16px; align-items: start; overflow: auto; }
-.pf-ws-runtime-section { min-width: 0; padding: 14px; border: 1px solid var(--ws-border); border-radius: 14px; background: var(--ws-panel); box-shadow: 0 8px 24px rgba(15,23,42,.05); }
-.pf-ws-runtime-section > h3 { margin: 0 0 12px; color: var(--ws-muted); font-size: 11px; letter-spacing: .07em; text-transform: uppercase; }
-.pf-ws-registration-card { margin-top: 10px; padding: 12px; border: 1px solid var(--ws-border); border-radius: 10px; }
-.pf-ws-registration-card > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px 12px; }
-.pf-ws-registration-card > header strong { color: var(--ws-text); }
-.pf-ws-registration-card > header code, .pf-ws-registration-card > header span { color: var(--ws-muted); font-size: 10px; }
-.pf-ws-binding-list { margin-top: 9px; display: flex; flex-wrap: wrap; gap: 6px; }
-.pf-ws-binding-list button, .pf-ws-event-fact button { padding: 4px 7px; border: 1px solid var(--ws-border); border-radius: 7px; color: var(--ws-active); background: transparent; cursor: pointer; }
-.pf-ws-route-list { margin: 10px 0 0; padding: 0; display: grid; gap: 5px; list-style: none; }
-.pf-ws-route-list li { padding: 6px 8px; display: grid; grid-template-columns: minmax(130px, .7fr) minmax(0, 1.3fr); gap: 8px; border-radius: 7px; background: color-mix(in srgb, var(--ws-active) 5%, transparent); }
-.pf-ws-route-list span { color: var(--ws-muted); font-size: 10px; overflow-wrap: anywhere; }
-.pf-ws-event-fact { margin-top: 7px; padding: 7px; display: grid; grid-template-columns: minmax(90px, 1fr) minmax(130px, 1.3fr) auto auto auto; align-items: center; gap: 7px; border-bottom: 1px solid var(--ws-border); font-size: 10px; }
-.pf-ws-event-fact code, .pf-ws-event-fact span, .pf-ws-runtime-empty { color: var(--ws-muted); }
 @media (max-width: 820px) {
   .pf-ws-head { grid-template-columns: minmax(0, 1fr) auto; }
   .pf-ws-summary { display: none; }
   .pf-ws-body.has-drawer { grid-template-columns: 1fr; }
   .pf-ws-drawer { position: absolute; z-index: 5; inset: 68px 0 0 12%; border-top: 1px solid var(--ws-border); }
   .pf-ws-head p { display: none; }
-  .pf-ws-code-first { grid-template-columns: 1fr; }
+  .pf-ws-anchor-phase { display: none; }
+  .pf-ws-canvas { overflow: auto; }
+  .pf-ws-graph { width: 900px; min-width: 900px; height: 600px; min-height: 600px; }
 }
 @media (max-width: 560px) {
   .pf-ws-head { padding-inline: 12px; }
@@ -171,6 +197,5 @@
   .pf-ws-surface-choice span { display: none; }
   .pf-ws-surface-choice select { max-width: 150px; }
   .pf-ws-drawer { left: 0; }
-  .pf-ws-event-fact { grid-template-columns: 1fr auto; }
-  .pf-ws-event-fact > *:nth-child(n+3) { font-size: 9px; }
+  .pf-ws-modes { top: 8px; left: 8px; }
 }

@@ -10,6 +10,8 @@ const client = new URL('../client.js', import.meta.url)
 const styles = new URL('../styles.css', import.meta.url)
 
 const ref = (subject, seq, id) => ({ subject, seq, id })
+const authority = 'wsa_browser_acceptance'
+const runtimeRef = (surfaceId, seq, id) => ({ source: 'worksurface', subject: { authority, kind: 'surface', id: surfaceId }, seq, id })
 const snapshot = {
   anchorSurfaceId: 'research',
   viewRevision: `sha256:${'d'.repeat(64)}`,
@@ -52,8 +54,8 @@ const snapshot = {
     acceptedInputCount: 2, recordedRunCount: 1, pendingRunCount: 0,
   }],
   runtimeEvents: {
-    research: [{ seq: 0, recordedAt: '2026-09-01T00:00:00.000Z', type: { name: 'release.requested' }, producer: { kind: 'surface-session' }, causes: [] }],
-    publish: [{ seq: 1, recordedAt: '2026-09-01T00:00:01.000Z', type: { name: 'release.bundle.completed' }, producer: { kind: 'orchestrate' }, causes: [{ id: 'request', seq: 0 }] }],
+    research: [{ version: 1, id: 'request', subject: { authority, kind: 'surface', id: 'research' }, seq: 0, recordedAt: '2026-09-01T00:00:00.000Z', type: { scope: { authority, kind: 'registration', id: 'release-code' }, name: 'release.requested', contract: `sha256:${'e'.repeat(64)}` }, payload: { releaseId: 'demo' }, producer: { kind: 'surface-session', ref: 'worksurface-research/turn-1' }, operationKey: 'request-release', causes: [] }],
+    publish: [{ version: 1, id: 'completed', subject: { authority, kind: 'surface', id: 'publish' }, seq: 1, recordedAt: '2026-09-01T00:00:01.000Z', type: { scope: { authority, kind: 'registration', id: 'release-code' }, name: 'release.bundle.completed', contract: `sha256:${'f'.repeat(64)}` }, payload: { releaseId: 'demo' }, producer: { kind: 'orchestrate', ref: 'release-code/run-1' }, operationKey: 'complete-release', causes: [runtimeRef('research', 0, 'request')] }],
   },
 }
 

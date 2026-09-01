@@ -1,6 +1,6 @@
 {
   "name": "@pf-worksurface/web",
-  "description": "Native DSH WorkSurface topology, event progress, and exact orchestration inspection",
+  "description": "Native DSH WorkSurface relation graph and exact evidence inspection",
   "version": "0.2.0-rc.1",
   "type": "module",
   "main": "index.js",
@@ -33,8 +33,8 @@
   "dsh": {
     "inventory": {
       "summary": {
-        "zh": "在 DSH 原生会话视图中展示 WorkSurface 拓扑、事件推进与精确编排证据。",
-        "en": "Shows WorkSurface topology, event progress, and exact orchestration evidence in the native DSH conversation view."
+        "zh": "在 DSH 原生会话视图中展示 WorkSurface 关系图，区分声明通路与已记录因果证据。",
+        "en": "Shows the WorkSurface relation graph with separate declared paths and recorded causal evidence in the native DSH conversation view."
       },
       "tags": ["visualization", "web", "events", "orchestration"],
       "dependencies": ["@pf-worksurface/dsh", "@deepseek-ai/dsh-host-webserver", "@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-ui-conversation"]

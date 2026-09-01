@@ -5,7 +5,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const NS = 'worksurfaceWeb'
     const en = {
-      view: 'Topology', title: 'Work topology', subtitle: 'Registrations declare capabilities; recorded Events and causes explain actual progress.',
+      view: 'Relations', title: 'WorkSurface relations', subtitle: 'Dashed paths are declared capabilities. Solid paths are recorded Event evidence.',
       refresh: 'Refresh', refreshing: 'Refreshing…', empty: 'No orchestration is connected to this Surface.',
       chooseSurface: 'Surface', noSurfaces: 'No authored or event-backed Surface exists yet.',
       emptyHint: 'The Surface remains valid. Admit an Orchestrate artifact and registration.json to connect it to other work.',
@@ -24,12 +24,18 @@ window.__ModuleLoader__.load({
       yes: 'Recorded', no: 'Not recorded', source: 'Source', target: 'Target', eventRefs: 'Event references',
       phase: 'Projected phase', evidence: 'Event evidence', group: 'Group',
       handlerInvocations: 'Handler invocations',
-      declaredCapabilities: 'Declared capabilities', actualFacts: 'Recorded Event facts', noActualFacts: 'No target Runtime Event has been recorded yet.',
+      declaredCapabilities: 'Declared path', actualFacts: 'Recorded evidence', noActualFacts: 'No Runtime Event has been recorded yet.',
       inputs: 'inputs', runs: 'runs', pendingRuns: 'pending', consume: 'consume', emit: 'orchestrate emit', surfaceOutput: 'Surface output', causes: 'causes',
       advance: 'Continue in DSH', opening: 'Opening session…', sessionFailed: 'Unable to open the Surface Session',
+      relations: 'Relations', legacy: 'v4 compatibility', registration: 'Orchestrate', runtimeEvent: 'Runtime Event',
+      declaredPath: 'Declared path', actualPath: 'Recorded causal path', setAnchor: 'Focus this Surface',
+      eventHistory: 'Recorded Events', noEvents: 'No Runtime Event is recorded for this Surface.', route: 'Event route',
+      producer: 'Producer', recordedAt: 'Recorded at', operationKey: 'Operation key', payload: 'Payload',
+      exactEvidence: 'Exact evidence', capability: 'Capability', contract: 'Contract', from: 'From', to: 'To', currentSurface: 'Current Surface',
+      compatibleHint: 'The v4 engine is kept in an isolated compatibility view.',
     }
     const zh = {
-      view: '拓扑', title: '工作拓扑', subtitle: 'Registration 声明能力，已记录 Event 与 causes 解释实际推进。',
+      view: '关系', title: 'WorkSurface 关系', subtitle: '虚线是声明的可能通路，实线是已记录 Event 证明的实际因果。',
       refresh: '刷新', refreshing: '刷新中…', empty: '当前 Surface 尚未连接任何编排。',
       chooseSurface: 'Surface', noSurfaces: '尚未发现作者目录或事件支持的 Surface。',
       emptyHint: 'Surface 本身仍然有效；准入 Orchestrate artifact 与 registration.json 后会形成事件拓扑。',
@@ -48,9 +54,15 @@ window.__ModuleLoader__.load({
       yes: '已有事实', no: '尚无事实', source: '来源', target: '目标', eventRefs: '事件引用',
       phase: '投影阶段', evidence: '事件证据', group: '分组',
       handlerInvocations: 'Handler 调用',
-      declaredCapabilities: '声明的能力通路', actualFacts: '已记录 Event 事实', noActualFacts: '目标 Runtime 尚未记录 Event。',
+      declaredCapabilities: '声明通路', actualFacts: '已记录证据', noActualFacts: '尚未记录 Runtime Event。',
       inputs: '输入', runs: '运行', pendingRuns: '待结算', consume: '消费', emit: 'Orchestrate 发出', surfaceOutput: 'Surface 输出', causes: '原因',
       advance: '进入推进', opening: '正在进入 Session…', sessionFailed: '无法进入 Surface Session',
+      relations: '关系视图', legacy: 'v4 兼容', registration: 'Orchestrate', runtimeEvent: 'Runtime Event',
+      declaredPath: '声明通路', actualPath: '已记录因果通路', setAnchor: '以此 Surface 为锚点',
+      eventHistory: '已记录 Event', noEvents: '该 Surface 尚无 Runtime Event。', route: 'Event 路由',
+      producer: '产生者', recordedAt: '记录时间', operationKey: '操作键', payload: 'Payload',
+      exactEvidence: '精确证据', capability: '能力', contract: 'Contract', from: '来自', to: '去向', currentSurface: '当前 Surface',
+      compatibleHint: 'v4 引擎只保留在独立的兼容视图中。',
     }
     const dictionaries = { en, zh, 'zh-TW': zh }
 
@@ -69,6 +81,7 @@ window.__ModuleLoader__.load({
       const [error, setError] = React.useState('')
       const [loading, setLoading] = React.useState(true)
       const [selected, setSelected] = React.useState(null)
+      const [viewMode, setViewMode] = React.useState('relations')
       const [surfaceId, setSurfaceId] = React.useState('')
       const [surfaces, setSurfaces] = React.useState([])
       const [openingSurface, setOpeningSurface] = React.useState('')
@@ -148,16 +161,15 @@ window.__ModuleLoader__.load({
           setOpeningSurface('')
         }
       }, [openingSurface, props.ctx.sessions, surfaceId, t])
-      const summary = snapshot ? topologySummary(snapshot) : null
       const displayTitle = snapshot?.view?.title || t('title')
+      const hasRelations = Boolean(snapshot?.codeFirst?.length)
+      const hasLegacy = Boolean(snapshot?.orchestrations?.length)
+      const activeMode = hasRelations ? (viewMode === 'relations' || !hasLegacy ? 'relations' : 'legacy') : hasLegacy ? 'legacy' : 'relations'
+      const anchor = snapshot?.surfaces.find(surface => surface.surfaceId === snapshot.anchorSurfaceId)
       return h('section', { className: 'pf-ws-view', 'aria-label': displayTitle }, [
         h('header', { key: 'head', className: 'pf-ws-head' }, [
-          h('div', { key: 'copy', className: 'pf-ws-head-copy' }, [h('h2', { key: 'title' }, displayTitle), h('p', { key: 'sub' }, t('subtitle'))]),
-          summary ? h('div', { key: 'summary', className: 'pf-ws-summary', 'aria-label': `${summary.surfaces} ${t('surfaces')}, ${summary.paths} ${t('paths')}` }, [
-            h('span', { key: 'surfaces' }, [h('b', { key: 'value' }, summary.surfaces), ` ${t('surfaces')}`]),
-            h('span', { key: 'paths' }, [h('b', { key: 'value' }, summary.paths), ` ${t('paths')}`]),
-            summary.attention ? h('span', { key: 'attention', className: 'attention' }, [h('b', { key: 'value' }, summary.attention), ` ${t('needsAttention')}`]) : null,
-          ]) : null,
+          h('div', { key: 'copy', className: 'pf-ws-head-copy' }, [h('h2', { key: 'title' }, displayTitle), h('p', { key: 'sub' }, t(activeMode === 'relations' ? 'subtitle' : 'compatibleHint'))]),
+          anchor ? h('span', { key: 'phase', className: `pf-ws-anchor-phase ${phaseTone(anchor.lifecycle.phase)}` }, `${phaseIcon(anchor.lifecycle.phase)} ${t(anchor.lifecycle.phase)}`) : null,
           h('div', { key: 'actions', className: 'pf-ws-head-actions' }, [
             h('label', { key: 'surface', className: 'pf-ws-surface-choice' }, [
               h('span', { key: 'label' }, t('chooseSurface')),
@@ -177,53 +189,74 @@ window.__ModuleLoader__.load({
         !surfaceId && !loading && !error ? h('div', { key: 'no-surfaces', className: 'pf-ws-blank' }, t('noSurfaces')) : null,
         snapshot ? h('div', { key: 'body', className: `pf-ws-body${selected ? ' has-drawer' : ''}` }, [
           h('div', { key: 'canvas', className: 'pf-ws-canvas' }, [
-            (snapshot.codeFirst || []).length > 0 ? h(CodeFirstTopology, { key: 'code-first', snapshot, t, onSurface: openSurface }) : null,
-            snapshot.orchestrations.length > 0 ? h(TopologyGraph, { key: 'graph', snapshot, t, onSurface: openSurface, onSelect: setSelected }) : null,
-            snapshot.orchestrations.length === 0 && (snapshot.codeFirst || []).length === 0
+            hasRelations && hasLegacy ? h('nav', { key: 'modes', className: 'pf-ws-modes', 'aria-label': t('view') }, [
+              h('button', { key: 'relations', type: 'button', className: activeMode === 'relations' ? 'active' : '', onClick: () => { setViewMode('relations'); setSelected(null) } }, t('relations')),
+              h('button', { key: 'legacy', type: 'button', className: activeMode === 'legacy' ? 'active' : '', onClick: () => { setViewMode('legacy'); setSelected(null) } }, t('legacy')),
+            ]) : null,
+            activeMode === 'relations' && hasRelations ? h(CodeFirstGraph, { key: 'relations', snapshot, t, onSelect: setSelected }) : null,
+            activeMode === 'legacy' && hasLegacy ? h(TopologyGraph, { key: 'legacy', snapshot, t, onSurface: openSurface, onSelect: selection => setSelected({ ...selection, scope: 'legacy' }) }) : null,
+            !hasLegacy && !hasRelations
               ? h('div', { key: 'empty', className: 'pf-ws-blank' }, [h('span', { key: 'mark', className: 'pf-ws-empty-mark' }, '◇'), h('strong', { key: 'title' }, t('empty')), h('p', { key: 'hint' }, t('emptyHint'))])
               : null,
-            h(Legend, { key: 'legend', t }),
+            h(Legend, { key: 'legend', t, mode: activeMode }),
           ]),
-          selected ? h(EvidenceDrawer, { key: 'drawer', selection: selected, snapshot, t, onClose: () => setSelected(null), onSurface: openSurface }) : null,
+          selected?.scope === 'code-first' ? h(CodeFirstEvidenceDrawer, { key: 'code-first-drawer', selection: selected, snapshot, t, onClose: () => setSelected(null), onSurface: openSurface, onSelect: setSelected }) : null,
+          selected?.scope === 'legacy' ? h(LegacyEvidenceDrawer, { key: 'legacy-drawer', selection: selected, snapshot, t, onClose: () => setSelected(null), onSurface: openSurface }) : null,
         ]) : null,
       ])
     }
 
-    function CodeFirstTopology({ snapshot, t, onSurface }) {
-      const facts = Object.entries(snapshot.runtimeEvents || {}).flatMap(([surfaceId, events]) => events.map(event => ({ surfaceId, event })))
-        .sort((left, right) => left.event.recordedAt.localeCompare(right.event.recordedAt) || left.event.seq - right.event.seq)
-      return h('div', { className: 'pf-ws-code-first' }, [
-        h('section', { key: 'declared', className: 'pf-ws-runtime-section', 'aria-label': t('declaredCapabilities') }, [
-          h('h3', { key: 'title' }, t('declaredCapabilities')),
-          ...(snapshot.codeFirst || []).map(registration => h('article', { key: registration.registrationId, className: 'pf-ws-registration-card' }, [
-            h('header', { key: 'head' }, [
-              h('strong', { key: 'id' }, registration.registrationId),
-              h('code', { key: 'revision', title: registration.orchestrateRevision }, shortRevision(registration.orchestrateRevision)),
-              h('span', { key: 'counts' }, `${registration.acceptedInputCount} ${t('inputs')} · ${registration.recordedRunCount} ${t('runs')} · ${registration.pendingRunCount} ${t('pendingRuns')}`),
-            ]),
-            h('div', { key: 'bindings', className: 'pf-ws-binding-list' }, Object.entries(registration.bindings).map(([handle, id]) => h('button', { key: handle, type: 'button', onClick: () => onSurface(id) }, `${handle} → ${surfaceTitle(snapshot, id)}`))),
-            h('ul', { key: 'routes', className: 'pf-ws-route-list' }, Object.entries(registration.routes).map(([name, route]) => {
-              const capabilities = [
-                ...(route.consumeFrom || []).map(handle => `${t('consume')}: ${handle}`),
-                ...(route.emitOn || []).map(handle => `${t('emit')}: ${handle}`),
-                ...(route.surfaceOutputFrom || []).map(handle => `${t('surfaceOutput')}: ${handle}`),
-              ]
-              return h('li', { key: name }, [h('strong', { key: 'name' }, name), h('span', { key: 'caps' }, capabilities.join(' · '))])
-            })),
-          ])),
-        ]),
-        h('section', { key: 'actual', className: 'pf-ws-runtime-section', 'aria-label': t('actualFacts') }, [
-          h('h3', { key: 'title' }, t('actualFacts')),
-          facts.length === 0 ? h('p', { key: 'empty', className: 'pf-ws-runtime-empty' }, t('noActualFacts')) : null,
-          ...facts.map(({ surfaceId, event }) => h('article', { key: `${surfaceId}:${event.seq}`, className: 'pf-ws-event-fact' }, [
-            h('button', { key: 'surface', type: 'button', onClick: () => onSurface(surfaceId) }, surfaceTitle(snapshot, surfaceId)),
-            h('strong', { key: 'event' }, event.type.name),
-            h('code', { key: 'seq' }, `#${event.seq}`),
-            h('span', { key: 'producer' }, event.producer.kind),
-            h('span', { key: 'causes' }, `${event.causes.length} ${t('causes')}`),
-          ])),
-        ]),
-      ])
+    function CodeFirstGraph({ snapshot, t, onSelect }) {
+      const model = buildCodeFirstGraph(snapshot)
+      const children = [h('defs', { key: 'defs' }, h('marker', { id: 'pf-ws-code-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 6, markerHeight: 6, orient: 'auto-start-reverse' }, h('path', { d: 'M 0 0 L 10 5 L 0 10 z' })))]
+      for (const path of model.declaredPaths) {
+        children.push(h('g', { key: path.key, className: 'pf-ws-path-hit' }, [
+          h('line', { key: 'hit', ...lineCoordinates(path), className: 'pf-ws-edge-target', onClick: () => onSelect({ scope: 'code-first', type: 'declared-path', key: path.key }) }),
+          h('line', { key: 'line', ...lineCoordinates(path), className: 'pf-ws-edge possible', markerEnd: 'url(#pf-ws-code-arrow)' }),
+          h(PathLabelButton, { key: 'label', path, label: pathLabel(path.events), ariaLabel: `${t('declaredPath')}: ${path.events.join(', ')}`, onClick: () => onSelect({ scope: 'code-first', type: 'declared-path', key: path.key }) }),
+        ]))
+      }
+      for (const path of model.actualPaths) {
+        const selectActual = () => onSelect({ scope: 'code-first', type: 'actual-event', surfaceId: path.surfaceId, eventId: path.event.id })
+        children.push(h('g', { key: path.key, className: 'pf-ws-path-hit actual' }, [
+          ...path.segments.flatMap((segment, index) => [
+            h('line', { key: `hit:${index}`, ...lineCoordinates(segment), className: 'pf-ws-edge-target', onClick: selectActual }),
+            h('line', { key: `line:${index}`, ...lineCoordinates(segment), className: 'pf-ws-edge actual', markerEnd: index === path.segments.length - 1 ? 'url(#pf-ws-code-arrow)' : undefined }),
+          ]),
+          h('circle', { key: 'event', cx: path.target.x, cy: path.target.y, r: 5, className: 'pf-ws-event-dot' }),
+          h(PathLabelButton, { key: 'label', path: path.segments.at(-1), label: path.event.type.name, ariaLabel: `${t('actualPath')}: ${path.event.type.name}`, actual: true, onClick: selectActual }),
+        ]))
+      }
+      for (const registration of model.registrations) {
+        children.push(h('foreignObject', { key: registration.registration.registrationId, x: registration.position.x - 94, y: registration.position.y - 38, width: 188, height: 76 }, h('button', {
+          type: 'button', className: `pf-ws-orchestrate${registration.registration.pendingRunCount ? ' pending' : ''}`,
+          onClick: () => onSelect({ scope: 'code-first', type: 'registration', registrationId: registration.registration.registrationId }),
+          'aria-label': `${t('registration')}: ${registration.registration.registrationId}`,
+        }, [
+          h('span', { key: 'kind' }, t('registration')),
+          h('strong', { key: 'id', title: registration.registration.registrationId }, registration.registration.registrationId),
+          h('small', { key: 'runs' }, `${registration.registration.recordedRunCount} ${t('runs')}${registration.registration.pendingRunCount ? ` · ${registration.registration.pendingRunCount} ${t('pendingRuns')}` : ''}`),
+        ])))
+      }
+      for (const node of model.surfaces) {
+        const phase = node.surface.lifecycle.phase
+        children.push(h('foreignObject', { key: node.surface.surfaceId, x: node.position.x - 108, y: node.position.y - 44, width: 216, height: 88 }, h('button', {
+          type: 'button', className: `pf-ws-node ${phase}${node.surface.surfaceId === snapshot.anchorSurfaceId ? ' current' : ''}`,
+          onClick: () => onSelect({ scope: 'code-first', type: 'surface', surfaceId: node.surface.surfaceId }),
+          'aria-label': `${node.surface.title}: ${t(phase)}`,
+        }, [
+          h('span', { key: 'icon', className: 'pf-ws-node-icon', 'aria-hidden': 'true' }, phaseIcon(phase)),
+          h('span', { key: 'copy', className: 'pf-ws-node-copy' }, [node.surface.group ? h('span', { key: 'group', className: 'pf-ws-node-group' }, node.surface.group) : null, h('strong', { key: 'title', title: node.surface.title }, node.surface.title)]),
+          node.eventCount ? h('span', { key: 'events', className: 'pf-ws-event-count' }, `${node.eventCount} Event`) : null,
+          node.surface.surfaceId === snapshot.anchorSurfaceId ? h('span', { key: 'current', className: 'pf-ws-current' }, t('current')) : null,
+        ])))
+      }
+      return h('svg', { className: 'pf-ws-graph pf-ws-code-graph', viewBox: '0 0 1200 720', preserveAspectRatio: 'xMidYMid meet', 'aria-label': t('relations') }, children)
+    }
+
+    function PathLabelButton({ path, label, ariaLabel, actual, onClick }) {
+      const position = lineLabel(path)
+      return h('foreignObject', { x: position.x - 82, y: position.y - 12, width: 164, height: 24 }, h('button', { type: 'button', className: `pf-ws-path-label${actual ? ' actual' : ''}`, onClick, 'aria-label': ariaLabel, title: label }, label))
     }
 
     function TopologyGraph({ snapshot, t, onSurface, onSelect }) {
@@ -275,19 +308,79 @@ window.__ModuleLoader__.load({
       return h('svg', { className: 'pf-ws-graph', viewBox: '0 0 1200 720', preserveAspectRatio: 'xMidYMid meet', 'aria-label': t('title') }, children)
     }
 
-    function Legend({ t }) {
+    function Legend({ t, mode }) {
       return h('details', { className: 'pf-ws-legend' }, [
         h('summary', { key: 'summary' }, t('legend')),
         h('div', { key: 'items' }, [
           h('span', { key: 'possible' }, [h('i', { key: 'mark', className: 'line possible' }), t('possible')]),
-          h('span', { key: 'observed' }, [h('i', { key: 'mark', className: 'line observed' }), t('observed')]),
-          h('span', { key: 'emitted' }, [h('i', { key: 'mark', className: 'line emitted' }), t('emitted')]),
+          h('span', { key: 'observed' }, [h('i', { key: 'mark', className: 'line observed' }), mode === 'relations' ? t('actualFacts') : t('observed')]),
+          mode === 'legacy' ? h('span', { key: 'emitted' }, [h('i', { key: 'mark', className: 'line emitted' }), t('emitted')]) : null,
           ...['idle', 'published', 'waiting-user', 'completed', 'failed', 'conflicted'].map(phase => h('span', { key: phase }, [h('i', { key: 'mark', className: `phase ${phase}` }, phaseIcon(phase)), t(phase)])),
         ]),
       ])
     }
 
-    function EvidenceDrawer({ selection, snapshot, t, onClose, onSurface }) {
+    function CodeFirstEvidenceDrawer({ selection, snapshot, t, onClose, onSurface, onSelect }) {
+      const model = buildCodeFirstGraph(snapshot)
+      if (selection.type === 'surface') {
+        const surface = snapshot.surfaces.find(item => item.surfaceId === selection.surfaceId)
+        if (!surface) return null
+        const events = [...(snapshot.runtimeEvents?.[surface.surfaceId] || [])].reverse()
+        return h(EvidenceShell, { label: 'Surface', title: surface.title, onClose }, [
+          h('div', { key: 'meta', className: 'pf-ws-drawer-meta' }, [h('span', { key: 'status', className: `status ${surface.lifecycle.phase}` }, t(surface.lifecycle.phase)), h('code', { key: 'id', title: surface.surfaceId }, shortId(surface.surfaceId))]),
+          h(DrawerSection, { key: 'identity', title: t('exactEvidence') }, h('dl', { className: 'pf-ws-path-facts' }, [
+            factRow('SurfaceId', surface.surfaceId),
+            surface.group ? factRow(t('group'), surface.group) : null,
+            factRow(t('phase'), t(surface.lifecycle.phase)),
+          ])),
+          surface.lifecycle.evidence?.length ? h(DrawerSection, { key: 'lifecycle', title: t('evidence') }, surface.lifecycle.evidence.map(item => h('div', { key: `${item.ref.subject}:${item.ref.seq}:${item.ref.id}`, className: 'pf-ws-cause' }, [h('span', { key: 'source' }, item.name), h('strong', { key: 'subject' }, item.ref.subject), h('code', { key: 'seq' }, `#${item.ref.seq}`), h('small', { key: 'id', title: item.ref.id }, shortId(item.ref.id))]))) : null,
+          surface.surfaceId !== snapshot.anchorSurfaceId ? h('div', { key: 'focus', className: 'pf-ws-drawer-action' }, h('button', { type: 'button', className: 'primary', onClick: () => onSurface(surface.surfaceId) }, t('setAnchor'))) : null,
+          h(DrawerSection, { key: 'events', title: `${t('eventHistory')} · ${events.length}` }, events.length ? events.map(event => h('button', { key: event.id, type: 'button', className: 'pf-ws-event-row', onClick: () => onSelect({ scope: 'code-first', type: 'actual-event', surfaceId: surface.surfaceId, eventId: event.id }) }, [
+            h('span', { key: 'dot', className: 'dot' }), h('strong', { key: 'name' }, event.type.name), h('code', { key: 'seq' }, `#${event.seq}`), h('small', { key: 'producer' }, event.producer.kind),
+          ])) : h('p', { className: 'pf-ws-muted' }, t('noEvents'))),
+        ])
+      }
+      if (selection.type === 'registration') {
+        const registration = snapshot.codeFirst.find(item => item.registrationId === selection.registrationId)
+        if (!registration) return null
+        return h(EvidenceShell, { label: t('registration'), title: registration.registrationId, onClose }, [
+          h('div', { key: 'meta', className: 'pf-ws-drawer-meta' }, [h('span', { key: 'status', className: registration.pendingRunCount ? 'status pending' : 'status' }, registration.pendingRunCount ? `${registration.pendingRunCount} ${t('pendingRuns')}` : `${registration.recordedRunCount} ${t('runs')}`), h('code', { key: 'revision', title: registration.orchestrateRevision }, shortRevision(registration.orchestrateRevision))]),
+          h(DrawerSection, { key: 'counts', title: t('exactEvidence') }, h('dl', { className: 'pf-ws-path-facts' }, [factRow(t('inputs'), registration.acceptedInputCount), factRow(t('runs'), registration.recordedRunCount), factRow(t('pendingRuns'), registration.pendingRunCount), factRow(t('revision'), registration.orchestrateRevision)])),
+          h(DrawerSection, { key: 'bindings', title: t('bindings') }, Object.entries(registration.bindings).map(([handle, id]) => h('button', { key: handle, type: 'button', className: 'pf-ws-binding', onClick: () => onSelect({ scope: 'code-first', type: 'surface', surfaceId: id }) }, [h('b', { key: 'handle' }, handle), h('span', { key: 'arrow' }, '→'), h('span', { key: 'surface' }, surfaceTitle(snapshot, id))]))),
+          h(DrawerSection, { key: 'routes', title: t('route') }, Object.entries(registration.routes).map(([name, route]) => h('article', { key: name, className: 'pf-ws-route-evidence' }, [h('strong', { key: 'name' }, name), h('ul', { key: 'items' }, routeCapabilities(route, t).map(item => h('li', { key: `${item.capability}:${item.handle}` }, `${item.capability} · ${item.handle} → ${surfaceTitle(snapshot, registration.bindings[item.handle])}`)))]))),
+        ])
+      }
+      if (selection.type === 'declared-path') {
+        const path = model.declaredPaths.find(item => item.key === selection.key)
+        if (!path) return null
+        return h(EvidenceShell, { label: t('declaredPath'), title: path.events.join(', '), onClose }, [
+          h('div', { key: 'meta', className: 'pf-ws-drawer-meta' }, [h('span', { key: 'status', className: 'status declared' }, t('possible')), h('code', { key: 'revision', title: path.registration.orchestrateRevision }, shortRevision(path.registration.orchestrateRevision))]),
+          h(DrawerSection, { key: 'evidence', title: t('exactEvidence') }, h('dl', { className: 'pf-ws-path-facts' }, [
+            factRow(t('registration'), path.registration.registrationId), factRow(t('from'), nodeTitle(snapshot, path.from)), factRow(t('to'), nodeTitle(snapshot, path.to)), factRow(t('capability'), path.capabilities.join(', ')), factRow(t('route'), path.events.join(', ')),
+          ])),
+          h('p', { key: 'note', className: 'pf-ws-drawer-note' }, t('subtitle')),
+        ])
+      }
+      const event = snapshot.runtimeEvents?.[selection.surfaceId]?.find(item => item.id === selection.eventId)
+      if (!event) return null
+      const registrationId = event.producer.kind === 'orchestrate' ? event.producer.ref.split('/')[0] : ''
+      const registration = snapshot.codeFirst.find(item => item.registrationId === registrationId)
+      return h(EvidenceShell, { label: t('runtimeEvent'), title: event.type.name, onClose }, [
+        h('div', { key: 'meta', className: 'pf-ws-drawer-meta' }, [h('span', { key: 'status', className: 'status recorded' }, t('actualFacts')), h('code', { key: 'seq' }, `#${event.seq}`)]),
+        h(DrawerSection, { key: 'identity', title: t('exactEvidence') }, h('dl', { className: 'pf-ws-path-facts' }, [
+          factRow('Event ID', event.id), factRow('Surface', surfaceTitle(snapshot, selection.surfaceId)), factRow(t('producer'), `${event.producer.kind} · ${event.producer.ref}`), factRow(t('recordedAt'), event.recordedAt), factRow(t('operationKey'), event.operationKey), factRow(t('contract'), event.type.contract),
+        ])),
+        registration ? h(DrawerSection, { key: 'registration', title: t('registration') }, h('button', { type: 'button', className: 'pf-ws-binding', onClick: () => onSelect({ scope: 'code-first', type: 'registration', registrationId }) }, [h('b', { key: 'kind' }, t('registration')), h('span', { key: 'arrow' }, '→'), h('span', { key: 'id' }, registrationId)])) : null,
+        h(DrawerSection, { key: 'causes', title: `${t('causes')} · ${event.causes.length}` }, event.causes.length ? event.causes.map(cause => h('div', { key: `${cause.source}:${cause.subject.id}:${cause.seq}:${cause.id}`, className: 'pf-ws-cause' }, [h('span', { key: 'source' }, cause.source), h('strong', { key: 'subject' }, cause.subject.id), h('code', { key: 'seq' }, `#${cause.seq}`), h('small', { key: 'id', title: cause.id }, shortId(cause.id))])) : h('p', { className: 'pf-ws-muted' }, t('no'))),
+        h('details', { key: 'payload', className: 'pf-ws-raw-definition' }, [h('summary', { key: 'summary' }, t('payload')), h('pre', { key: 'pre' }, JSON.stringify(event.payload, null, 2))]),
+      ])
+    }
+
+    function EvidenceShell({ label, title, onClose, children }) {
+      return h('aside', { className: 'pf-ws-drawer', 'aria-label': label }, [h('header', { key: 'head' }, [h('div', { key: 'copy' }, [h('span', { key: 'label' }, label), h('h3', { key: 'title' }, title)]), h('button', { key: 'close', type: 'button', onClick: onClose, 'aria-label': 'Close' }, '×')]), ...children])
+    }
+
+    function LegacyEvidenceDrawer({ selection, snapshot, t, onClose, onSurface }) {
       const { relation } = selection
       const { inspection, subscription, condition } = relation
       const runs = inspection.runs.filter(run => run.activation.subscriptionId === subscription.id)
@@ -381,6 +474,115 @@ window.__ModuleLoader__.load({
         run.failures.length ? h('div', { key: 'failures', className: 'pf-ws-run-failures' }, [h('b', { key: 'label' }, t('failures')), ...run.failures.map((failure, index) => h('span', { key: index }, failure))]) : null,
       ])
     }
+
+    function buildCodeFirstGraph(snapshot) {
+      const registrations = [...(snapshot.codeFirst || [])].sort((a, b) => a.registrationId.localeCompare(b.registrationId))
+      const graphNodes = [
+        ...snapshot.surfaces.map(surface => ({ key: `surface:${surface.surfaceId}`, kind: 'surface', id: surface.surfaceId })),
+        ...registrations.map(registration => ({ key: `registration:${registration.registrationId}`, kind: 'registration', id: registration.registrationId })),
+      ]
+      const rawEdges = []
+      for (const registration of registrations) for (const route of Object.values(registration.routes)) for (const item of routeCapabilities(route, key => key)) {
+        const surfaceId = registration.bindings[item.handle]
+        if (!surfaceId) continue
+        const incoming = item.key === 'consume'
+        rawEdges.push({ from: incoming ? `surface:${surfaceId}` : `registration:${registration.registrationId}`, to: incoming ? `registration:${registration.registrationId}` : `surface:${surfaceId}` })
+      }
+      const positions = layoutDirectedGraph(graphNodes, rawEdges)
+      const surfacePositions = new Map(snapshot.surfaces.map(surface => [surface.surfaceId, positions.get(`surface:${surface.surfaceId}`)]))
+      const registrationPositions = new Map(registrations.map(registration => [registration.registrationId, positions.get(`registration:${registration.registrationId}`)]))
+      const surfaces = snapshot.surfaces.map(surface => ({ surface, position: surfacePositions.get(surface.surfaceId), eventCount: snapshot.runtimeEvents?.[surface.surfaceId]?.length || 0 })).filter(item => item.position)
+      const registrationNodes = registrations.map(registration => ({ registration, position: registrationPositions.get(registration.registrationId) }))
+      const declaredByPair = new Map()
+      for (const registration of registrations) {
+        const registrationNode = { kind: 'registration', id: registration.registrationId, position: registrationPositions.get(registration.registrationId) }
+        for (const [name, route] of Object.entries(registration.routes)) {
+          for (const item of routeCapabilities(route, key => key)) {
+            const surfaceId = registration.bindings[item.handle]
+            const surfacePosition = surfacePositions.get(surfaceId)
+            if (!surfacePosition) continue
+            const incoming = item.key === 'consume'
+            const from = incoming ? { kind: 'surface', id: surfaceId, position: surfacePosition } : registrationNode
+            const to = incoming ? registrationNode : { kind: 'surface', id: surfaceId, position: surfacePosition }
+            const key = `${registration.registrationId}:${from.kind}:${from.id}:${to.kind}:${to.id}`
+            const existing = declaredByPair.get(key) || { key, registration, from, to, events: [], capabilities: [] }
+            if (!existing.events.includes(name)) existing.events.push(name)
+            if (!existing.capabilities.includes(item.key)) existing.capabilities.push(item.key)
+            declaredByPair.set(key, existing)
+          }
+        }
+      }
+      const actualPaths = []
+      for (const [surfaceId, events] of Object.entries(snapshot.runtimeEvents || {})) for (const event of events) {
+        if (event.producer.kind !== 'orchestrate') continue
+        const registrationId = event.producer.ref?.split('/')[0]
+        if (!registrationId || !event.id) continue
+        const registrationPosition = registrationPositions.get(registrationId)
+        const target = surfacePositions.get(surfaceId)
+        if (!registrationPosition || !target) continue
+        const segments = []
+        for (const cause of event.causes) {
+          if (cause.source !== 'worksurface') continue
+          const source = surfacePositions.get(cause.subject.id)
+          if (source) segments.push({ from: { position: source }, to: { position: registrationPosition } })
+        }
+        segments.push({ from: { position: registrationPosition }, to: { position: target } })
+        actualPaths.push({ key: `actual:${surfaceId}:${event.id}`, surfaceId, event, target, segments })
+      }
+      return { surfaces, registrations: registrationNodes, declaredPaths: [...declaredByPair.values()].sort((a, b) => a.key.localeCompare(b.key)), actualPaths }
+    }
+    function layoutDirectedGraph(nodes, edges) {
+      const keys = new Set(nodes.map(node => node.key))
+      const outgoing = new Map(nodes.map(node => [node.key, new Set()]))
+      const indegree = new Map(nodes.map(node => [node.key, 0]))
+      for (const edge of edges) {
+        if (!keys.has(edge.from) || !keys.has(edge.to) || outgoing.get(edge.from).has(edge.to)) continue
+        outgoing.get(edge.from).add(edge.to)
+        indegree.set(edge.to, indegree.get(edge.to) + 1)
+      }
+      const level = new Map(nodes.map(node => [node.key, 0]))
+      const queue = nodes.filter(node => indegree.get(node.key) === 0).map(node => node.key).sort()
+      const visited = new Set()
+      while (queue.length) {
+        const key = queue.shift()
+        visited.add(key)
+        for (const target of outgoing.get(key)) {
+          level.set(target, Math.max(level.get(target), level.get(key) + 1))
+          indegree.set(target, indegree.get(target) - 1)
+          if (indegree.get(target) === 0) { queue.push(target); queue.sort() }
+        }
+      }
+      for (const node of nodes.filter(node => !visited.has(node.key))) level.set(node.key, node.kind === 'registration' ? 1 : 0)
+      const columns = new Map()
+      for (const node of nodes) {
+        const value = level.get(node.key)
+        if (!columns.has(value)) columns.set(value, [])
+        columns.get(value).push(node)
+      }
+      const ordered = [...columns.entries()].sort(([a], [b]) => a - b)
+      const positions = new Map()
+      ordered.forEach(([_, entries], columnIndex) => {
+        entries.sort((a, b) => a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id))
+        const x = ordered.length === 1 ? 600 : 150 + columnIndex * (900 / (ordered.length - 1))
+        entries.forEach((node, index) => {
+          const y = entries.length === 1 ? 360 : 110 + index * (500 / (entries.length - 1))
+          positions.set(node.key, { x, y })
+        })
+      })
+      return positions
+    }
+    function routeCapabilities(route, t) {
+      return [
+        ...(route.consumeFrom || []).map(handle => ({ key: 'consume', capability: t('consume'), handle })),
+        ...(route.emitOn || []).map(handle => ({ key: 'emit', capability: t('emit'), handle })),
+        ...(route.surfaceOutputFrom || []).map(handle => ({ key: 'surfaceOutput', capability: t('surfaceOutput'), handle })),
+      ]
+    }
+    function lineCoordinates(path) { return { x1: path.from.position.x, y1: path.from.position.y, x2: path.to.position.x, y2: path.to.position.y } }
+    function lineLabel(path) { return { x: path.from.position.x + (path.to.position.x - path.from.position.x) * .5, y: path.from.position.y + (path.to.position.y - path.from.position.y) * .5 - 8 } }
+    function pathLabel(events) { return events.length <= 1 ? events[0] || '' : `${events[0]} +${events.length - 1}` }
+    function factRow(term, value) { return h('div', { key: term }, [h('dt', { key: 'term' }, term), h('dd', { key: 'value' }, String(value))]) }
+    function nodeTitle(snapshot, node) { return node.kind === 'surface' ? surfaceTitle(snapshot, node.id) : node.id }
 
     function buildGraph(snapshot) {
       const surfaces = [...snapshot.surfaces].sort((a, b) => a.surfaceId === snapshot.anchorSurfaceId ? -1 : b.surfaceId === snapshot.anchorSurfaceId ? 1 : a.surfaceId.localeCompare(b.surfaceId))
@@ -504,10 +706,6 @@ window.__ModuleLoader__.load({
       const order = ['idle', 'published', 'completed', 'waiting-user', 'conflicted', 'failed']
       return phases.reduce((strongest, phase) => order.indexOf(phase) > order.indexOf(strongest) ? phase : strongest, 'idle')
     }
-    function topologySummary(snapshot) {
-      const attention = snapshot.surfaces.filter(surface => ['waiting-user', 'failed', 'conflicted'].includes(surface.lifecycle.phase)).length
-      return { surfaces: snapshot.surfaces.length, paths: snapshot.orchestrations.reduce((sum, inspection) => sum + inspection.definition.subscriptions.length, 0) + (snapshot.codeFirst || []).reduce((sum, inspection) => sum + Object.keys(inspection.routes).length, 0), attention }
-    }
     function waitForSession(sessions, sessionId) {
       if (sessions.list.getSnapshot().byId[sessionId]) return Promise.resolve()
       return new Promise((resolve, reject) => {
@@ -526,12 +724,19 @@ window.__ModuleLoader__.load({
     function shortRevision(value) { const text = String(value); return text.startsWith('sha256:') ? `sha256:${text.slice(7, 15)}…` : shortId(text) }
     function resolveSelection(previous, snapshot) {
       if (!previous) return null
+      if (previous.scope === 'code-first') {
+        if (previous.type === 'surface') return snapshot.surfaces.some(item => item.surfaceId === previous.surfaceId) ? previous : null
+        if (previous.type === 'registration') return snapshot.codeFirst?.some(item => item.registrationId === previous.registrationId) ? previous : null
+        if (previous.type === 'actual-event') return snapshot.runtimeEvents?.[previous.surfaceId]?.some(item => item.id === previous.eventId) ? previous : null
+        if (previous.type === 'declared-path') return buildCodeFirstGraph(snapshot).declaredPaths.some(item => item.key === previous.key) ? previous : null
+        return null
+      }
       const model = buildGraph(snapshot)
       const relation = model.relations.find(item => item.key === previous.relation.key)
       if (!relation) return null
-      if (previous.type === 'condition') return { type: 'condition', relation }
+      if (previous.type === 'condition') return { scope: 'legacy', type: 'condition', relation }
       const edge = model.edges.find(item => item.relation.key === relation.key && item.kind === previous.edge.kind && item.role === previous.edge.role && item.surfaceId === previous.edge.surfaceId)
-      return edge ? { type: 'path', relation, edge } : null
+      return edge ? { scope: 'legacy', type: 'path', relation, edge } : null
     }
 
     const module = { exports: {} }

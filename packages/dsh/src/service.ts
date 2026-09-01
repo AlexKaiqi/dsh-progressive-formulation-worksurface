@@ -120,6 +120,7 @@ export class WorkSurfaceService extends Service {
   readonly contextRuntime: WorkSurfaceContextRuntime
   private readonly host: WorkSurfaceHost
   private readonly registrationIds = new Set<string>()
+  private readonly authoringFailures = new Map<string, string>()
   private readonly initialization: Promise<void>
   private readonly startupRecovery: Promise<void>
   private wakeQueued = false
@@ -190,7 +191,7 @@ export class WorkSurfaceService extends Service {
       this.codeFirstSurfacePort = targetSurfaces
       await codeFirst.init()
       await targetSurfaces.recoverHeads()
-      await this.syncAuthoringRegistrations()
+      await this.syncAuthoringRegistrations({ isolateFailures: true })
       for (const binding of this.surfaces.listBindings()) await this.prepareNextTurn(binding.surfaceId)
       const unwatchTarget = targetEvents.watch(event => { void codeFirst.accept(event).catch(error => ctx.logger.warn(`WorkSurface code-first reconcile failed: ${renderError(error)}`)) })
       ctx.on('session/event', (session, event) => {
@@ -466,36 +467,53 @@ export class WorkSurfaceService extends Service {
     }
   }
 
-  private async syncAuthoringRegistrations(): Promise<void> {
+  private async syncAuthoringRegistrations(options: { readonly isolateFailures?: boolean } = {}): Promise<void> {
     const root = await this.assertAuthoringCollection('orchestrations')
     const entries = (await readdir(root, { withFileTypes: true }))
       .filter(entry => entry.isDirectory())
       .sort((left, right) => left.name.localeCompare(right.name))
     for (const entry of entries) {
-      const manifest = join(root, entry.name, 'registration.json')
-      let info: Awaited<ReturnType<typeof lstat>>
-      try { info = await lstat(manifest) }
-      catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
-        throw error
+      try {
+        await this.syncAuthoringRegistration(root, entry.name)
+        this.authoringFailures.delete(entry.name)
+      } catch (error) {
+        const message = renderError(error)
+        if (options.isolateFailures !== true) {
+          if (this.authoringFailures.get(entry.name) === message) continue
+          throw error
+        }
+        if (this.authoringFailures.get(entry.name) !== message) {
+          this.ctx.logger.warn(`WorkSurface authoring Orchestration '${entry.name}' was skipped: ${message}`)
+          this.authoringFailures.set(entry.name, message)
+        }
       }
-      if (!info.isFile() || info.isSymbolicLink()) {
-        throw new WorkSurfaceError('invalid-definition', `Orchestration '${entry.name}' registration.json must be a regular file`)
-      }
-      const artifact = join(root, entry.name, 'artifact')
-      if (await exists(artifact)) {
-        if (this.codeFirst === undefined) throw new WorkSurfaceError('effect-failed', 'code-first Runtime is not initialized')
-        await this.codeFirst.admit(manifest, artifact)
-        continue
-      }
-      const registration = parseAuthoringRegistration(await readFile(manifest, 'utf8'))
-      await this.registerDefinition(entry.name, registration.bindings, registration.registrationId)
     }
+  }
+
+  private async syncAuthoringRegistration(root: string, orchestrationId: string): Promise<void> {
+    const manifest = join(root, orchestrationId, 'registration.json')
+    let info: Awaited<ReturnType<typeof lstat>>
+    try { info = await lstat(manifest) }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw error
+    }
+    if (!info.isFile() || info.isSymbolicLink()) {
+      throw new WorkSurfaceError('invalid-definition', `Orchestration '${orchestrationId}' registration.json must be a regular file`)
+    }
+    const artifact = join(root, orchestrationId, 'artifact')
+    if (await exists(artifact)) {
+      if (this.codeFirst === undefined) throw new WorkSurfaceError('effect-failed', 'code-first Runtime is not initialized')
+      await this.codeFirst.admit(manifest, artifact)
+      return
+    }
+    const registration = parseAuthoringRegistration(await readFile(manifest, 'utf8'))
+    await this.registerDefinition(orchestrationId, registration.bindings, registration.registrationId)
   }
 
   private async prepareNextTurn(surfaceId: string): Promise<void> {
     if (this.codeFirst === undefined) return
-    await this.syncAuthoringRegistrations()
+    await this.syncAuthoringRegistrations({ isolateFailures: true })
     const outputs = await this.codeFirst.surfaceOutputs(surfaceId)
     this.surfaces.prepareTurnBrief(surfaceId, {
       instruction: 'Follow the user message entering this Turn and the current Surface acceptance criteria.',

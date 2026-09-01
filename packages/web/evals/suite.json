@@ -1,11 +1,11 @@
 {
   "version": 1,
   "cases": [
-    { "id": "native-topology", "testFile": "tests/web.spec.ts", "assertions": ["the topology occupies the native conversation.view ring without iframe or fixed overlay", "Surface nodes expose role labels and path interactions open evidence inside DSH"] },
+    { "id": "native-topology", "testFile": "tests/web.spec.ts", "assertions": ["the relation view occupies the native conversation.view ring without iframe or fixed overlay", "Surface and Orchestrate nodes form one directional graph whose path labels open evidence inside DSH"] },
     { "id": "native-session-admission", "testFile": "tests/web.spec.ts", "assertions": ["enter progress delegates the selected Surface to Host admission", "the client opens the admitted real DSH Session without submitting a prompt or creating a browser-side binding"] },
-    { "id": "condition-semantics", "testFile": "tests/web.spec.ts", "assertions": ["all, any, count, sequence and code use distinct condition junctions", "possible, matched, activation and emitted evidence remain separate stages"] },
+    { "id": "condition-semantics", "testFile": "tests/web.spec.ts", "assertions": ["the v4 compatibility view preserves all, any, count, sequence and code junctions", "legacy possible, matched, activation and emitted evidence remains isolated from the default code-first relation view"] },
     { "id": "publication-event-phases", "testFile": "tests/web.spec.ts", "assertions": ["Surface publication is replayed from Surface events", "DSH execution state is not inferred from Surface events"] },
-    { "id": "code-first-facts", "testFile": "tests/web.spec.ts", "assertions": ["Registration routes are presented only as declared capabilities", "recorded Runtime Events and their causes are presented separately as actual progress evidence"] },
+    { "id": "code-first-facts", "testFile": "tests/web.spec.ts", "assertions": ["Registration routes are dashed declared paths between Surface and Orchestrate nodes", "solid paths and the evidence drawer are backed only by recorded Runtime Events, producers and causes"] },
     { "id": "view-definition", "testFile": "tests/web.spec.ts", "assertions": ["a validated immutable YAML revision supplies titles, groups and stable layout hints", "missing presentation data falls back deterministically without affecting Session or Surface facts"] }
   ]
 }

@@ -26,7 +26,7 @@ WorkSurface Surface streams
 - Binding 只描述 Surface 到 DSH Session 的固定映射；
 - `WorkSurfaceViewDefinition` 只描述标题、分组、解释和布局提示。
 
-code-first Runtime 没有可静态展开的业务图。UI 因此严格分开两层：Registration routes 只显示 `consumeFrom`、`emitOn`、`surfaceOutputFrom` 的声明能力；实际推进只显示已持久 Runtime Event、producer 与 causes。不得从任意 Orchestrate 代码或 route 声明推断一条“已发生”的业务边。
+code-first Runtime 没有可静态展开的业务图。UI 因此严格分开两层：Registration routes 投影为虚线，只表示 `consumeFrom`、`emitOn`、`surfaceOutputFrom` 的声明能力；已持久 Runtime Event 的 producer 与 causes 投影为实线，表示已发生的因果证据。不得从任意 Orchestrate 代码或 route 声明推断一条“已发生”的业务边。
 
 ## 2. 产品位置与导航
 
@@ -43,16 +43,40 @@ UI 不允许换绑，也不允许为同一 Surface 创建第二个 Session。
 
 ## 3. 拓扑与证据
 
-拓扑来自固定 Definition、Registration bindings 与 EventRefs，而不是目录、时间戳或画布位置。图允许循环。
+正式页面由顶部导航、关系图和右侧证据抽屉组成。顶部只保留当前 Surface 选择、投影阶段、“进入推进”和刷新。不在主页堆叠 Registration 卡片、Event 列表和统计仪表。
 
-图面只展示概况：
+### 3.1 默认 code-first 关系图
+
+默认图的对象只有：
+
+- Surface 节点：标题、当前生命周期投影、可选分组与 Runtime Event 数量；
+- Orchestrate 节点：Registration id、recorded run 和 pending run 数量；
+- 虚线声明通路：Registration route 中明确的 Surface handle、Event name 和 capability；
+- 实线因果通路：由 Runtime Event 的 `producer.kind=orchestrate`、producer ref 和 WorkSurface causes 精确连接来源 Surface、Orchestrate 与目标 Surface。
+
+图使用按声明方向的稳定分层布局。位置只用于可读性，不表示 happens-before、依赖强度或执行顺序；出现循环时使用确定性降级布局，不删除或改写边。
+
+### 3.2 证据抽屉
+
+点击 Surface、Orchestrate、声明通路或已记录 Event 只打开一个右侧抽屉：
+
+- Surface：SurfaceId、分组、生命周期投影和已记录 Event；非当前 Surface 可显式设为新锚点；
+- Orchestrate：revision、input/run/pending 计数、bindings 和 routes；
+- 声明通路：Registration、来源、去向、capability 和 Event name，并明确其只是 possible；
+- Runtime Event：Event id、Surface、contract、producer、recordedAt、operation key、causes 和 payload。
+
+### 3.3 v4 兼容图
+
+Definition v1 拓扑只在独立的“v4 兼容”模式中出现，不与 code-first 图面同时渲染。兼容拓扑来自固定 Definition、Registration bindings 与 EventRefs，而不是目录、时间戳或画布位置。图允许循环。
+
+兼容图面只展示概况：
 
 - Surface 节点：标题和 `projectSurfaceLifecycle` 的当前显示阶段；
 - subscription 条件：Definition 中的 selector 结构及已匹配 EventRef；
 - 通路：可能事件路径与实际 managed operation；
 - 执行入口：绑定的 DSH Session。
 
-侧栏展示精确证据：Definition revision、registration/subscription ID、bindings、EventRefs、Activation、Operation record/settlement、目标事件和关联 Session/Turn。DSH Step 与 Tool Call 从 DSH Session log 展示，不能伪装成 WorkSurface 对象。
+兼容抽屉展示精确证据：Definition revision、registration/subscription ID、bindings、EventRefs、Activation、Operation record/settlement、目标事件和关联 Session/Turn。DSH Step 与 Tool Call 从 DSH Session log 展示，不能伪装成 WorkSurface 对象。
 
 ## 4. 生命周期显示
 
@@ -71,23 +95,25 @@ UI 不允许换绑，也不允许为同一 Surface 创建第二个 Session。
 | 对象 | 图面表达 | 权威事实 |
 | --- | --- | --- |
 | Surface | 统一圆角节点 | Surface stream + optional view definition |
-| subscription | 条件汇合点 | exact Definition |
-| matched selector | 实色 source 线 | EventRef |
-| managed emit/followup | 带箭头实线 | Operation record/settlement |
+| Orchestrate | 双圆角处理节点 | exact Registration + revision |
+| declared route | 带箭头虚线 | Registration route |
+| recorded causal path | 带箭头实线 | Runtime Event producer + causes |
+| v4 subscription | 兼容模式的条件汇合点 | exact Definition |
+| v4 managed emit/followup | 兼容模式的带箭头实线 | Operation record/settlement |
 | Session execution | 独立 DSH 轨迹 | DSH Session events |
 
 位置、线长和布局不表示 happens-before、依赖强度或执行顺序。
 
 ## 6. WorkSurfaceViewDefinition
 
-当前代码中的 `WorkSurfaceViewDefinition v1` 是 JSON-compatible 输入对象，由 `defineWorkSurfaceView()` 严格校验并冻结。它支持：
+当前代码中的 `WorkSurfaceViewDefinition v1` 是 JSON-compatible 输入对象，由 `defineWorkSurfaceView()` 严格校验并冻结。Web Host 可通过配置的精确 `viewRevision` 读取 `worksurface-view.yaml`（或显式 `viewFile`），解析后才交给该校验器；读取或校验失败时保留最近一次有效定义并返回 warning。它支持：
 
 - Surface 标题、标题锁定和分组；
 - Orchestration 与 subscription 标题；
 - 业务事件到显示阶段的解释；
 - group 布局提示。
 
-它不能保存 Event、Activation、Operation、Session 状态或当前计数，也不能注册、暂停或修改 Orchestration。仓库当前没有把它定义为 YAML artifact，也没有后台 View 维护 Agent；UI 文档不得宣称存在这些实现。
+它不能保存 Event、Activation、Operation、Session 状态或当前计数，也不能注册、暂停或修改 Orchestration。仓库当前支持显式配置已有 Revision 中的 YAML 文件，但没有后台 View 维护 Agent，也不会自动创建、改写或发布 View artifact。
 
 ## 7. 重放与降级
 

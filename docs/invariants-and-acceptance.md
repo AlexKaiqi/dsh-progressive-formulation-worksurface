@@ -57,7 +57,7 @@ pnpm check
 | Engine replay、Operation 恢复、live wakeup 收敛 | `packages/dsh/tests/engine.spec.ts` |
 | Code handler 固定 Revision、授权与输出协议 | `packages/dsh/tests/code-handler.spec.ts` |
 | DSH Session adapter 与 Turn capability | `packages/dsh/tests/session-adapter.spec.ts` |
-| 首 Turn预授权、followup receipt 与真实 Agent loop | `packages/dsh/tests/session-admission-agent-loop.spec.ts` |
+| 首 Turn 预授权、followup receipt、坏 authoring 启动隔离与真实 Agent loop | `packages/dsh/tests/session-admission-agent-loop.spec.ts` |
 | v5 authority/Contract/Event/Input/Operation 协议与破坏检测 | `packages/core/tests/runtime-protocol.spec.ts` |
 | code-first admission、重启补收崩溃窗口、record/apply/settle | `packages/dsh/tests/code-first-orchestrator.spec.ts` |
 | Event-backed Surface head、CAS apply、DSH tool 安全 projection | `packages/dsh/tests/code-first-surface-port.spec.ts` |

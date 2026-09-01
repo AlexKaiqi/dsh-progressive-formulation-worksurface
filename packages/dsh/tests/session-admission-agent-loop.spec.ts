@@ -115,6 +115,59 @@ function send(agent: Agent, text: string): void {
 }
 
 describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
+  it('isolates one broken authoring Orchestration while admitting the remaining valid Registration', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ws-authoring-isolation-')); roots.push(root)
+    const work = join(root, 'work')
+    await mkdir(join(work, 'surfaces', 'surface-a'), { recursive: true })
+    await writeFile(join(work, 'surfaces', 'surface-a', 'surface.md'), SURFACE_TEMPLATE)
+
+    const broken = join(work, 'orchestrations', 'a-broken')
+    await mkdir(join(broken, 'artifact'), { recursive: true })
+    await writeFile(join(broken, 'registration.json'), JSON.stringify({
+      version: 1,
+      registrationId: 'broken',
+      entrypoint: 'orchestrate.py',
+      bindings: { subject: 'surface-a' },
+      events: { 'broken.ready': { builtin: true, consumeFrom: ['subject'] } },
+    }))
+
+    const valid = join(work, 'orchestrations', 'b-valid')
+    await mkdir(valid, { recursive: true })
+    await writeFile(join(valid, 'definition.json'), JSON.stringify({
+      version: 1,
+      roles: ['subject'],
+      subscriptions: [{
+        id: 'never',
+        history: 'all',
+        when: { role: 'subject', event: 'never.requested' },
+        reaction: { emit: [{ role: 'subject', event: 'never.completed', payload: {}, operationKey: 'never' }] },
+      }],
+    }))
+    await writeFile(join(valid, 'registration.json'), JSON.stringify({
+      version: 1,
+      registrationId: 'valid',
+      bindings: { subject: 'surface-a' },
+    }))
+
+    const runtime = await mountServiceRuntime(root, work, [], join(root, 'sessions'))
+    try {
+      expect(await runtime.ctx.workSurfaces.inspectOrchestration('valid')).toMatchObject({
+        orchestrationId: 'b-valid',
+        registrationId: 'valid',
+        bindings: { subject: 'surface-a' },
+      })
+      const opened = await runtime.ctx.workSurfaces.ensureSession({ surfaceId: 'surface-a' })
+      const agent = runtime.ctx.agents.get(SessionId(opened.sessionId))!
+      agent.session.append('turn/start', { turn: 1 })
+      const capability = runtime.ctx.workSurfaces.surfaces.activeTurn(opened.sessionId)!.capability
+      await expect(runtime.ctx.workSurfaces.emitTurn(capability, 'valid.progress', {}, 'valid-progress'))
+        .resolves.toMatchObject({ subject: 'surface:surface-a', seq: 0 })
+      agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    } finally {
+      await runtime.ctx.fiber.dispose()
+    }
+  })
+
   it('durably receipts a managed followup at Turn admission without waiting for model completion', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ws-followup-receipt-')); roots.push(root)
     const work = join(root, 'work'); const state = join(root, 'state')
