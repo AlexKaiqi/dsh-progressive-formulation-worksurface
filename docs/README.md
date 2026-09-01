@@ -10,6 +10,7 @@
 | v4 兼容路径 | [v4 兼容实现基线](worksurface-complete-design.md) | 旧 Definition/Activation/Operation 的类型、存储、fold 与恢复 |
 | 当前源码 | [实现索引](architecture.md) | 概念到代码位置的映射 |
 | 验证 | [不变量与验收](invariants-and-acceptance.md) | 机器协议、门禁与测试证据 |
+| 模型用例 | [模型用例覆盖矩阵](model-readiness-coverage.md) | 七个用例的 L0–L3 要求、evidence 映射与真实 Agent 状态 |
 | 本轮实证 | [2026-09-01 重构与验证报告](verification-report-2026-09-01.md) | 设计判断、修复项、文件拆分、自动与真实 profile E2E |
 
 目标与当前实现不得混写。code-first Schema 已进入默认 v5 Runtime，准确实现范围以 `WS-24` 至 `WS-27`、实现索引和测试为准；v4 文档只解释兼容 Engine，不能反向定义默认 authoring。
@@ -21,6 +22,7 @@
 - 行为和 pattern：[`examples/`](../examples/) 的可执行代码；
 - 当前不变量及实现证据：[`spec/invariants.json`](../spec/invariants.json) 与测试；
 - 关系概览：[交互概念图](interactive/worksurface-system.html)，只辅助理解，不定义协议。
+- UI 底座与管线方向：[node editor 方向决策](ui-node-editor-decision.md)，说明为什么采用成熟画布、当前只读边界以及未来 Template/Run 双模式。
 
 同一规则只保留一个真源，其他文档只链接。Schema 通过校验不代表 Runtime 已实现；图或 Markdown 中出现一个名称也不建立领域概念。
 
