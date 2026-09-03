@@ -124,7 +124,8 @@ function validateDraft(draft: RuntimeEventDraft, authority: AuthorityId): void {
   if (draft.payload === null || typeof draft.payload !== 'object' || Array.isArray(draft.payload)) throw runtimeInvalid('Runtime Event payload must be an object')
   if (!Array.isArray(draft.causes)) throw runtimeInvalid('Runtime Event causes must be an array')
   draft.causes.forEach(validateRuntimeEventRef)
-  if (!['surface-session', 'orchestrate', 'runtime', 'dsh-adapter'].includes(draft.producer.kind) || draft.producer.ref.length === 0) throw runtimeInvalid('Runtime Event producer is invalid')
+  // Keep legacy records readable; new adapters must write `adapter`.
+  if (!['surface-session', 'orchestrate', 'runtime', 'adapter', 'dsh-adapter'].includes(String(draft.producer.kind)) || draft.producer.ref.length === 0) throw runtimeInvalid('Runtime Event producer is invalid')
 }
 
 function toDraft(event: RuntimeEventEnvelope): RuntimeEventDraft {

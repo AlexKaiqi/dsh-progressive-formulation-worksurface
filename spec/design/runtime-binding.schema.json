@@ -15,7 +15,7 @@
       "additionalProperties": false,
       "properties": {
         "surfaceId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
-        "sessionId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+        "executionId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
         "turnId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
         "registrationId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
         "runId": { "$ref": "runtime-authority.schema.json#/$defs/localId" }
@@ -61,10 +61,10 @@
         "properties": {
           "execution": {
             "type": "object",
-            "required": ["surfaceId", "sessionId", "turnId"],
+            "required": ["surfaceId", "executionId", "turnId"],
             "properties": {
               "surfaceId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
-              "sessionId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+              "executionId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
               "turnId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
               "registrationId": false,
               "runId": false
@@ -85,7 +85,7 @@
               "registrationId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
               "runId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
               "surfaceId": false,
-              "sessionId": false,
+              "executionId": false,
               "turnId": false
             }
           },

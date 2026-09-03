@@ -23,8 +23,11 @@ export interface EventRef {
   readonly id: string
 }
 
+/** Opaque receipt returned by a host when a managed followup is accepted. */
+export type HostOperationReceipt = Readonly<Record<string, string>>
+
 export interface EventMeta {
-  /** DSH execution evidence. Session/Turn remain owned by DSH. */
+  /** Host execution evidence. Session/Turn remain owned by the host adapter. */
   readonly sessionId?: string
   readonly turn?: number
   readonly registrationId?: RegistrationId
@@ -179,7 +182,7 @@ export type OrchestrationRecord =
     readonly activationId: ActivationId
     readonly operationKey: string
     readonly targetRole: string
-    readonly target: EventRef | { readonly sessionId: string; readonly messageId: string }
+    readonly target: EventRef | HostOperationReceipt
   }
   | { readonly kind: 'handler-failed'; readonly activationId: ActivationId; readonly message: string }
 

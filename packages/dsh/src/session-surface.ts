@@ -24,7 +24,7 @@ import {
   type RuntimeBinding,
   type RuntimeScope,
 } from '@pf-worksurface/core'
-import type { WorkSurfaceEventPort } from './engine.ts'
+import type { WorkSurfaceEventPort } from '@pf-worksurface/runtime'
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
@@ -134,6 +134,11 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
   private turnTransport: string
   private runtimeAuthority?: AuthorityId
   private readonly pendingBriefs = new Map<string, SurfaceTurnBriefDraft>()
+  // A fast continuation can open its next DSH Turn before the async adapter
+  // refresh after turn/end has completed. Retain the last prepared brief as a
+  // conservative fallback; a later refresh replaces it, while Runtime still
+  // authorizes the actual emit against the current Turn binding.
+  private readonly lastBriefs = new Map<string, SurfaceTurnBriefDraft>()
   private followupRouter: ((surfaceId: string, message: string, messageId: string) => Promise<{ readonly sessionId: string; readonly messageId: string; readonly turnId: string }>) | undefined
 
   constructor(
@@ -173,7 +178,12 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
 
   registerTurnTransport(socketPath: string): void { this.turnTransport = socketPath }
   registerRuntimeAuthority(authority: AuthorityId): void { this.runtimeAuthority = authority }
-  prepareTurnBrief(surfaceId: string, brief: SurfaceTurnBriefDraft): void { validateSurfaceId(surfaceId); this.pendingBriefs.set(surfaceId, structuredClone(brief)) }
+  prepareTurnBrief(surfaceId: string, brief: SurfaceTurnBriefDraft): void {
+    validateSurfaceId(surfaceId)
+    const snapshot = structuredClone(brief)
+    this.pendingBriefs.set(surfaceId, snapshot)
+    this.lastBriefs.set(surfaceId, snapshot)
+  }
 
   followupSurface(surfaceId: string, message: string, messageId: string): Promise<{ readonly sessionId: string; readonly messageId: string; readonly turnId: string }> {
     if (this.followupRouter === undefined) throw new WorkSurfaceError('effect-failed', 'DSH Session followup routing is unavailable')
@@ -292,7 +302,7 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
   private createTurnView(surfaceId: string, sessionId: string, turn: number, capability: string): { readonly viewDir: string; readonly runtimeBinding?: RuntimeBinding } {
     const viewDir = join(this.stateRoot, 'runtime', 'turn-views', sessionId, String(turn))
     mkdirSync(join(viewDir, 'contracts'), { recursive: true, mode: 0o700 })
-    const draft = this.pendingBriefs.get(surfaceId) ?? { instruction: 'Continue the current Surface objective using its files and acceptance criteria.', outputs: [] }
+    const draft = this.pendingBriefs.get(surfaceId) ?? this.lastBriefs.get(surfaceId) ?? { instruction: 'Continue the current Surface objective using its files and acceptance criteria.', outputs: [] }
     this.pendingBriefs.delete(surfaceId)
     const outputs = draft.outputs.map(output => {
       const schemaFile = `contracts/${output.name}.payload.schema.json`
@@ -316,7 +326,7 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     writeFileSync(join(viewDir, 'turn-brief.json'), `${stableStringify(brief)}\n`, { flag: 'w', mode: 0o400 })
     writeFileSync(join(viewDir, '.runtime.json'), `${stableStringify({ version: 1, socketPath: this.turnTransport, capability })}\n`, { flag: 'w', mode: 0o400 })
     const resolved = Object.fromEntries(draft.outputs.flatMap(output => output.scope === undefined || output.digest === undefined ? [] : [[output.name, { scope: output.scope, digest: output.digest }]]))
-    const runtimeBinding = this.runtimeAuthority === undefined ? undefined : surfaceTurnRuntimeBinding(this.runtimeAuthority, { surfaceId, sessionId, turnId: String(turn) }, resolved)
+    const runtimeBinding = this.runtimeAuthority === undefined ? undefined : surfaceTurnRuntimeBinding(this.runtimeAuthority, { surfaceId, executionId: sessionId, turnId: String(turn) }, resolved)
     return { viewDir, ...(runtimeBinding === undefined ? {} : { runtimeBinding }) }
   }
 

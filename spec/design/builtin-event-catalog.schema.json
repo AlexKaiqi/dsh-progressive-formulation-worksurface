@@ -31,13 +31,13 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "enum": ["surface", "dsh-session"] }
+          "items": { "enum": ["surface", "execution"] }
         },
         "producers": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "enum": ["surface-session", "orchestrate", "runtime", "dsh-adapter"] }
+          "items": { "enum": ["surface-session", "orchestrate", "runtime", "adapter"] }
         },
         "payloadSchema": { "$ref": "runtime-event-contract.schema.json#/$defs/payloadSchema" }
       }

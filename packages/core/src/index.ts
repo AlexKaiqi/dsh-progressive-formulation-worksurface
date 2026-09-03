@@ -1,7 +1,7 @@
 /**
  * Event-driven WorkSurface domain: event envelopes, Definitions, immutable
  * revisions, orchestration folds, and planned/actual projections.
- * DSH Session integration and storage-adapter implementations stay outside this package.
+ * Host session integration and storage-adapter implementations stay outside this package.
  * @module @pf-worksurface/core
  */
 
@@ -11,6 +11,7 @@ export {
   canonicalEventContract,
   createAuthority,
   eventContractDigest,
+  externalHistoryBoundarySeq,
   operationKey,
   orchestrateRuntimeBinding,
   parseOrchestrateRegistration,
@@ -122,6 +123,7 @@ export type {
   EventSelector,
   EventSubject,
   HandlerSpec,
+  HostOperationReceipt,
   JsonValue,
   ObservedEvent,
   OrchestrationActivation,

@@ -5,8 +5,8 @@
     "dsh.tool.completed": {
       "description": "The DSH Session recorded a tool/result; the adapter paired it with tool/call by callId and exposed only completion metadata.",
       "exposure": "orchestrate-input",
-      "subjects": ["dsh-session"],
-      "producers": ["dsh-adapter"],
+      "subjects": ["execution"],
+      "producers": ["adapter"],
       "payloadSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",

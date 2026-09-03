@@ -4,7 +4,7 @@
   "authority": "wsa_workspace_b",
   "execution": {
     "surfaceId": "surface-1",
-    "sessionId": "session-1",
+    "executionId": "session-1",
     "turnId": "turn-1"
   },
   "surfaces": {},

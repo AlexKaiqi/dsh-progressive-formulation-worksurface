@@ -19,7 +19,7 @@ import {
   type RuntimeEventRef,
 } from '@pf-worksurface/core'
 import { BUILTIN_EVENT_CATALOG } from './builtin-event-catalog.ts'
-import type { CodeFirstSurfacePort } from './code-first-orchestrator.ts'
+import type { CodeFirstSurfacePort } from '@pf-worksurface/runtime'
 import type { SurfaceSessionService } from './session-surface.ts'
 
 /** Target publication projection and bridge to the Surface's unique DSH Session. */
@@ -43,7 +43,7 @@ export class DshCodeFirstSurfacePort implements CodeFirstSurfacePort {
     const stream = await this.events.replay(surfaceId)
     const binding = this.sessions.bindingForSurface(surfaceId)
     const agent = binding === undefined ? undefined : this.ctx.agents.get(binding.sessionId as never)
-    return { surfaceEventSeq: stream.length - 1, dshEventSeq: agent?.session.events.at(-1)?.seq ?? -1 }
+    return { surfaceEventSeq: stream.length - 1, externalEventSeq: agent?.session.events.at(-1)?.seq ?? -1 }
   }
 
   adaptDshToolCompletion(session: Session, event: SessionEvent): { readonly surfaceId: string; readonly ref: RuntimeEventRef } | undefined {
@@ -56,16 +56,20 @@ export class DshCodeFirstSurfacePort implements CodeFirstSurfacePort {
     return {
       surfaceId: binding.surfaceId,
       ref: {
-        source: 'dsh',
-        subject: { authority: this.events.authority, kind: 'dsh-session', id: String(session.id) },
+        source: 'external',
+        subject: { authority: this.events.authority, kind: 'execution', id: String(session.id) },
         seq: event.seq,
         id: runtimeEventId(this.events.authority, `dsh/${session.id}`, `tool-result-${event.seq}`, binding.surfaceId),
       },
     }
   }
 
-  async resolveDshInput(ref: RuntimeEventRef): Promise<{ readonly surfaceId: string; readonly name: string; readonly payload: Readonly<Record<string, JsonValue>> }> {
-    if (ref.source !== 'dsh' || ref.subject.authority !== this.events.authority || ref.subject.kind !== 'dsh-session') throw new WorkSurfaceError('canonical-corrupt', `DSH EventRef '${ref.id}' has an invalid subject`)
+  async resolveExternalInput(ref: RuntimeEventRef): Promise<{ readonly surfaceId: string; readonly name: string; readonly payload: Readonly<Record<string, JsonValue>> }> {
+    const source = String(ref.source)
+    const subjectKind = String(ref.subject.kind)
+    // Legacy DSH refs are accepted only at this adapter boundary. New refs
+    // are emitted with the host-neutral external/execution vocabulary.
+    if (!['external', 'dsh'].includes(source) || ref.subject.authority !== this.events.authority || !['execution', 'dsh-session'].includes(subjectKind)) throw new WorkSurfaceError('canonical-corrupt', `DSH EventRef '${ref.id}' has an invalid subject`)
     const agent = this.ctx.agents.get(ref.subject.id as never)
     if (agent === undefined) throw new WorkSurfaceError('effect-failed', `DSH Session '${ref.subject.id}' is unavailable while resolving '${ref.id}'`)
     const binding = this.sessions.bindingForSession(ref.subject.id)
@@ -89,6 +93,11 @@ export class DshCodeFirstSurfacePort implements CodeFirstSurfacePort {
     const contract = await this.builtinContract('dsh.tool.completed')
     validatePayload(contract, payload)
     return { surfaceId: binding.surfaceId, name: contract.name, payload }
+  }
+
+  /** @deprecated Use the host-neutral port method; kept for DSH adapter callers. */
+  resolveDshInput(ref: RuntimeEventRef) {
+    return this.resolveExternalInput(ref)
   }
 
   apply(
@@ -143,7 +152,7 @@ export class DshCodeFirstSurfacePort implements CodeFirstSurfacePort {
     outputs: readonly RuntimeContractIdentity[],
     causes: readonly RuntimeEventRef[],
     operationKey: string,
-  ): Promise<{ readonly sessionId: string; readonly turnId: string }> {
+  ): Promise<{ readonly executionId: string; readonly turnId: string }> {
     const declaredOutputs = await Promise.all(outputs.map(async output => {
       const contract = await this.contracts.get(output.digest)
       return { name: output.name, description: contract.description, payloadSchema: contract.payloadSchema, scope: output.scope, digest: output.digest }
@@ -156,7 +165,7 @@ export class DshCodeFirstSurfacePort implements CodeFirstSurfacePort {
     const message = `${instruction}\n\nRuntime-authorized outputs for this Turn are available in the WorkSurface Turn Brief. Do not infer outputs from this message.`
     const messageId = `ws-advance-${operationKey}`
     const receipt = await this.sessions.followupSurface(surfaceId, message, messageId)
-    return { sessionId: receipt.sessionId, turnId: receipt.turnId }
+    return { executionId: receipt.sessionId, turnId: receipt.turnId }
   }
 
   /** Bridge an authorized Surface Turn publication into the target append-only stream. */

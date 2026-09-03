@@ -13,8 +13,8 @@ export function adaptDshToolCompleted({ authority, sessionId, events, resultSeq 
   const failed = result.data.error !== undefined || block.isError === true
   return {
     ref: {
-      source: 'dsh',
-      subject: { authority, kind: 'dsh-session', id: sessionId },
+      source: 'external',
+      subject: { authority, kind: 'execution', id: sessionId },
       seq: result.seq,
       id: `dsh:${sessionId}:${result.seq}`,
     },

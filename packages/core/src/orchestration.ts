@@ -6,6 +6,7 @@ import {
   type ActivationSource,
   type EventExpression,
   type EventSelector,
+  type HostOperationReceipt,
   type ObservedEvent,
   type OrchestrationActivation,
   type OrchestrationDefinition,
@@ -33,7 +34,7 @@ export interface ActualFlowEdge {
   readonly operationKey: string
   readonly source: ActivationSource
   readonly targetRole: string
-  readonly target: { readonly subject: string; readonly seq: number; readonly id: string } | { readonly sessionId: string; readonly messageId: string }
+  readonly target: { readonly subject: string; readonly seq: number; readonly id: string } | HostOperationReceipt
 }
 
 /**

@@ -221,7 +221,7 @@ async function validateRuntimeBindings() {
     },
     payload: {},
     causes: [],
-    producer: { kind: 'surface-session', ref: left.execution.sessionId },
+    producer: { kind: 'surface-session', ref: left.execution.executionId },
     operationKey: 'turn-1/review.completed',
     recordedAt: '2026-08-31T00:00:00.000Z',
   }
@@ -238,15 +238,15 @@ async function validateRuntimeBindings() {
     if (validate(invalid)) throw new Error(`runtime-binding.schema.json accepts ${label}`)
   }
   for (const [label, cause] of [
-    ['DSH source on a Surface subject', {
-      source: 'dsh',
+    ['External source on a Surface subject', {
+      source: 'external',
       subject: { authority: left.authority, kind: 'surface', id: left.execution.surfaceId },
       seq: 1,
-      id: 'mismatched-dsh-source',
+      id: 'mismatched-external-source',
     }],
-    ['WorkSurface source on a DSH Session subject', {
+    ['WorkSurface source on an execution subject', {
       source: 'worksurface',
-      subject: { authority: left.authority, kind: 'dsh-session', id: left.execution.sessionId },
+      subject: { authority: left.authority, kind: 'execution', id: left.execution.executionId },
       seq: 1,
       id: 'mismatched-worksurface-source',
     }],
@@ -414,7 +414,7 @@ async function validateDelegate(runtimeBinding, builtinCatalog) {
   }
   const ledgerSurface = Object.entries(durable.surfaces)
     .find(([, surfaceId]) => surfaceId === ledgerRecord.event.subject.id)?.[0]
-  const boundaryField = ledgerRecord.event.source === 'worksurface' ? 'surfaceEventSeq' : 'dshEventSeq'
+  const boundaryField = ledgerRecord.event.source === 'worksurface' ? 'surfaceEventSeq' : 'externalEventSeq'
   if (ledgerSurface === undefined || ledgerRecord.event.seq <= durable.historyBoundary[ledgerSurface][boundaryField]) {
     throw new Error('Input Ledger record does not cross the registered source history boundary')
   }
@@ -519,8 +519,8 @@ async function validateDelegate(runtimeBinding, builtinCatalog) {
     events: [{
       operationKey: 'forged-dsh-event',
       event: {
-        source: 'dsh',
-        subject: { authority: operationSettlement.authority, kind: 'dsh-session', id: 'session-researcher' },
+        source: 'external',
+        subject: { authority: operationSettlement.authority, kind: 'execution', id: 'session-researcher' },
         seq: 19,
         id: 'tool-result-19',
       },
@@ -1160,7 +1160,7 @@ function assertBindingContractDigest(binding, declaration, route) {
 
 function assertModelVisible(value, label) {
   const forbidden = new Set([
-    'authority', 'scope', 'digest', 'surfaceId', 'sessionId', 'turnId',
+    'authority', 'scope', 'digest', 'surfaceId', 'sessionId', 'executionId', 'turnId',
     'registrationId', 'runId', 'revision', 'subject', 'producer',
     'operationKey', 'recordedAt',
   ])

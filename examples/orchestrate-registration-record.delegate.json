@@ -23,7 +23,7 @@
     }
   },
   "historyBoundary": {
-    "coordinator": { "surfaceEventSeq": 5, "dshEventSeq": 20 },
-    "researcher": { "surfaceEventSeq": 2, "dshEventSeq": 18 }
+    "coordinator": { "surfaceEventSeq": 5, "externalEventSeq": 20 },
+    "researcher": { "surfaceEventSeq": 2, "externalEventSeq": 18 }
   }
 }

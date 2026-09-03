@@ -11,6 +11,7 @@ import {
   RuntimeEventStore,
   canonicalEventContract,
   eventContractDigest,
+  externalHistoryBoundarySeq,
   parseOrchestrateRegistration,
   runtimeEventId,
   validateOperationBatch,
@@ -19,6 +20,7 @@ import {
   validateRegistrationRecord,
   type OrchestrateOperationBatch,
   type OrchestrateOperationSettlement,
+  type OrchestrateHistoryBoundary,
   type OrchestrateRegistrationRecord,
   type RuntimeEventContract,
   type RuntimeEventRef,
@@ -143,11 +145,20 @@ describe('target Runtime protocol', () => {
         [contract.name]: { scope: contract.scope, digest: eventContractDigest(contract), consumeFrom: ['coordinator'], surfaceOutputFrom: ['coordinator'] },
       },
       historyBoundary: {
-        coordinator: { surfaceEventSeq: -1, dshEventSeq: -1 },
-        researcher: { surfaceEventSeq: -1, dshEventSeq: -1 },
+        coordinator: { surfaceEventSeq: -1, externalEventSeq: -1 },
+        researcher: { surfaceEventSeq: -1, externalEventSeq: -1 },
       },
     }
     validateRegistrationRecord(record)
+    const legacyRecord = {
+      ...record,
+      historyBoundary: {
+        coordinator: { surfaceEventSeq: -1, dshEventSeq: 4 },
+        researcher: { surfaceEventSeq: -1, dshEventSeq: 3 },
+      },
+    }
+    expect(() => validateRegistrationRecord(legacyRecord)).not.toThrow()
+    expect(externalHistoryBoundarySeq({ surfaceEventSeq: -1, dshEventSeq: 4 } as unknown as OrchestrateHistoryBoundary)).toBe(4)
     const registrations = new RegistrationRecordStore(join(directory, 'registrations'), authority.id)
     await registrations.put(record)
     expect(await registrations.get('delegate')).toEqual(record)

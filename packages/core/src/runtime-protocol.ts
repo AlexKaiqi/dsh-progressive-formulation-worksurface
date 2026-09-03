@@ -7,8 +7,8 @@ import type { JsonValue, Revision } from './event-model.ts'
 export type AuthorityId = `wsa_${string}`
 export type RuntimeLocalId = string
 export type ContractDigest = `sha256:${string}`
-export type RuntimeSubjectKind = 'surface' | 'dsh-session'
-export type RuntimeProducerKind = 'surface-session' | 'orchestrate' | 'runtime' | 'dsh-adapter'
+export type RuntimeSubjectKind = 'surface' | 'execution'
+export type RuntimeProducerKind = 'surface-session' | 'orchestrate' | 'runtime' | 'adapter'
 export type RuntimeCapability = 'consume' | 'orchestrate-emit' | 'surface-output'
 
 export interface RuntimeAuthority { readonly version: 1; readonly id: AuthorityId }
@@ -34,7 +34,7 @@ export interface RuntimeContractIdentity {
   readonly digest: ContractDigest
 }
 export interface RuntimeEventRef {
-  readonly source: 'worksurface' | 'dsh'
+  readonly source: 'worksurface' | 'external'
   readonly subject: { readonly authority: AuthorityId; readonly kind: RuntimeSubjectKind; readonly id: RuntimeLocalId }
   readonly seq: number
   readonly id: string
@@ -62,7 +62,7 @@ export type RuntimeBinding = {
   readonly contracts: Readonly<Record<string, RuntimeBindingContract>>
 } & ({
   readonly kind: 'surface-turn'
-  readonly execution: { readonly surfaceId: string; readonly sessionId: string; readonly turnId: string }
+  readonly execution: { readonly surfaceId: string; readonly executionId: string; readonly turnId: string }
   readonly surfaces: Readonly<Record<string, never>>
 } | {
   readonly kind: 'orchestrate-run'
@@ -91,7 +91,7 @@ export interface OrchestrateResolvedRoute {
   readonly emitOn?: readonly string[]
   readonly surfaceOutputFrom?: readonly string[]
 }
-export interface OrchestrateHistoryBoundary { readonly surfaceEventSeq: number; readonly dshEventSeq: number }
+export interface OrchestrateHistoryBoundary { readonly surfaceEventSeq: number; readonly externalEventSeq: number }
 export interface OrchestrateRegistrationRecord {
   readonly version: 1
   readonly authority: AuthorityId
@@ -181,8 +181,16 @@ export interface OrchestrateOperationSettlement {
   readonly runId: string
   readonly surfaceRevisions: Readonly<Record<string, Revision>>
   readonly events: readonly { readonly operationKey: string; readonly event: RuntimeEventRef }[]
-  readonly advance: readonly { readonly operationKey: string; readonly surface: string; readonly sessionId: string; readonly turnId: string }[]
+  readonly advance: readonly { readonly operationKey: string; readonly surface: string; readonly executionId: string; readonly turnId: string }[]
   readonly settledAt: string
+}
+
+/** Read the host-event boundary while accepting pre-adapter records. */
+export function externalHistoryBoundarySeq(boundary: OrchestrateHistoryBoundary): number {
+  const record = boundary as unknown as Record<string, unknown>
+  if (typeof record.externalEventSeq === 'number') return record.externalEventSeq
+  if (typeof record.dshEventSeq === 'number') return record.dshEventSeq
+  throw new WorkSurfaceError('canonical-corrupt', 'History boundary has no external event sequence')
 }
 
 const LOCAL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
@@ -224,8 +232,11 @@ export function validateRuntimeEventContract(value: unknown): asserts value is R
   validateScope(record.scope)
   eventName(record.name, 'Event Contract name')
   text(record.description, 'Event Contract description')
-  stringSet(record.subjects, ['surface', 'dsh-session'], 'Event Contract subjects')
-  stringSet(record.producers, ['surface-session', 'orchestrate', 'runtime', 'dsh-adapter'], 'Event Contract producers')
+  // The legacy values are accepted only so an existing host store can be
+  // read after the host-neutral vocabulary is introduced. New writers emit
+  // only `execution` and `adapter`.
+  stringSet(record.subjects, ['surface', 'execution', 'dsh-session'], 'Event Contract subjects')
+  stringSet(record.producers, ['surface-session', 'orchestrate', 'runtime', 'adapter', 'dsh-adapter'], 'Event Contract producers')
   const schema = object(record.payloadSchema, 'Event Contract payloadSchema')
   if (schema.$schema !== 'https://json-schema.org/draft/2020-12/schema' || schema.type !== 'object') invalid('Event Contract payloadSchema must be a Draft 2020-12 object schema')
 }
@@ -242,12 +253,14 @@ export function validatePayload(contract: RuntimeEventContract, payload: unknown
 export function validateRuntimeEventRef(value: unknown): asserts value is RuntimeEventRef {
   const record = object(value, 'EventRef')
   exact(record, ['source', 'subject', 'seq', 'id'], 'EventRef')
-  if (!['worksurface', 'dsh'].includes(String(record.source))) invalid('EventRef source is invalid')
+  if (!['worksurface', 'external', 'dsh'].includes(String(record.source))) invalid('EventRef source is invalid')
   const subject = object(record.subject, 'EventRef subject')
   exact(subject, ['authority', 'kind', 'id'], 'EventRef subject')
   authorityId(subject.authority, 'EventRef authority')
   localId(subject.id, 'EventRef subject id')
-  if (record.source === 'worksurface' ? subject.kind !== 'surface' : subject.kind !== 'dsh-session') invalid('EventRef source and subject kind disagree')
+  const source = String(record.source)
+  const subjectKind = String(subject.kind)
+  if (source === 'worksurface' ? subjectKind !== 'surface' : source === 'external' ? subjectKind !== 'execution' : subjectKind !== 'dsh-session') invalid('EventRef source and subject kind disagree')
   nonnegative(record.seq, 'EventRef seq')
   text(record.id, 'EventRef id')
 }
@@ -273,7 +286,7 @@ export function validateRuntimeEventEnvelope(value: unknown): asserts value is R
   for (const cause of record.causes) validateRuntimeEventRef(cause)
   const producer = object(record.producer, 'Runtime Event producer')
   exact(producer, ['kind', 'ref'], 'Runtime Event producer')
-  if (!['surface-session', 'orchestrate', 'runtime', 'dsh-adapter'].includes(String(producer.kind))) invalid('Runtime Event producer is invalid')
+  if (!['surface-session', 'orchestrate', 'runtime', 'adapter', 'dsh-adapter'].includes(String(producer.kind))) invalid('Runtime Event producer is invalid')
   text(producer.ref, 'Runtime Event producer ref')
   text(record.operationKey, 'Runtime Event operationKey')
   dateTime(record.recordedAt, 'Runtime Event recordedAt')
@@ -289,8 +302,8 @@ export function validateRuntimeBinding(value: unknown): asserts value is Runtime
   const surfaces = object(record.surfaces, 'Runtime Binding surfaces')
   const contracts = object(record.contracts, 'Runtime Binding contracts')
   if (record.kind === 'surface-turn') {
-    exact(execution, ['surfaceId', 'sessionId', 'turnId'], 'Surface Turn execution')
-    localId(execution.surfaceId, 'Surface id'); localId(execution.sessionId, 'Session id'); localId(execution.turnId, 'Turn id')
+    exact(execution, ['surfaceId', 'executionId', 'turnId'], 'Surface Turn execution')
+    localId(execution.surfaceId, 'Surface id'); localId(execution.executionId, 'Execution id'); localId(execution.turnId, 'Turn id')
     if (Object.keys(surfaces).length !== 0) invalid('Surface Turn Binding cannot expose Surface handles')
   } else {
     exact(execution, ['registrationId', 'runId'], 'Orchestrate execution')
@@ -330,7 +343,7 @@ export function orchestrateRuntimeBinding(registration: OrchestrateRegistrationR
 
 export function surfaceTurnRuntimeBinding(
   authority: AuthorityId,
-  execution: { readonly surfaceId: string; readonly sessionId: string; readonly turnId: string },
+  execution: { readonly surfaceId: string; readonly executionId: string; readonly turnId: string },
   contracts: Readonly<Record<string, { readonly scope: RuntimeScope; readonly digest: ContractDigest }>>,
 ): RuntimeBinding {
   const binding: RuntimeBinding = { version: 1, kind: 'surface-turn', authority, execution, surfaces: {}, contracts: Object.fromEntries(Object.entries(contracts).map(([name, contract]) => [name, { ...contract, capabilities: ['surface-output'] }])) }
@@ -389,8 +402,12 @@ export function validateRegistrationRecord(value: unknown): asserts value is Orc
   if (stableStringify(Object.keys(surfaces).sort()) !== stableStringify(Object.keys(boundaries).sort())) invalid('Registration history boundary must cover every Surface handle exactly')
   for (const [handle, candidate] of Object.entries(boundaries)) {
     const boundary = object(candidate, `History boundary '${handle}'`)
-    exact(boundary, ['surfaceEventSeq', 'dshEventSeq'], `History boundary '${handle}'`)
-    integerAtLeast(boundary.surfaceEventSeq, -1, 'surfaceEventSeq'); integerAtLeast(boundary.dshEventSeq, -1, 'dshEventSeq')
+    const keys = Object.keys(boundary).sort()
+    const genericKeys = ['externalEventSeq', 'surfaceEventSeq']
+    const legacyKeys = ['dshEventSeq', 'surfaceEventSeq']
+    if (stableStringify(keys) !== stableStringify(genericKeys) && stableStringify(keys) !== stableStringify(legacyKeys)) invalid(`History boundary '${handle}' has an invalid shape`)
+    integerAtLeast(boundary.surfaceEventSeq, -1, 'surfaceEventSeq')
+    integerAtLeast((boundary.externalEventSeq ?? boundary.dshEventSeq), -1, 'externalEventSeq')
   }
   for (const [name, candidate] of Object.entries(routes)) {
     eventName(name, 'Resolved route name')
@@ -453,7 +470,16 @@ export function validateOperationSettlement(value: unknown): asserts value is Or
   for (const [handle, revision] of Object.entries(revisions)) { localId(handle, 'Settlement Surface handle'); digest(revision, 'Settlement revision') }
   if (!Array.isArray(record.events) || !Array.isArray(record.advance)) invalid('Settlement effects must be arrays')
   for (const candidate of record.events) { const item = object(candidate, 'Settlement event'); exact(item, ['operationKey', 'event'], 'Settlement event'); text(item.operationKey, 'operationKey'); validateRuntimeEventRef(item.event); if ((item.event as RuntimeEventRef).source !== 'worksurface') invalid('Settlement Event receipt must reference a WorkSurface Event') }
-  for (const candidate of record.advance) { const item = object(candidate, 'Settlement advance'); exact(item, ['operationKey', 'surface', 'sessionId', 'turnId'], 'Settlement advance'); text(item.operationKey, 'operationKey'); localId(item.surface, 'advance Surface'); localId(item.sessionId, 'Session id'); localId(item.turnId, 'Turn id') }
+  for (const candidate of record.advance) {
+    const item = object(candidate, 'Settlement advance')
+    const keys = Object.keys(item).sort()
+    const genericKeys = ['executionId', 'operationKey', 'surface', 'turnId']
+    const legacyKeys = ['operationKey', 'sessionId', 'surface', 'turnId']
+    if (stableStringify(keys) !== stableStringify(genericKeys) && stableStringify(keys) !== stableStringify(legacyKeys)) invalid('Settlement advance has an invalid shape')
+    text(item.operationKey, 'operationKey'); localId(item.surface, 'advance Surface'); localId(item.turnId, 'Turn id')
+    if (item.executionId !== undefined) localId(item.executionId, 'Execution id')
+    else localId(item.sessionId, 'Session id')
+  }
 }
 
 export function operationKey(registrationId: string, runId: string, kind: 'event' | 'advance', index: number, supplied?: string): string {

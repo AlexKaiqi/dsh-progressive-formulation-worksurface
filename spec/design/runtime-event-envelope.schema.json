@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://worksurface.local/spec/design/runtime-event-envelope.schema.json",
   "title": "Runtime Event Envelope",
-  "$comment": "Normalized durable Event shape. WorkSurface Events live in subject streams; DSH Events retain DSH Session Log authority and are normalized by reference when observed by an Orchestration.",
+  "$comment": "Normalized durable Event shape. WorkSurface Events live in subject streams; host execution facts are normalized by reference when observed by an Orchestration.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "id", "subject", "seq", "type", "payload", "causes", "producer", "operationKey", "recordedAt"],
@@ -31,7 +31,7 @@
       "additionalProperties": false,
       "required": ["kind", "ref"],
       "properties": {
-        "kind": { "enum": ["surface-session", "orchestrate", "runtime", "dsh-adapter"] },
+        "kind": { "enum": ["surface-session", "orchestrate", "runtime", "adapter"] },
         "ref": { "type": "string", "minLength": 1 }
       }
     },
@@ -55,7 +55,7 @@
       "required": ["authority", "kind", "id"],
       "properties": {
         "authority": { "$ref": "runtime-authority.schema.json#/$defs/authorityId" },
-        "kind": { "enum": ["surface", "dsh-session"] },
+        "kind": { "enum": ["surface", "execution"] },
         "id": { "$ref": "runtime-authority.schema.json#/$defs/localId" }
       }
     },
@@ -64,7 +64,7 @@
       "additionalProperties": false,
       "required": ["source", "subject", "seq", "id"],
       "properties": {
-        "source": { "enum": ["worksurface", "dsh"] },
+        "source": { "enum": ["worksurface", "external"] },
         "subject": { "$ref": "#/$defs/causalSubject" },
         "seq": { "type": "integer", "minimum": 0 },
         "id": { "type": "string", "minLength": 1 }
@@ -75,8 +75,8 @@
           "then": { "properties": { "subject": { "type": "object", "properties": { "kind": { "const": "surface" } } } } }
         },
         {
-          "if": { "required": ["source"], "properties": { "source": { "const": "dsh" } } },
-          "then": { "properties": { "subject": { "type": "object", "properties": { "kind": { "const": "dsh-session" } } } } }
+          "if": { "required": ["source"], "properties": { "source": { "const": "external" } } },
+          "then": { "properties": { "subject": { "type": "object", "properties": { "kind": { "const": "execution" } } } } }
         }
       ]
     },

@@ -5,7 +5,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-subprocess'
 import type {} from '@deepseek-ai/dsh-sandbox'
 import { RevisionStore, WorkSurfaceError, assertJson } from '@pf-worksurface/core'
-import type { CodeHandlerEmit, CodeHandlerRunner } from './engine.ts'
+import type { CodeHandlerEmit, CodeHandlerRunner } from '@pf-worksurface/runtime'
 
 const MAX_OUTPUT_BYTES = 1024 * 1024
 const HANDLER_TIMEOUT_MS = 30_000

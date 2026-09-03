@@ -12,7 +12,7 @@
     {
       "operationKey": "run-3/advance/0",
       "surface": "researcher",
-      "sessionId": "session-researcher",
+      "executionId": "session-researcher",
       "turnId": "turn-1"
     }
   ],

@@ -1,10 +1,10 @@
-import type { BuiltinEventSource } from './code-first-orchestrator.ts'
+import type { BuiltinEventSource } from '@pf-worksurface/runtime'
 
 /** Runtime projection; parity with the normative JSON catalog is a required test. */
 export const BUILTIN_EVENT_CATALOG: Readonly<Record<string, BuiltinEventSource>> = {
   'dsh.tool.completed': {
     description: 'The DSH Session recorded a tool/result; the adapter paired it with tool/call by callId and exposed only completion metadata.',
-    exposure: 'orchestrate-input', subjects: ['dsh-session'], producers: ['dsh-adapter'],
+    exposure: 'orchestrate-input', subjects: ['execution'], producers: ['adapter'],
     payloadSchema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', additionalProperties: false, required: ['turn', 'step', 'callId', 'toolName', 'status'], properties: { turn: { type: 'integer', minimum: 0 }, step: { type: 'integer', minimum: 0 }, callId: { type: 'string', minLength: 1 }, toolName: { type: 'string', minLength: 1 }, status: { enum: ['succeeded', 'failed'] }, errorCode: { type: 'string', minLength: 1 } } },
   },
   'surface.session.bound': {

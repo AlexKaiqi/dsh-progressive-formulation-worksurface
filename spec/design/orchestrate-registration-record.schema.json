@@ -62,10 +62,10 @@
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["surfaceEventSeq", "dshEventSeq"],
+        "required": ["surfaceEventSeq", "externalEventSeq"],
         "properties": {
           "surfaceEventSeq": { "type": "integer", "minimum": -1 },
-          "dshEventSeq": { "type": "integer", "minimum": -1 }
+          "externalEventSeq": { "type": "integer", "minimum": -1 }
         }
       }
     }
