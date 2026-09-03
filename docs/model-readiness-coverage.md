@@ -19,15 +19,27 @@
 
 | 用例 | L0 | L1 | L2 | L3 | 当前结论 |
 | --- | --- | --- | --- | --- | --- |
+| concept-boundaries | CI `concept-guidance` | — | — | PASSED `concept-answer` | COVERED |
 | capability-fit | CI `knowledge` | — | — | PASSED `agent-choice` | COVERED |
 | first-surface | CI `author-procedure` | CI `ordinary-agent-root` | CI `service-discovery` | PASSED `agent-bootstrap` | COVERED |
-| turn-entry | CI `session-guidance` | CI `brief-assembly` | — | PASSED `agent-inspection` | COVERED |
-| decomposition | CI `decomposition-guidance` | — | CI `multi-surface-mechanism` | PASSED `agent-decomposition` | COVERED |
+| turn-entry | CI `session-guidance` | CI `brief-assembly` | — | PASSED `agent-inspection`<br>PASSED `persistent-locator` | COVERED |
+| decomposition | CI `decomposition-guidance` | — | CI `multi-surface-mechanism` | BLOCKED `agent-decomposition` | BLOCKED |
 | surface-authoring | CI `authoring-contract` | — | CI `authoring-mechanism` | PASSED `agent-authoring` | COVERED |
 | coordination | CI `coordination-contract` | — | CI `coordination-execution` | PASSED `agent-coordination` | COVERED |
 | authorized-output | CI `output-contract` | CI `output-assembly` | CI `output-enforcement` | PASSED `agent-output` | COVERED |
 
 ## 用例与可观察要求
+
+### concept-boundaries
+
+> What is WorkSurface, what problem does it solve, and where are the boundaries between Surface, an ordinary Session, and Orchestrate? Name actions that must not be done.
+
+通过标准：Define WorkSurface as an available capability for durable, independently assessable work; distinguish Surface, host Session, and Orchestrate; and state that Orchestrate cannot create, delete, or rebind Surfaces.
+
+预期语义信号：WorkSurface is durable and independently assessable work；Surface holds one objective's context and durable artifacts；ordinary Session owns host conversation, turns, and tools；Orchestrate coordinates existing Surfaces only；WorkSurface is not an arbitrary command executor
+
+- **L0 · concept-guidance**：The fixed guidance names the capability, its durable-work fit, and the Surface, Session, and Orchestrate boundary. 证据：`global-guidance-l0`
+- **L3 · concept-answer**：A fresh real Agent gives a correct definition, explains the problem solved, separates all three boundaries, and names forbidden actions. 证据：`real-model-concept-l3`
 
 ### capability-fit
 
@@ -35,19 +47,23 @@
 
 通过标准：Choose WorkSurface for durable, independently assessable work or explicit coordination, and avoid it when the structure does not improve a simple task.
 
+预期语义信号：multi-turn, recovery, handoff, or acceptance-checked artifacts；ordinary Session for a one-off small task
+
 - **L0 · knowledge**：The delivered fixed guidance contains the capability concept and ordinary-Session boundary. 证据：`global-guidance-l0`
-- **L3 · agent-choice**：A fresh real Agent selects WorkSurface for a suitable example and rejects it for an unsuitable example. 证据：`real-model-readiness-l3`
+- **L3 · agent-choice**：A fresh real Agent selects WorkSurface for a suitable example and rejects it for an unsuitable example. 证据：`real-model-concept-l3`
 
 ### first-surface
 
 > There are no Surfaces yet. Create a WorkSurface for this objective. What is your first executable step?
 
-通过标准：Read the author help, use the real DSH_WORKSURFACE_ROOT exposed to the Agent shell, and author a valid Surface directory without inventing a create command or model tool.
+通过标准：Read the author help, use DSH_WORKSURFACE_ROOT when exposed or the documented persistent-shell fallback when it is omitted, and author a valid Surface directory without inventing a create command or model tool.
+
+预期语义信号：run author help before choosing a command；create the first Surface as ordinary files under the public authoring root；do not invent a create tool or Orchestrate creation
 
 - **L0 · author-procedure**：Author help states the first-Surface path, required surface.md headings, and UI discovery step. 证据：`scenario-help-l0`
 - **L1 · ordinary-agent-root**：Before any Surface exists, an ordinary Agent receives DSH_WORKSURFACE_ROOT without Surface-Turn-only variables. 证据：`global-assembly-and-root-l1`
 - **L2 · service-discovery**：The service discovers a valid first Surface authored under that root. 证据：`first-surface-discovery-l2`
-- **L3 · agent-bootstrap**：A fresh real Agent runs author help and creates the valid first Surface without an invented tool. 证据：`real-model-readiness-l3`
+- **L3 · agent-bootstrap**：A fresh real Agent runs author help and creates the valid first Surface without an invented tool. 证据：`real-model-authoring-l3`
 
 ### turn-entry
 
@@ -55,9 +71,12 @@
 
 通过标准：Read the current turn-brief.json for the instruction, bounded inputs, allowed outputs, payload schemas, and exact argv, then work in DSH_SURFACE_DIR.
 
+预期语义信号：read the current Turn Brief before editing；use only Brief-authorized outputs and exact argv；do not switch or rebind the Surface
+
 - **L0 · session-guidance**：The Surface Session guidance directs the Agent to the current Turn Brief and scenario help. 证据：`surface-session-guidance-l0`
 - **L1 · brief-assembly**：The live Turn exposes a concrete Brief with instruction, allowed output, schema, and exact argv. 证据：`turn-brief-l1`
-- **L3 · agent-inspection**：A real Agent reads the Brief before modifying files and identifies only Brief-authorized outputs. 证据：`real-model-readiness-l3`
+- **L3 · agent-inspection**：A real Agent reads the Brief before modifying files and identifies only Brief-authorized outputs. 证据：`real-model-surface-turn-l3`
+- **L3 · persistent-locator**：In the persistent-PTY profile, a real Agent can use exact per-Turn locators when DSH_WORKSURFACE variables are absent without scanning hidden runtime directories. 证据：`real-model-persistent-locator-l3`
 
 ### decomposition
 
@@ -65,19 +84,23 @@
 
 通过标准：Author separate valid Surfaces with their own goal, acceptance criteria, files, deliverables, and evidence instead of drawing a generic task graph.
 
+预期语义信号：one Surface per independently assessable objective；coordinate existing Surfaces after authoring；do not substitute a generic workflow graph
+
 - **L0 · decomposition-guidance**：Scenario help distinguishes independent Surface authoring from coordination over existing Surfaces. 证据：`scenario-help-l0`
 - **L2 · multi-surface-mechanism**：The Runtime can coordinate multiple existing Surfaces without creating a generic relationship DSL. 证据：`coordination-runtime-l2`
-- **L3 · agent-decomposition**：A real Agent creates one independently assessable Surface per part and does not substitute a generic graph. 证据：`real-model-readiness-l3`
+- **L3 · agent-decomposition**：A real Agent creates one independently assessable Surface per part and does not substitute a generic graph. 证据：`real-model-decomposition-l3`
 
 ### surface-authoring
 
 > What is the minimum valid authored Surface, and where does its supporting work belong?
 
-通过标准：Create surface.md with the seven required ordered headings and keep that Surface's code, materials, fixtures, deliverables, and evidence in its directory.
+通过标准：Create surface.md with the seven ordered headings returned by ws help author and keep that Surface's code, materials, fixtures, deliverables, and evidence in its directory.
+
+预期语义信号：seven headings from author help in the required order；supporting code, materials, deliverables, and evidence stay co-located
 
 - **L0 · authoring-contract**：Author help states the seven ordered headings and co-location boundary for supporting work. 证据：`scenario-help-l0`
 - **L2 · authoring-mechanism**：Valid Surface content is admitted and authoring WIP remains in the Surface directory across Turns. 证据：`surface-authoring-l2`
-- **L3 · agent-authoring**：A real Agent creates a valid surface.md and places supporting work inside the same Surface directory. 证据：`real-model-readiness-l3`
+- **L3 · agent-authoring**：A real Agent creates a valid surface.md and places supporting work inside the same Surface directory. 证据：`real-model-authoring-l3`
 
 ### coordination
 
@@ -85,9 +108,11 @@
 
 通过标准：Use ordinary Orchestrate code plus a Registration over existing Surfaces; do not invent a workflow DSL or let Orchestrate create, delete, or rebind Surfaces.
 
+预期语义信号：business behavior lives in ordinary code；Registration routes existing Surface handles；Orchestrate cannot create, delete, or rebind Surfaces
+
 - **L0 · coordination-contract**：Coordinate help places behavior in ordinary code, routing in Registration, and forbids Surface creation, deletion, or rebinding. 证据：`scenario-help-l0`
 - **L2 · coordination-execution**：The code-first Runtime admits and executes the exact artifact and Registration through settlement. 证据：`coordination-runtime-l2`
-- **L3 · agent-coordination**：A real Agent authors working Orchestrate code and Registration without inventing a DSL or mutating Surface identity. 证据：`real-model-readiness-l3`
+- **L3 · agent-coordination**：A real Agent authors working Orchestrate code and Registration without inventing a DSL or mutating Surface identity. 证据：`real-model-coordination-output-l3`
 
 ### authorized-output
 
@@ -95,10 +120,12 @@
 
 通过标准：Use only an allowed Turn Brief output, validate against its schema, run its exact command argv, and emit domain facts rather than DSH execution lifecycle state.
 
+预期语义信号：select an allowed output from the current Brief；validate the payload and run exact command argv；waiting, failure, retry, and execution completion are not domain Events
+
 - **L0 · output-contract**：Emit help distinguishes authorized domain output from DSH execution lifecycle and requires exact Brief argv. 证据：`scenario-help-l0`、`surface-session-guidance-l0`
 - **L1 · output-assembly**：The Turn Brief exposes only the allowed output, payload schema, and exact command argv. 证据：`turn-brief-l1`
 - **L2 · output-enforcement**：A current Turn capability accepts its output and the same capability is rejected after Turn end. 证据：`authorized-output-l2`
-- **L3 · agent-output**：A real Agent selects a satisfied Brief output, validates the payload, runs exact argv, and does not emit lifecycle state. 证据：`real-model-readiness-l3`
+- **L3 · agent-output**：A real Agent selects a satisfied Brief output, validates the payload, runs exact argv, and does not emit lifecycle state. 证据：`real-model-coordination-output-l3`
 
 ## 证据登记
 
@@ -113,4 +140,10 @@
 | surface-authoring-l2 | L2 | automated-test / CI | [packages/dsh/tests/session-surface.spec.ts](../packages/dsh/tests/session-surface.spec.ts) | The service admits valid Surface authoring, preserves WIP, and retains the required Surface content boundary. |
 | coordination-runtime-l2 | L2 | automated-test / CI | [packages/dsh/tests/code-first-orchestrator.spec.ts](../packages/dsh/tests/code-first-orchestrator.spec.ts) | Ordinary Orchestrate code plus Registration over existing Surfaces is admitted, executed, applied, advanced, and settled. |
 | authorized-output-l2 | L2 | automated-test / CI | [packages/dsh/tests/session-surface.spec.ts](../packages/dsh/tests/session-surface.spec.ts) | A live Turn capability can publish an authorized output and is rejected after the Turn ends. |
-| real-model-readiness-l3 | L3 | profile-run / PASSED | [docs/verification-report-2026-09-01.md](../docs/verification-report-2026-09-01.md) | Fresh real GPT-5.6 Sol Turns in the installed web profile discover stable CLI help, distinguish capability fit, author three valid Surfaces plus code-first coordination, read a live Turn Brief, emit an authorized Event, and leave the expected durable result. |
+| real-model-concept-l3 | L3 | profile-run / PASSED | [docs/verification-report-2026-09-02.md](../docs/verification-report-2026-09-02.md) | A fresh real Agent explicitly defines WorkSurface, chooses it for durable multi-turn work, distinguishes Surface from the ordinary host Session and Orchestrate, and names forbidden actions. |
+| real-model-authoring-l3 | L3 | profile-run / PASSED | [docs/verification-report-2026-09-02.md](../docs/verification-report-2026-09-02.md) | A fresh real Agent discovers author help, creates a valid first Surface with the required headings and a co-located supporting file, and leaves no Orchestration or domain Event for an authoring-only task. |
+| real-model-surface-turn-l3 | L3 | profile-run / PASSED | [docs/verification-report-2026-09-02.md](../docs/verification-report-2026-09-02.md) | A fresh real Agent entered the canonical Surface, located and read the current Turn Brief before acting, identified the bound Surface and entry file, treated the empty output authority as empty, and respected the no-write/no-Orchestration/no-emit boundary. |
+| real-model-persistent-locator-l3 | L3 | profile-run / PASSED | [docs/verification-report-2026-09-02.md](../docs/verification-report-2026-09-02.md) | A real Agent in the persistent-PTY profile received exact per-Turn locators, handled empty DSH_WORKSURFACE variables without guessing hidden paths, and used the concrete Turn view path to continue a managed output operation. |
+| real-model-decomposition-l3 | L3 | profile-run / BLOCKED | [docs/verification-report-2026-09-02.md](../docs/verification-report-2026-09-02.md) | Reserved for a fresh real Agent answer that decomposes independently assessable objectives into separate Surfaces, names each Surface's evidence boundary, and keeps orchestration behavior separate from authored work. |
+| ↳ blocker | L3 | BLOCKED | — | A fresh direct decomposition prompt was attempted in the post-refactor profile, but the provider returned HTTP 503 on the retry attempts; no answer is registered as model evidence. |
+| real-model-coordination-output-l3 | L3 | profile-run / PASSED | [docs/verification-report-2026-09-02.md](../docs/verification-report-2026-09-02.md) | A fresh real Agent in the post-refactor profile created a coordinator Brief, validated and emitted analysis.requested with the current Turn capability, automatically advanced the existing Registration to the analyst, created result.md, and emitted schema-valid analysis.completed without lifecycle Events. |

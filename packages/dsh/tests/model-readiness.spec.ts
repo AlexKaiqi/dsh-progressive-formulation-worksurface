@@ -11,6 +11,7 @@ interface ReadinessQuestion {
   readonly id: string
   readonly question: string
   readonly mustDemonstrate: string
+  readonly expectedSignals: readonly string[]
   readonly requirements: readonly {
     readonly id: string
     readonly layer: string
@@ -20,7 +21,7 @@ interface ReadinessQuestion {
 }
 
 describe('WorkSurface Agent readiness questions', () => {
-  it('keeps a valid evidence matrix for seven direct Agent questions', async () => {
+  it('keeps a valid evidence matrix for eight direct Agent questions', async () => {
     const suite = JSON.parse(await readFile(new URL('../evals/model-readiness.json', import.meta.url), 'utf8')) as {
       version: number
       layers: unknown[]
@@ -30,6 +31,7 @@ describe('WorkSurface Agent readiness questions', () => {
     expect(suite.version).toBe(2)
     expect(validateModelReadiness(suite)).toEqual([])
     expect(suite.cases.map(item => item.id)).toEqual([
+      'concept-boundaries',
       'capability-fit',
       'first-surface',
       'turn-entry',
@@ -41,6 +43,7 @@ describe('WorkSurface Agent readiness questions', () => {
     for (const item of suite.cases) {
       expect(item.question).toContain('?')
       expect(item.mustDemonstrate.length).toBeGreaterThan(30)
+      expect(item.expectedSignals.length).toBeGreaterThanOrEqual(2)
       expect(item.question).not.toMatch(/authority|namespace|digest|ledger|CAS|socket|capability/)
       const layers = new Set(item.requirements.map(requirement => requirement.layer))
       expect(layers.has('L0')).toBe(true)
@@ -53,7 +56,8 @@ describe('WorkSurface Agent readiness questions', () => {
     expect(await checkGeneratedReadinessDocument(suite)).toBe(true)
 
     const lowerLayerSubstitution = structuredClone(suite) as any
-    lowerLayerSubstitution.cases[0].requirements.find((item: { id: string }) => item.id === 'agent-choice').evidence = ['global-guidance-l0']
+    lowerLayerSubstitution.cases.find((item: { id: string }) => item.id === 'capability-fit').requirements
+      .find((item: { id: string }) => item.id === 'agent-choice').evidence = ['global-guidance-l0']
     expect(validateModelReadiness(lowerLayerSubstitution)).toContain(
       'case capability-fit requirement agent-choice cannot use L0 evidence global-guidance-l0 for L3',
     )

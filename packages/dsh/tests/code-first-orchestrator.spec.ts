@@ -54,11 +54,11 @@ describe('code-first Orchestrate Runtime', () => {
     const inputs = new InputLedgerStore(join(root, 'v5', 'inputs'), authority.id)
     const operations = new OperationLedgerStore(join(root, 'v5', 'operations'), authority.id)
     const apply = vi.fn(async (_surface: string, _base: Revision, candidate: Revision) => candidate)
-    const advance = vi.fn(async () => ({ sessionId: 'session-b', turnId: '1' }))
+    const advance = vi.fn(async () => ({ executionId: 'execution-b', turnId: '1' }))
     const port: CodeFirstSurfacePort = {
       head: async surface => base[surface]!,
-      historyBoundary: async () => ({ surfaceEventSeq: -1, dshEventSeq: -1 }),
-      resolveDshInput: async () => { throw new Error('not used') },
+      historyBoundary: async () => ({ surfaceEventSeq: -1, externalEventSeq: -1 }),
+      resolveExternalInput: async () => { throw new Error('not used') },
       apply,
       advance,
     }

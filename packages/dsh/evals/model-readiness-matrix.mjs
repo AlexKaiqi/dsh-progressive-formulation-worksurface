@@ -8,6 +8,7 @@ export const READINESS_SOURCE = fileURLToPath(new URL('./model-readiness.json', 
 export const READINESS_DOCUMENT = resolve(WORKSPACE_ROOT, 'docs/model-readiness-coverage.md')
 
 const REQUIRED_CASES = [
+  'concept-boundaries',
   'capability-fit',
   'first-surface',
   'turn-entry',
@@ -87,6 +88,9 @@ export function validateModelReadiness(matrix, workspaceRoot = WORKSPACE_ROOT) {
     const label = `case ${String(item?.id)}`
     if (typeof item?.question !== 'string' || !item.question.includes('?')) errors.push(`${label} lacks a direct question`)
     if (typeof item?.mustDemonstrate !== 'string' || item.mustDemonstrate.length < 30) errors.push(`${label} lacks mustDemonstrate`)
+    if (!Array.isArray(item?.expectedSignals) || item.expectedSignals.length < 2 || item.expectedSignals.some(signal => typeof signal !== 'string' || signal.length < 12)) {
+      errors.push(`${label} must declare at least two semantic expectedSignals`)
+    }
     if (!Array.isArray(item?.requirements) || item.requirements.length === 0) {
       errors.push(`${label} lacks requirements`)
       continue
@@ -165,7 +169,7 @@ export function renderModelReadinessMarkdown(matrix) {
   }
   lines.push('', '## 用例与可观察要求', '')
   for (const item of matrix.cases) {
-    lines.push(`### ${item.id}`, '', `> ${item.question}`, '', `通过标准：${item.mustDemonstrate}`, '')
+    lines.push(`### ${item.id}`, '', `> ${item.question}`, '', `通过标准：${item.mustDemonstrate}`, '', `预期语义信号：${item.expectedSignals.join('；')}`, '')
     for (const requirement of item.requirements) {
       lines.push(`- **${requirement.layer} · ${requirement.id}**：${requirement.observable} 证据：${requirement.evidence.map(id => `\`${id}\``).join('、')}`)
     }
