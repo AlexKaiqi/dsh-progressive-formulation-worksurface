@@ -33,11 +33,5 @@
   "scripts": {
     "bundle": "tsdown",
     "prepack": "tsc -b && tsdown"
-  },
-  "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.2"
-  },
-  "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.2"
   }
 }

@@ -10,32 +10,20 @@ import {
   stableStringify,
   orchestrateRuntimeBinding,
   validateOrchestrateResult,
-  type OrchestrateInputRecord,
-  type OrchestrateRegistrationRecord,
-  type OrchestrateResult,
   type OrchestrateRunState,
   type Revision,
-  type RuntimeEventContract,
 } from '@pf-worksurface/core'
+import type {
+  OrchestrateCodeRunInput,
+  OrchestrateCodeRunOutput,
+  OrchestrateCodeRunner,
+} from '@pf-worksurface/runtime'
 
 const MAX_LOG_BYTES = 1024 * 1024
 const TIMEOUT_MS = 30_000
 
-export interface OrchestrateCodeRunInput {
-  readonly registration: OrchestrateRegistrationRecord
-  readonly triggerInputSeq: number
-  readonly inputs: readonly OrchestrateInputRecord[]
-  readonly baseRevisions: Readonly<Record<string, Revision>>
-  readonly contracts: Readonly<Record<string, RuntimeEventContract>>
-}
-export interface OrchestrateCodeRunOutput {
-  readonly runId: string
-  readonly result: OrchestrateResult
-  readonly candidates: Readonly<Record<string, Revision>>
-}
-
 /** Materializes the exact artifact and a disposable staged run view. */
-export class SubprocessOrchestrateCodeRunner {
+export class SubprocessOrchestrateCodeRunner implements OrchestrateCodeRunner {
   constructor(private readonly ctx: Context, private readonly runtimeRoot: string, private readonly revisions: RevisionStore) {}
 
   async run(input: OrchestrateCodeRunInput): Promise<OrchestrateCodeRunOutput> {

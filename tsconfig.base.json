@@ -24,6 +24,8 @@
     "paths": {
       "@pf-worksurface/core": ["./packages/core/src/index.ts"],
       "@pf-worksurface/cli": ["./packages/cli/src/index.ts"],
+      "@pf-worksurface/design": ["./packages/design/src/index.ts"],
+      "@pf-worksurface/runtime": ["./packages/runtime/src/index.ts"],
       "@pf-worksurface/dsh": ["./packages/dsh/src/index.ts"]
     }
   }

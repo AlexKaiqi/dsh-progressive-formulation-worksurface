@@ -33,14 +33,14 @@ import {
 import type { WorkSurfaceRpcCall } from '@pf-worksurface/cli'
 import { SubprocessCodeHandlerRunner } from './code-handler.ts'
 import { CONFIG_SCHEMA, resolveConfig, type Config, type WorkSurfaceConfig } from './config.ts'
-import { WorkSurfaceEngine, type OrchestrationInspection } from './engine.ts'
+import { WorkSurfaceEngine, type OrchestrationInspection } from '@pf-worksurface/runtime'
 import { WorkSurfaceHost } from './host.ts'
 import { SurfaceSessionAdmission, type SurfaceSessionAdmissionRequest, type SurfaceSessionAdmissionResult } from './session-admission.ts'
 import { SurfaceSessionService, type SurfaceInputSource, type SurfaceSessionBinding, type SurfaceSessionGcResult } from './session-surface.ts'
 import { installDshSessionAdapter } from './session-adapter.ts'
 import { WorkSurfaceContextRuntime } from './context/runtime.ts'
 import { BUILTIN_EVENT_CATALOG } from './builtin-event-catalog.ts'
-import { CodeFirstOrchestrator, type CodeFirstRegistrationInspection } from './code-first-orchestrator.ts'
+import { CodeFirstOrchestrator, type CodeFirstRegistrationInspection } from '@pf-worksurface/runtime'
 import { DshCodeFirstSurfacePort } from './code-first-surface-port.ts'
 import { SubprocessOrchestrateCodeRunner } from './orchestrate-code-runner.ts'
 import { WORKSURFACE_GLOBAL_INSTRUCTIONS, WORKSURFACE_PROMPT_ORDER, WORKSURFACE_PROMPT_SECTION } from './model/global-instructions.ts'
@@ -203,7 +203,7 @@ export class WorkSurfaceService extends Service {
       const unwatchTarget = targetEvents.watch(event => { void codeFirst.accept(event).catch(error => ctx.logger.warn(`WorkSurface code-first reconcile failed: ${renderError(error)}`)) })
       ctx.on('session/event', (session, event) => {
         const adapted = targetSurfaces.adaptDshToolCompletion(session, event)
-        if (adapted !== undefined) void codeFirst.acceptDsh(adapted.ref, adapted.surfaceId).catch(error => ctx.logger.warn(`WorkSurface DSH Event adapter failed: ${renderError(error)}`))
+        if (adapted !== undefined) void codeFirst.acceptExternal(adapted.ref, adapted.surfaceId, 'dsh.tool.completed').catch(error => ctx.logger.warn(`WorkSurface DSH Event adapter failed: ${renderError(error)}`))
       })
       await this.surfaces.recover()
       return async () => { unwatchTarget(); unwatch(); await this.host.close() }

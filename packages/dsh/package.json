@@ -53,6 +53,8 @@
   "dependencies": {
     "@pf-worksurface/cli": "workspace:^",
     "@pf-worksurface/core": "workspace:^",
+    "@pf-worksurface/design": "workspace:^",
+    "@pf-worksurface/runtime": "workspace:^",
     "@deepseek-ai/schemastery": "^3.18.1"
   },
   "peerDependencies": {
