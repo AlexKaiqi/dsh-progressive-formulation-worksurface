@@ -66,7 +66,7 @@ Code handler 是 Definition 固定的运行 artifact，也不是作者层 DSL。
 
 ## 1. 定位与所有权
 
-WorkSurface v1 是构建在 DSH 之上的文件原生、事件驱动协调层。
+WorkSurface v1 是可由 DSH、pi 等宿主承载的文件原生、事件驱动协调设计；DSH 只是当前已实现的宿主适配器。
 
 WorkSurface 当前负责：
 

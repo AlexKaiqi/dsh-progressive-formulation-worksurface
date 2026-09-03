@@ -51,7 +51,7 @@
 | Surface Runtime Event stream | `packages/core/src/runtime-event-store.ts` | Registration 或 runner |
 | Registration/Input/Operation durable facts | `packages/core/src/orchestrate-ledger-store.ts` | Surface authoring apply |
 | 兼容 export facade | `packages/core/src/runtime-store.ts` | 新实现逻辑 |
-| code-first admission/reconcile/recovery | `packages/dsh/src/code-first-orchestrator.ts` | DSH Session UI 与文件交换细节 |
+| code-first admission/reconcile/recovery | `packages/runtime/src/code-first-orchestrator.ts` | DSH Session UI 与文件交换细节 |
 | artifact/run view/subprocess/result | `packages/dsh/src/orchestrate-code-runner.ts` | durable effect apply |
 | Event-backed head/CAS apply/DSH EventRef bridge | `packages/dsh/src/code-first-surface-port.ts` | Registration 业务条件 |
 | Session create/resume/Workspace attach | `packages/dsh/src/session-admission.ts` | Turn capability 和 Surface 内容 |

@@ -1,6 +1,6 @@
 # WorkSurface
 
-WorkSurface 是建立在 DSH 之上的文件化、事件驱动协调层。当前默认 authoring 面已经收敛到 code-first 目标协议；旧 `Definition v1` 仅作为 `v4` 数据与既有目录的兼容执行路径保留。
+WorkSurface 是一套平台无关的文件化、事件驱动工作设计；当前由 DSH adapter 提供运行接入，未来可由 pi 等宿主复用同一设计与推进 Runtime。当前默认 authoring 面已经收敛到 code-first 目标协议；旧 `Definition v1` 仅作为 `v4` 数据与既有目录的兼容执行路径保留。
 
 当前 Surface 没有独立聚合对象。`SurfaceId` 是贯穿以下物理事实的关联键：
 
@@ -12,7 +12,9 @@ WorkSurface 是建立在 DSH 之上的文件化、事件驱动协调层。当前
 - `v4/surface-sessions/<surface-id>/binding.json`：Surface 与唯一 DSH Session 的固定绑定；
 - `v4/revisions/`：发布后的不可变目录快照。
 
-Surface 的实际模型与工具执行由绑定的 DSH Session 承载。DSH 语义保持原样：Session 是完整的 append-only 交互历史；一个 Turn 包含零到多个 Step；一个 Step 是一次模型调用及该调用请求的工具执行。WorkSurface 不另建执行历史。
+Surface 的实际模型与工具执行由宿主 Session 承载。DSH adapter 中，Session 是完整的 append-only 交互历史；一个 Turn 包含零到多个 Step；一个 Step 是一次模型调用及该调用请求的工具执行。WorkSurface 不另建执行历史。
+
+代码分层为：`@pf-worksurface/core` 保存领域事实与不可变材料，`@pf-worksurface/design` 保存模型可见概念、边界和 Prompt 模板，`@pf-worksurface/runtime` 负责平台无关的推进、编排和恢复，`@pf-worksurface/dsh` 只负责 DSH Session/Turn、上下文注入、事件投影和执行环境适配。
 
 当前 code-first Orchestration 路径是：
 
@@ -34,12 +36,13 @@ Registration 只装配现有 Surface 与 Event route；业务条件、转换、f
 - [Surface 演化、复用与 Promotion](docs/surface-evolution-and-promotion.md)：实例派生、检索、模板提升和反馈闭环的目标设计提案
 - [完整系统设计](docs/worksurface-complete-design.md)：当前定位、严格概念定义、流程和未实现项
 - [实现索引](docs/architecture.md)：概念到源码与存储的映射
+- [平台适配边界](docs/platform-adapters.md)：设计材料、推进 Runtime 与 DSH/pi adapter 的责任拆分
 - [UI 设计](docs/ui-design.md)：基于当前事实的可删除投影
 - [可重复管线方向](docs/repeatable-pipeline-direction.md)：Template、Invocation、参数、多模态 ArtifactRef 与 Design/Run/Evidence 边界
 - [模型上下文](docs/context-management.zh.md)：当前 Context Runtime 的事实模型
 - [验证指南](docs/invariants-and-acceptance.md)：机器不变量、测试证据和新概念准入门槛
-- [模型用例覆盖矩阵](docs/model-readiness-coverage.md)：七个使用用例的 L0–L3 可观察要求、证据映射与真实 Agent 缺口
-- [重构与验证报告](docs/verification-report-2026-09-01.md)：设计判断、文件责任拆分与真实 profile E2E 证据
+- [模型用例覆盖矩阵](docs/model-readiness-coverage.md)：八个直接询问 Agent 的使用用例，覆盖概念、边界、适用性、开始、进入、拆分、authoring、协调和授权输出
+- [重构与验证报告](docs/verification-report-2026-09-02.md)：重构后的真实 profile E2E 证据与剩余模型就绪性缺口
 
 ```sh
 source ~/.nvm/nvm.sh
