@@ -107,6 +107,7 @@ import {
       const [surfaceId, setSurfaceId] = React.useState('')
       const [surfaces, setSurfaces] = React.useState([])
       const [openingSurface, setOpeningSurface] = React.useState('')
+      const surfaceIdRef = React.useRef('')
       const generation = React.useRef(0)
       React.useEffect(() => {
         let active = true
@@ -119,6 +120,7 @@ import {
           let preferred = ''
           try { preferred = window.sessionStorage.getItem('worksurface-anchor') || '' } catch {}
           const chosen = choices.some(item => item.surfaceId === preferred) ? preferred : choices[0]?.surfaceId || ''
+          surfaceIdRef.current = chosen
           setSurfaceId(chosen)
           if (!chosen) setLoading(false)
         }).catch(cause => { if (active) { setError(cause instanceof Error ? cause.message : t('loadFailed')); setLoading(false) } })
@@ -163,19 +165,24 @@ import {
         return () => { active = false; generation.current += 1; controller.abort() }
       }, [load])
       const openSurface = React.useCallback(id => {
+        surfaceIdRef.current = id
         setSurfaceId(id)
         setSnapshot(null)
         setSelected(null)
         try { window.sessionStorage.setItem('worksurface-anchor', id) } catch {}
       }, [])
       const advanceSurface = React.useCallback(async () => {
-        if (!surfaceId || openingSurface) return
-        setOpeningSurface(surfaceId)
+        // Select and button activation may happen in one browser task. React
+        // state is asynchronous, so use the event-time selection authority.
+        const requestedSurfaceId = surfaceIdRef.current || surfaceId
+        if (!requestedSurfaceId || openingSurface) return
+        setOpeningSurface(requestedSurfaceId)
         setSessionError('')
         try {
-          const response = await fetch(`/worksurface-map/api/session?surface=${encodeURIComponent(surfaceId)}`, { method: 'POST', cache: 'no-store' })
+          const response = await fetch(`/worksurface-map/api/session?surface=${encodeURIComponent(requestedSurfaceId)}`, { method: 'POST', cache: 'no-store' })
           const value = await response.json()
           if (!response.ok) throw new Error(value.error || t('sessionFailed'))
+          if (value.surfaceId !== requestedSurfaceId) throw new Error(`Host admitted Surface '${value.surfaceId}' instead of selected '${requestedSurfaceId}'`)
           // Host admission owns identity, persistence, and Workspace binding.
           // The native Client API then adopts that exact live identity into
           // its local catalog before navigation. This also covers blank

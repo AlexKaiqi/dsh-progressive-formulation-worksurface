@@ -1,12 +1,13 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { MessageId, freezeMessage } from '@deepseek-ai/dsh-llm'
 import type SessionStore from '@deepseek-ai/dsh-session'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { WorkSurfaceError } from '@pf-worksurface/core'
 import type { BashEnvContributor, ShellEnvRegistry } from '@deepseek-ai/dsh-shell-env'
-import { workSurfaceInstructions } from './model/session-instructions.ts'
+import { workSurfaceInstructions, workSurfaceTurnInstructions } from './model/session-instructions.ts'
 import { supportsPersistedIgnorableSessionEvents, type SurfaceSessionService } from './session-surface.ts'
 import type { WorkSurfaceContextRuntime } from './context/runtime.ts'
 import type { RenderedContext } from './context/types.ts'
@@ -37,6 +38,7 @@ export class DshWorkSurfaceSessionAdapter {
     this.registerSessionEvents()
     this.registerShellContext()
     this.registerModelContext()
+    this.registerTurnLocatorContext()
     this.registerFactBackedContext()
     this.adoptLiveAgents()
     const unregister = this.service.registerFollowupRouter((surfaceId, message, messageId) => this.deliverFollowup(surfaceId, message, messageId))
@@ -92,7 +94,9 @@ export class DshWorkSurfaceSessionAdapter {
 
   private registerSessionEvents(): void {
     this.ctx.on('session/event', async (session, event) => {
-      if (event.type === 'turn/start') this.service.beginTurn(session, event.data.turn)
+      if (event.type === 'turn/start') {
+        this.service.beginTurn(session, event.data.turn)
+      }
       if (event.type === 'user/message') {
         const messageId = String(event.data.id)
         const turnId = turnForMessage(session, messageId)
@@ -105,6 +109,27 @@ export class DshWorkSurfaceSessionAdapter {
       }
     })
     this.ctx.on('session/disposed', session => { this.service.endTurn(String(session.id)) })
+  }
+
+  private registerTurnLocatorContext(): void {
+    this.ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+      const transformed = await next()
+      const agent = agentFromScope(context.scope)
+      if (agent === undefined) return transformed
+      const active = this.service.activeSurface(String(agent.session.id))
+      if (active === undefined) return transformed
+      const binding = this.service.bindingForSession(String(agent.session.id))
+      if (binding === undefined) return transformed
+      const message = workSurfaceTurnInstructions(binding.surfaceId, {
+        surfaceDir: active.cwd,
+        turnBriefPath: join(active.viewDir, 'turn-brief.json'),
+        authoringRoot: this.service.workRoot,
+        cliPath: WORKSURFACE_CLI,
+      })
+      const text = message.content.map(block => block.type === 'text' ? block.text : '').join('\n')
+      transformed.contexts.push({ name: 'worksurface:turn-locators', text })
+      return transformed
+    })
   }
 
   private waitForFollowupReceipt(sessionId: string, messageId: string): { readonly promise: Promise<string>; readonly cancel: () => void } {
@@ -203,7 +228,11 @@ export class DshWorkSurfaceSessionAdapter {
       resolve: execution => {
         if (execution.agent === undefined) return {}
         const authoring = { DSH_WORKSURFACE_CLI: WORKSURFACE_CLI, DSH_WORKSURFACE_ROOT: this.service.workRoot }
-        const sessionId = String(execution.agent.id)
+        // The shell execution's Agent id is not the persistence/session id on
+        // every DSH host. Resolve the binding through the Session object that
+        // owns the current Turn so the per-Turn locators are actually exposed
+        // to persistent model shells.
+        const sessionId = String(execution.agent.session.id)
         const turn = this.service.activeTurn(sessionId)
         if (turn === undefined) return authoring
         const surface = this.service.activeSurface(sessionId)

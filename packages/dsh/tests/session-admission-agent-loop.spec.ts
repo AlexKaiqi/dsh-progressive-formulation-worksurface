@@ -128,8 +128,12 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
     try {
       const assembly = await runtime.ctx.systemPrompt.assemble()
       const prompt = assembly.sections.map(section => section.text).join('\n')
-      expect(prompt).toContain('WorkSurface is available for durable work')
-      expect(prompt).toContain('`"$DSH_WORKSURFACE_CLI" help`')
+      const guidance = assembly.sections.find(section => section.name === 'worksurface:guidance')?.text ?? ''
+      expect(guidance.length).toBeLessThanOrEqual(1_200)
+      expect(prompt).toContain('WorkSurface is an available capability for durable, independently assessable work')
+      expect(prompt).toContain('Author it in ordinary files')
+      expect(prompt).toContain('Orchestrate coordinates existing Surfaces only')
+      expect(prompt).toContain('`"$DSH_WORKSURFACE_CLI" help author`')
 
       const ordinary = await runtime.ctx.agents.create({
         sessionId: SessionId('ordinary-session'),
@@ -251,7 +255,13 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
       expect(eventTypes).not.toContain('worksurface/binding')
       expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
       expect(agent.session.header.cwd).toBe(surfaces.cwdForSurface('surface-a'))
-      expect(adapter.requests[0]?.messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('complete progress history of WorkSurface')))).toBe(true)
+      const turnPrompt = adapter.requests[0]?.messages
+        .flatMap(message => message.content)
+        .map(block => block.type === 'text' ? block.text : '')
+        .join('\n') ?? ''
+      expect(turnPrompt).toContain('complete progress history of WorkSurface')
+      expect(turnPrompt).toContain('Current WorkSurface adapter locators for DSH Turn')
+      expect(turnPrompt).toContain(surfaces.cwdForSurface('surface-a'))
 
       const wip = join(agent.session.header.cwd!, 'wip.txt')
       await writeFile(wip, 'same authoring WIP\n')
