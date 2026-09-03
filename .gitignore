@@ -5,3 +5,4 @@ coverage/
 artifacts/
 *.tsbuildinfo
 .DS_Store
+.session_tmps/
