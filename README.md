@@ -40,6 +40,7 @@ Registration 只装配现有 Surface 与 Event route；业务条件、转换、f
 - [UI 设计](docs/ui-design.md)：基于当前事实的可删除投影
 - [可重复管线方向](docs/repeatable-pipeline-direction.md)：Template、Invocation、参数、多模态 ArtifactRef 与 Design/Run/Evidence 边界
 - [模型上下文](docs/context-management.zh.md)：当前 Context Runtime 的事实模型
+- [Context-as-Repo 调研与设计结论](docs/research/context-as-repo/README.md)：20 个公开实现的机制、时间线、采用边界，以及 WorkSurface 的 Proposed 收敛方向；不定义当前 Contract
 - [验证指南](docs/invariants-and-acceptance.md)：机器不变量、测试证据和新概念准入门槛
 - [模型用例覆盖矩阵](docs/model-readiness-coverage.md)：八个直接询问 Agent 的使用用例，覆盖概念、边界、适用性、开始、进入、拆分、authoring、协调和授权输出
 - [重构与验证报告](docs/verification-report-2026-09-02.md)：重构后的真实 profile E2E 证据与剩余模型就绪性缺口

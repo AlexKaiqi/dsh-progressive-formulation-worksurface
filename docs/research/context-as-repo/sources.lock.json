@@ -1,0 +1,226 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-04",
+  "sources": [
+    {
+      "id": "openai-codex",
+      "tier": "core",
+      "url": "https://github.com/openai/codex.git",
+      "branch": "main",
+      "revision": "8e6a44b428e31f91b21edc97904fcdf4f0931ade",
+      "license": "Apache-2.0",
+      "checkout": "sparse",
+      "localPath": "sources/core/openai-codex",
+      "focus": ["token budget", "fresh-window reset", "history and notes tools", "world-state bootstrap"]
+    },
+    {
+      "id": "letta-code",
+      "tier": "core",
+      "url": "https://github.com/letta-ai/letta-code.git",
+      "branch": "main",
+      "revision": "feb32e33c4f4badd546e75b70ef202283d6580da",
+      "license": "Apache-2.0",
+      "checkout": "sparse",
+      "localPath": "sources/core/letta-code",
+      "focus": ["Git-backed context repositories", "progressive disclosure", "memory validation", "worktrees"]
+    },
+    {
+      "id": "aigne-framework",
+      "tier": "core",
+      "url": "https://github.com/AIGNE-io/aigne-framework.git",
+      "branch": "main",
+      "revision": "441f59b446182cdfc7462e1a16520a61dc40a5f9",
+      "license": "Elastic-2.0",
+      "checkout": "sparse",
+      "localPath": "sources/core/aigne-framework",
+      "focus": ["agentic filesystem mounts", "history storage", "context selection pipeline", "Git and SQLite adapters"]
+    },
+    {
+      "id": "agentplane",
+      "tier": "core",
+      "url": "https://github.com/basilisk-labs/agentplane.git",
+      "branch": "main",
+      "revision": "fa693664b5fb4f7884b5c772b456357518732bd4",
+      "license": "MIT",
+      "checkout": "sparse",
+      "localPath": "sources/core/agentplane",
+      "focus": ["source versus derived context", "freshness", "promotion", "verification gates"]
+    },
+    {
+      "id": "git-context-controller",
+      "tier": "core",
+      "url": "https://github.com/ImprintLab/git-context-controller.git",
+      "branch": "dev",
+      "revision": "78e274e9f350dec75c236a0c0cc5f6f419df71b0",
+      "license": "MIT",
+      "checkout": "full-shallow",
+      "localPath": "sources/core/git-context-controller",
+      "focus": ["commit", "branch", "merge", "bounded historical context"]
+    },
+    {
+      "id": "agentsfs",
+      "tier": "specimens",
+      "url": "https://github.com/seekinggradient/agentsfs.git",
+      "branch": "main",
+      "revision": "cc5ab914e2bc1ce005a366045efe88ed96220069",
+      "license": "UNLICENSED",
+      "checkout": "full-shallow",
+      "localPath": "sources/specimens/agentsfs",
+      "focus": ["filesystem source of truth", "reserved roles", "archive", "safe MCP boundary"]
+    },
+    {
+      "id": "context-repository",
+      "tier": "specimens",
+      "url": "https://github.com/evanfollis/context-repository.git",
+      "branch": "main",
+      "revision": "a531facaeb5c216fdc7e83f263c005955a954219",
+      "license": "UNLICENSED",
+      "checkout": "full-shallow",
+      "localPath": "sources/specimens/context-repository",
+      "focus": ["typed context canon", "discovery", "conformance", "promotion"]
+    },
+    {
+      "id": "skillfoundry-harness",
+      "tier": "specimens",
+      "url": "https://github.com/evanfollis/skillfoundry-harness.git",
+      "branch": "main",
+      "revision": "4ac1cd7da888bdce12a4d545ca5948c63dc0ca4f",
+      "license": "UNLICENSED",
+      "checkout": "full-shallow",
+      "localPath": "sources/specimens/skillfoundry-harness",
+      "focus": ["canonical repository contract", "ephemeral runtime", "proposal and approval", "integrity"]
+    },
+    {
+      "id": "agno-context",
+      "tier": "specimens",
+      "url": "https://github.com/agno-agi/context.git",
+      "branch": "main",
+      "revision": "417be08fa78bbc12df0704a68c2ac51dca4b123a",
+      "license": "Apache-2.0",
+      "checkout": "full-shallow",
+      "localPath": "sources/specimens/agno-context",
+      "focus": ["provider registry", "automatic tool exposure", "capability filtering", "Git-backed updates"]
+    },
+    {
+      "id": "openhands-software-agent-sdk",
+      "tier": "adjacent",
+      "url": "https://github.com/OpenHands/software-agent-sdk.git",
+      "branch": "main",
+      "revision": "07307cb8edfcd9b4675be2761df0646d075a9c36",
+      "license": "MIT",
+      "checkout": "full-shallow-blobless",
+      "localPath": "sources/adjacent/software-agent-sdk",
+      "focus": ["append-only events", "derived views", "condensation events", "hard context reset", "skills disclosure"]
+    },
+    {
+      "id": "aider",
+      "tier": "adjacent",
+      "url": "https://github.com/Aider-AI/aider.git",
+      "branch": "main",
+      "revision": "5dc9490bb35f9729ef2c95d00a19ccd30c26339c",
+      "license": "Apache-2.0",
+      "checkout": "full-shallow-blobless",
+      "localPath": "sources/adjacent/aider",
+      "focus": ["repository map", "graph ranking", "token-budget fitting", "cache invalidation"]
+    },
+    {
+      "id": "axiom-agent-memory",
+      "tier": "adjacent",
+      "url": "https://github.com/axiomhq/agent-memory.git",
+      "branch": "main",
+      "revision": "72075416ce23c67d1ae7f74a1274a96e01832abd",
+      "license": "UNLICENSED",
+      "checkout": "full-shallow-blobless",
+      "localPath": "sources/adjacent/agent-memory",
+      "focus": ["journal capture", "consolidation", "hot-warm-cold disclosure", "defragmentation", "archive layout"]
+    },
+    {
+      "id": "memstead",
+      "tier": "adjacent",
+      "url": "https://github.com/memstead/memstead.git",
+      "branch": "main",
+      "revision": "a0efe213329322180e42faa939e36f8ba765ccc4",
+      "license": "Apache-2.0 OR MIT",
+      "checkout": "full-shallow-blobless",
+      "localPath": "sources/adjacent/memstead",
+      "focus": ["schema-driven typed Markdown", "Git provenance", "validated mutation", "trust labels", "MCP and CLI parity"]
+    },
+    {
+      "id": "agentic-context-engineering",
+      "tier": "adjacent",
+      "url": "https://github.com/ace-agent/ace.git",
+      "branch": "main",
+      "revision": "82709de050e1db6e6ef2f07bcb0393560b94992a",
+      "license": "Apache-2.0",
+      "checkout": "full-shallow-blobless",
+      "localPath": "sources/adjacent/ace",
+      "focus": ["incremental context deltas", "reflection", "curation", "grow-and-refine", "playbook evaluation"]
+    },
+    {
+      "id": "contextfs",
+      "tier": "adjacent",
+      "url": "https://github.com/thustorage/ContextFS.git",
+      "branch": "main",
+      "revision": "1aaa3603e837461752519911514be28ce9327966",
+      "license": "Apache-2.0",
+      "checkout": "full-shallow-blobless",
+      "localPath": "sources/adjacent/contextfs",
+      "focus": ["content-addressed snapshots", "branches", "agent state journal", "restore", "garbage collection"]
+    },
+    {
+      "id": "ace-playbook",
+      "tier": "adjacent",
+      "url": "https://github.com/rrahimi-uci/agentic-context-engineering.git",
+      "branch": "main",
+      "revision": "97bdb158f72c7dfca73b581545172c981ea8dc88",
+      "license": "MIT",
+      "checkout": "sparse-shallow-blobless",
+      "localPath": "sources/adjacent/ace-playbook",
+      "focus": ["deterministic delta application", "typed playbook", "persistence", "OpenAI Agents integration", "tests"]
+    },
+    {
+      "id": "deepagents",
+      "tier": "adjacent",
+      "url": "https://github.com/langchain-ai/deepagents.git",
+      "branch": "main",
+      "revision": "632f2c941b877eff70407606b58e393212448a26",
+      "license": "MIT",
+      "checkout": "full-history-blobless",
+      "localPath": "sources/adjacent/deepagents",
+      "focus": ["pluggable filesystem backends", "large-result and history offload", "skills progressive disclosure", "persistent memory", "Context Hub commits", "subagent context isolation"]
+    },
+    {
+      "id": "aictx",
+      "tier": "adjacent",
+      "url": "https://github.com/oldskultxo/aictx.git",
+      "branch": "main",
+      "revision": "aa5efbd0e3f35f5a307b70556c4b931f89c4019e",
+      "license": "MIT",
+      "checkout": "full-history-blobless",
+      "localPath": "sources/adjacent/aictx",
+      "focus": ["repo-local continuity", "bounded resume capsule", "Work State", "freshness and why-loaded receipts", "MCP capability profiles", "portable continuity", "maintenance compaction"]
+    },
+    {
+      "id": "agent-mem",
+      "tier": "specimens",
+      "url": "https://github.com/lmaksym/agent-mem.git",
+      "branch": "main",
+      "revision": "0f51758dc6ed803f5322ca0b2e25689120a6d291",
+      "license": "MIT",
+      "checkout": "full-shallow-blobless",
+      "localPath": "sources/specimens/agent-mem",
+      "focus": ["Git-backed .context directory", "progressive disclosure", "branch and merge", "compact and forget"]
+    },
+    {
+      "id": "agent-os",
+      "tier": "specimens",
+      "url": "https://github.com/aylee/agent-os.git",
+      "branch": "main",
+      "revision": "53897b7de5aa56af32dad44580c3515eb5c6733d",
+      "license": "MIT",
+      "checkout": "full-shallow-blobless",
+      "localPath": "sources/specimens/agent-os",
+      "focus": ["filesystem protocol", "workstream state", "receipts", "handoffs", "archive and restore"]
+    }
+  ]
+}
