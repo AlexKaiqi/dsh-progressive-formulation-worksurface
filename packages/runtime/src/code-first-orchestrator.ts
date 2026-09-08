@@ -1,4 +1,5 @@
 import { lstat, readFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import {
   EventContractStore,
   externalHistoryBoundarySeq,
@@ -8,6 +9,7 @@ import {
   RevisionStore,
   RuntimeEventStore,
   WorkSurfaceError,
+  asWorkSurfaceError,
   canonicalEventContract,
   operationKey,
   parseOrchestrateRegistration,
@@ -20,6 +22,7 @@ import {
   type OrchestrateBatchAdvance,
   type OrchestrateBatchEvent,
   type OrchestrateHistoryBoundary,
+  type OrchestrateFailureRecord,
   type OrchestrateInputRecord,
   type OrchestrateOperationBatch,
   type OrchestrateOperationSettlement,
@@ -48,11 +51,16 @@ export interface CodeFirstRegistrationInspection {
   readonly acceptedInputCount: number
   readonly recordedRunCount: number
   readonly pendingRunCount: number
+  readonly unfinishedInputCount: number
+  readonly failureCount: number
+  readonly lastFailure?: OrchestrateFailureRecord
 }
 export interface CodeFirstSurfacePort {
   head(surfaceId: string): Promise<Revision>
   historyBoundary(surfaceId: string): Promise<OrchestrateHistoryBoundary>
   resolveExternalInput(event: RuntimeEventRef): Promise<{ readonly surfaceId: string; readonly name: string; readonly payload: Readonly<Record<string, JsonValue>> }>
+  /** Recheck content and record reservations atomically with respect to managed publications. */
+  recordBatch(batch: OrchestrateOperationBatch, record: () => Promise<void>): Promise<void>
   apply(
     surfaceId: string,
     baseRevision: Revision,
@@ -68,9 +76,13 @@ export interface CodeFirstSurfacePort {
   ): Promise<{ readonly executionId: string; readonly turnId: string }>
 }
 
+export interface CodeFirstRecoveryReport {
+  readonly failedRegistrations: readonly { readonly registrationId: string; readonly code: string; readonly message: string }[]
+}
+
 /** Target code-first registration, input, run, record/apply/settle runtime. */
 export class CodeFirstOrchestrator {
-  private mutation: Promise<void> = Promise.resolve()
+  private readonly mutations = new Map<string, Promise<void>>()
   constructor(
     readonly authority: AuthorityId,
     private readonly revisions: RevisionStore,
@@ -84,9 +96,9 @@ export class CodeFirstOrchestrator {
     private readonly builtins: Readonly<Record<string, BuiltinEventSource>>,
   ) {}
 
-  async init(): Promise<void> {
+  async init(options: { readonly recover?: boolean } = {}): Promise<void> {
     await Promise.all([this.contracts.init(), this.events.init(), this.registrations.init(), this.inputs.init(), this.operations.init()])
-    await this.recover()
+    if (options.recover !== false) await this.recover()
   }
 
   /** registration.json is outside artifactRoot; mutable authoring files are never read after admission. */
@@ -106,13 +118,16 @@ export class CodeFirstOrchestrator {
         const builtin = this.builtins[name]
         if (builtin === undefined) throw new WorkSurfaceError('invalid-definition', `unknown built-in Event '${name}'`)
         if (route.consumeFrom !== undefined && builtin.exposure !== 'orchestrate-input') throw new WorkSurfaceError('unauthorized', `built-in Event '${name}' is runtime-only`)
+        if (route.emitOn !== undefined && !builtin.producers.includes('orchestrate')) throw new WorkSurfaceError('unauthorized', `Orchestrate cannot produce built-in Event '${name}'`)
+        if (route.surfaceOutputFrom !== undefined && !builtin.producers.includes('surface-session')) throw new WorkSurfaceError('unauthorized', `Surface cannot produce built-in Event '${name}'`)
+        if ((route.emitOn !== undefined || route.surfaceOutputFrom !== undefined) && !builtin.subjects.includes('surface')) throw new WorkSurfaceError('unauthorized', `built-in Event '${name}' does not permit a Surface subject`)
         contract = canonicalEventContract({ version: 1, scope: { authority: this.authority, kind: 'builtin', id: 'worksurface' }, name, description: builtin.description, subjects: builtin.subjects, producers: builtin.producers, payloadSchema: builtin.payloadSchema })
       } else {
         const path = route.file!
         let declaration: EventDeclaration
         try { declaration = JSON.parse((await this.revisions.readFile(snapshot.revision, path)).toString('utf8')) as EventDeclaration }
         catch (error) { if (error instanceof SyntaxError) throw new WorkSurfaceError('invalid-definition', `Event declaration '${path}' is invalid JSON`); throw error }
-        validateDeclaration(declaration, name)
+        validateDeclaration(declaration, name, path)
         const producers = [
           ...(route.emitOn === undefined ? [] : ['orchestrate'] as const),
           ...(route.surfaceOutputFrom === undefined ? [] : ['surface-session'] as const),
@@ -146,6 +161,7 @@ export class CodeFirstOrchestrator {
         routes: sortRecord(routes),
       }
       if (stableStringify(fixed) !== stableStringify(candidate)) throw new WorkSurfaceError('already-exists-conflict', `Registration '${source.registrationId}' authoring no longer matches its admitted immutable facts`)
+      await this.revisions.pin(existing.orchestrateRevision)
       return existing
     } catch (error) {
       if (!(error instanceof WorkSurfaceError) || error.code !== 'not-found') throw error
@@ -162,64 +178,93 @@ export class CodeFirstOrchestrator {
       routes: sortRecord(routes),
       historyBoundary,
     }
+    await this.revisions.pin(record.orchestrateRevision)
     await this.registrations.put(record)
     return record
   }
 
-  /** Wakeups are advisory; every pass replays durable Registration and Event facts. */
-  accept(event: RuntimeEventEnvelope): Promise<void> {
-    return this.serialize(() => this.acceptSurfaceLocked(event))
+  /** Wakeups are advisory. Durable acceptance never implies successful execution. */
+  async accept(event: RuntimeEventEnvelope): Promise<void> {
+    // Resolve the durable fact rather than trusting an arbitrary envelope supplied by a caller.
+    const stored = (await this.events.replay(event.subject.id, event.seq))[0]
+    if (stored === undefined || stableStringify(stored) !== stableStringify(event)) throw new WorkSurfaceError('invalid-working-copy', 'Event wakeup does not match the durable Surface Event')
+    await this.dispatch(async registration => {
+      const ref = this.matchSurfaceInput(registration, stored)
+      if (ref !== undefined) { await this.inputs.append(registration.registrationId, ref); await this.drain(registration) }
+    }, true, registration => this.matchSurfaceInput(registration, stored) !== undefined)
   }
 
-  /** Accept a host-session fact without copying its payload into the runtime log. */
-  acceptExternal(event: RuntimeEventRef, surfaceId: string, name: string): Promise<void> {
-    return this.serialize(async () => {
-      if (event.source === 'worksurface' || event.subject.authority !== this.authority) throw new WorkSurfaceError('invalid-working-copy', 'host adapter produced an invalid EventRef')
-      for (const registrationId of await this.registrations.list()) {
-        const registration = await this.registrations.get(registrationId)
-        const handle = Object.entries(registration.surfaces).find(([, surface]) => surface === surfaceId)?.[0]
-        if (handle === undefined) continue
-        const route = registration.routes[name]
-        if (route === undefined || !route.consumeFrom?.includes(handle)) continue
-        const contract = await this.contracts.get(route.digest)
-        if (contract.name !== name || contract.scope.kind !== 'builtin') throw new WorkSurfaceError('canonical-corrupt', `External route '${name}' does not resolve its built-in Contract`)
-        if (event.seq <= externalHistoryBoundarySeq(registration.historyBoundary[handle]!)) continue
-        const existing = await this.inputs.replay(registrationId)
-        if (existing.some(record => stableStringify(record.event) === stableStringify(event))) continue
-        const accepted = await this.inputs.append(registrationId, event)
-        await this.run(registration, accepted.inputSeq)
-      }
-    })
+  /** The host adapter resolves external facts; delivery hints cannot forge their identity. */
+  async acceptExternal(event: RuntimeEventRef, surfaceId: string, name: string): Promise<void> {
+    if (event.source === 'worksurface' || event.subject.authority !== this.authority) throw new WorkSurfaceError('invalid-working-copy', 'host adapter produced an invalid EventRef')
+    const resolved = await this.surfaces.resolveExternalInput(event)
+    if (resolved.surfaceId !== surfaceId || resolved.name !== name) throw new WorkSurfaceError('invalid-working-copy', 'external Event hints do not match the resolved fact')
+    await this.dispatch(async registration => {
+      const handle = Object.entries(registration.surfaces).find(([, surface]) => surface === surfaceId)?.[0]
+      if (handle === undefined) return
+      const route = registration.routes[name]
+      if (route === undefined || !route.consumeFrom?.includes(handle)) return
+      const contract = await this.contracts.get(route.digest)
+      if (contract.name !== name || contract.scope.kind !== 'builtin' || this.builtins[name]?.exposure !== 'orchestrate-input') throw new WorkSurfaceError('unauthorized', `External route '${name}' is not an exposed built-in Contract`)
+      validatePayload(contract, resolved.payload)
+      if (event.seq <= externalHistoryBoundarySeq(registration.historyBoundary[handle]!)) return
+      await this.inputs.append(registration.registrationId, event)
+      await this.drain(registration)
+    }, true, registration => Object.entries(registration.surfaces).some(([handle, bound]) => bound === surfaceId && registration.routes[name]?.consumeFrom?.includes(handle)))
   }
 
-  async recover(): Promise<void> {
-    await this.serialize(async () => {
-      for (const batch of await this.operations.pending()) await this.apply(batch)
-      for (const surfaceId of await this.events.listSurfaces()) {
-        for (const event of await this.events.replay(surfaceId)) await this.acceptSurfaceLocked(event)
+  /** Retry incomplete work once per pass. Hosts choose scheduling and retry cadence. */
+  async recover(): Promise<CodeFirstRecoveryReport> {
+    return this.dispatch(async registration => {
+      for (const surfaceId of Object.values(registration.surfaces)) for (const event of await this.events.replay(surfaceId)) {
+        const ref = this.matchSurfaceInput(registration, event)
+        if (ref !== undefined) await this.inputs.append(registration.registrationId, ref)
       }
-      const recorded = await this.operations.recorded()
-      for (const registrationId of await this.registrations.list()) {
-        const registration = await this.registrations.get(registrationId)
-        const completed = new Set(recorded.filter(batch => batch.registrationId === registrationId).map(batch => batch.triggerInputSeq))
-        for (const input of await this.inputs.replay(registrationId)) if (!completed.has(input.inputSeq)) await this.run(registration, input.inputSeq)
-      }
-    })
+      await this.drain(registration)
+    }, false)
   }
 
-  private async acceptSurfaceLocked(event: RuntimeEventEnvelope): Promise<void> {
-    for (const registrationId of await this.registrations.list()) {
-      const registration = await this.registrations.get(registrationId)
-      const handle = Object.entries(registration.surfaces).find(([, surface]) => surface === event.subject.id)?.[0]
-      if (handle === undefined) continue
-      const route = registration.routes[event.type.name]
-      if (route === undefined || route.digest !== event.type.contract || stableStringify(route.scope) !== stableStringify(event.type.scope) || !route.consumeFrom?.includes(handle)) continue
-      if (event.seq <= registration.historyBoundary[handle]!.surfaceEventSeq) continue
-      const ref = toRef(event)
-      const existing = await this.inputs.replay(registrationId)
-      if (existing.some(record => stableStringify(record.event) === stableStringify(ref))) continue
-      const accepted = await this.inputs.append(registrationId, ref)
-      await this.run(registration, accepted.inputSeq)
+  private matchSurfaceInput(registration: OrchestrateRegistrationRecord, event: RuntimeEventEnvelope): RuntimeEventRef | undefined {
+    const handle = Object.entries(registration.surfaces).find(([, surface]) => surface === event.subject.id)?.[0]
+    if (event.subject.authority !== this.authority || handle === undefined) return undefined
+    const route = registration.routes[event.type.name]
+    if (route === undefined || route.digest !== event.type.contract || stableStringify(route.scope) !== stableStringify(event.type.scope) || !route.consumeFrom?.includes(handle)) return undefined
+    if (event.seq <= registration.historyBoundary[handle]!.surfaceEventSeq) return undefined
+    return toRef(event)
+  }
+
+  private async dispatch(operation: (registration: OrchestrateRegistrationRecord) => Promise<void>, throwFailures = true, select: (registration: OrchestrateRegistrationRecord) => boolean = () => true): Promise<CodeFirstRecoveryReport> {
+    const registrations = (await Promise.all((await this.registrations.list()).map(id => this.registrations.get(id)))).filter(select)
+    const ids = registrations.map(registration => registration.registrationId)
+    const results = await Promise.allSettled(registrations.map(registration => this.serialize(registration.registrationId, () => this.operations.withRegistrationLock(registration.registrationId, async () => operation(registration)))))
+    const failedRegistrations: { registrationId: string; code: string; message: string }[] = []
+    for (const [index, result] of results.entries()) if (result.status === 'rejected') {
+      const error = asWorkSurfaceError(result.reason)
+      // Storage corruption remains fatal after independent registrations have had a chance to recover.
+      if (error.code === 'canonical-corrupt') throw error
+      failedRegistrations.push({ registrationId: ids[index]!, code: error.code, message: error.message })
+    }
+    if (throwFailures && failedRegistrations.length > 0) throw new WorkSurfaceError('effect-failed', 'One or more Registrations remain incomplete; retry delivery or recovery', { failures: failedRegistrations })
+    return { failedRegistrations }
+  }
+
+  private async drain(registration: OrchestrateRegistrationRecord): Promise<void> {
+    const batches = (await this.operations.recorded()).filter(batch => batch.registrationId === registration.registrationId)
+    const pending = new Set((await this.operations.pending()).map(batch => batch.runId))
+    const ledger = await this.inputs.replay(registration.registrationId)
+    if (batches.some(batch => !ledger.some(input => input.inputSeq === batch.triggerInputSeq))) throw new WorkSurfaceError('canonical-corrupt', `Registration '${registration.registrationId}' has an Operation batch without its accepted input`)
+    for (const input of ledger) {
+      const batch = batches.find(batch => batch.triggerInputSeq === input.inputSeq)
+      if (batch !== undefined && !pending.has(batch.runId)) continue
+      try {
+        if (batch === undefined) await this.run(registration, input.inputSeq)
+        else await this.apply(batch)
+      } catch (cause) {
+        const error = asWorkSurfaceError(cause)
+        const recorded = batch ?? (await this.operations.recorded()).find(item => item.registrationId === registration.registrationId && item.triggerInputSeq === input.inputSeq)
+        await this.operations.fail({ version: 1, authority: this.authority, attemptId: `attempt_${randomUUID()}`, registrationId: registration.registrationId, triggerInputSeq: input.inputSeq, phase: recorded === undefined ? 'run' : 'apply', ...(recorded === undefined ? {} : { runId: recorded.runId }), code: error.code, message: error.message, failedAt: new Date().toISOString() })
+        throw error
+      }
     }
   }
 
@@ -229,7 +274,11 @@ export class CodeFirstOrchestrator {
       const registration = await this.registrations.get(id)
       const handle = Object.entries(registration.surfaces).find(([, surface]) => surface === surfaceId)?.[0]
       const route = registration.routes[name]
-      if (handle !== undefined && route?.surfaceOutputFrom?.includes(handle)) matches.push({ registration, contract: await this.contracts.get(route.digest) })
+      if (handle !== undefined && route?.surfaceOutputFrom?.includes(handle)) {
+        const contract = await this.contracts.get(route.digest)
+        this.assertSurfaceOutput(contract, route, name)
+        matches.push({ registration, contract })
+      }
     }
     if (matches.length > 1) throw new WorkSurfaceError('already-exists-conflict', `Event '${name}' is ambiguous for Surface '${surfaceId}' across active Registrations`)
     return matches[0]
@@ -244,6 +293,7 @@ export class CodeFirstOrchestrator {
       for (const [name, route] of Object.entries(registration.routes)) {
         if (!route.surfaceOutputFrom?.includes(handle)) continue
         const contract = await this.contracts.get(route.digest)
+        this.assertSurfaceOutput(contract, route, name)
         const previous = byName.get(name)
         if (previous !== undefined && stableStringify(previous) !== stableStringify(contract)) throw new WorkSurfaceError('already-exists-conflict', `Event '${name}' is ambiguous for Surface '${surfaceId}' across active Registrations`)
         byName.set(name, contract)
@@ -257,16 +307,34 @@ export class CodeFirstOrchestrator {
     const pending = await this.operations.pending()
     return Promise.all((await this.registrations.list()).map(async registrationId => {
       const registration = await this.registrations.get(registrationId)
+      const failures = await this.operations.failures(registrationId)
+      const ledger = await this.inputs.replay(registrationId)
+      const settledInputs = new Set(recorded.filter(batch => batch.registrationId === registrationId && !pending.some(item => item.runId === batch.runId)).map(batch => batch.triggerInputSeq))
       return {
         registrationId,
         orchestrateRevision: registration.orchestrateRevision,
         bindings: registration.surfaces,
         routes: registration.routes,
-        acceptedInputCount: (await this.inputs.replay(registrationId)).length,
+        acceptedInputCount: ledger.length,
+        unfinishedInputCount: ledger.filter(input => !settledInputs.has(input.inputSeq)).length,
+        failureCount: failures.length,
+        ...(failures.at(-1) === undefined ? {} : { lastFailure: failures.at(-1)! }),
         recordedRunCount: recorded.filter(batch => batch.registrationId === registrationId).length,
         pendingRunCount: pending.filter(batch => batch.registrationId === registrationId).length,
       }
     }))
+  }
+
+  /** Durable facts, including older unpinned records, are authoritative GC roots. */
+  async revisionRoots(): Promise<readonly Revision[]> {
+    const [registrations, batches] = await Promise.all([
+      Promise.all((await this.registrations.list()).map(id => this.registrations.get(id))),
+      this.operations.recorded(),
+    ])
+    return [...new Set([
+      ...registrations.map(registration => registration.orchestrateRevision),
+      ...batches.flatMap(batch => [batch.orchestrateRevision, ...Object.values(batch.surfaces).flatMap(surface => [surface.baseRevision, surface.candidateRevision])]),
+    ])].sort()
   }
 
   private async run(registration: OrchestrateRegistrationRecord, triggerInputSeq: number): Promise<void> {
@@ -315,8 +383,13 @@ export class CodeFirstOrchestrator {
       surfaces: Object.fromEntries(Object.entries(registration.surfaces).map(([handle, surfaceId]) => [handle, { surfaceId, baseRevision: baseRevisions[handle]!, candidateRevision: output.candidates[handle]! }])),
       events: effectsEvents, advance: effectsAdvance, recordedAt: new Date().toISOString(),
     }
-    await this.assertUnreserved(batch)
-    await this.operations.record(batch)
+    await this.authorizeBatch(batch)
+    await this.surfaces.recordBatch(batch, async () => {
+      // Retention precedes publishing the durable batch, including when apply
+      // is interrupted for longer than the collector's ordinary age grace.
+      for (const revision of new Set([batch.orchestrateRevision, ...Object.values(batch.surfaces).flatMap(surface => [surface.baseRevision, surface.candidateRevision])])) await this.revisions.pin(revision)
+      await this.operations.record(batch)
+    })
     await this.apply(batch)
   }
 
@@ -327,6 +400,7 @@ export class CodeFirstOrchestrator {
   }
 
   private async apply(batch: OrchestrateOperationBatch): Promise<void> {
+    await this.authorizeBatch(batch)
     const surfaceRevisions: Record<string, Revision> = {}
     for (const [handle, surface] of Object.entries(batch.surfaces).sort(([a], [b]) => a.localeCompare(b))) {
       surfaceRevisions[handle] = await this.surfaces.apply(
@@ -351,18 +425,49 @@ export class CodeFirstOrchestrator {
     await this.operations.settle(settlement)
   }
 
-  private async assertUnreserved(batch: OrchestrateOperationBatch): Promise<void> {
-    for (const pending of await this.operations.pending()) for (const candidate of Object.values(batch.surfaces)) for (const reserved of Object.values(pending.surfaces)) {
-      if (candidate.surfaceId === reserved.surfaceId && candidate.baseRevision === reserved.baseRevision) throw new WorkSurfaceError('already-exists-conflict', `Surface '${candidate.surfaceId}' base Revision is reserved by run '${pending.runId}'`)
+  /** Persisted effects are reauthorized before any content or external execution mutation. */
+  private async authorizeBatch(batch: OrchestrateOperationBatch): Promise<void> {
+    const registration = await this.registrations.get(batch.registrationId)
+    if (batch.authority !== this.authority || batch.orchestrateRevision !== registration.orchestrateRevision || stableStringify(Object.fromEntries(Object.entries(batch.surfaces).map(([handle, surface]) => [handle, surface.surfaceId]))) !== stableStringify(registration.surfaces)) throw new WorkSurfaceError('unauthorized', 'Operation batch does not match its admitted Registration')
+    const authorize = async (identity: RuntimeContractIdentity, handle: string, capability: 'emitOn' | 'surfaceOutputFrom', producer: 'orchestrate' | 'surface-session'): Promise<RuntimeEventContract> => {
+      const route = registration.routes[identity.name]
+      const contract = await this.contracts.get(identity.digest)
+      if (route === undefined || !route[capability]?.includes(handle) || route.digest !== identity.digest || stableStringify(route.scope) !== stableStringify(identity.scope) || contract.name !== identity.name || stableStringify(contract.scope) !== stableStringify(identity.scope) || !contract.subjects.includes('surface') || !contract.producers.includes(producer)) throw new WorkSurfaceError('unauthorized', `Operation cannot produce '${identity.name}' on '${handle}'`)
+      return contract
     }
+    for (const effect of batch.events) validatePayload(await authorize(effect.contract, effect.surface, 'emitOn', 'orchestrate'), effect.payload)
+    for (const effect of batch.advance) for (const output of effect.outputs) await authorize(output, effect.surface, 'surfaceOutputFrom', 'surface-session')
   }
-  private serialize(operation: () => Promise<void>): Promise<void> { const result = this.mutation.then(operation); this.mutation = result.then(() => undefined, () => undefined); return result }
+
+  private assertSurfaceOutput(contract: RuntimeEventContract, route: OrchestrateRegistrationRecord['routes'][string], name: string): void {
+    if (contract.name !== name || stableStringify(contract.scope) !== stableStringify(route.scope) || !contract.producers.includes('surface-session') || !contract.subjects.includes('surface')) throw new WorkSurfaceError('unauthorized', `Surface cannot produce '${name}' through its admitted route`)
+  }
+
+  private serialize(key: string, operation: () => Promise<void>): Promise<void> {
+    const result = (this.mutations.get(key) ?? Promise.resolve()).then(operation)
+    const settled = result.then(() => undefined, () => undefined)
+    this.mutations.set(key, settled)
+    void settled.finally(() => { if (this.mutations.get(key) === settled) this.mutations.delete(key) })
+    return result
+  }
 }
 
-function validateDeclaration(value: EventDeclaration, expectedName: string): void {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new WorkSurfaceError('invalid-definition', `Event declaration '${expectedName}' must be an object`)
-  if (stableStringify(Object.keys(value).sort()) !== stableStringify(['description', 'name', 'payloadSchema'])) throw new WorkSurfaceError('invalid-definition', `Event declaration '${expectedName}' has an invalid shape`)
-  if (value.name !== expectedName || typeof value.description !== 'string' || value.description.length === 0 || value.payloadSchema?.$schema !== 'https://json-schema.org/draft/2020-12/schema' || value.payloadSchema.type !== 'object') throw new WorkSurfaceError('invalid-definition', `Event declaration '${expectedName}' is invalid`)
+function validateDeclaration(value: unknown, expectedName: string, path: string): asserts value is EventDeclaration {
+  const fail = (field: string, requirement: string, expected: string): never => {
+    throw new WorkSurfaceError('invalid-definition', `Event declaration '${expectedName}' in '${path}': ${field} ${requirement}`, { eventName: expectedName, path, field, expected })
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) fail('$', 'must be a JSON object containing name, description, and payloadSchema', 'object')
+  const declaration = value as Record<string, unknown>
+  const fields = ['name', 'description', 'payloadSchema']
+  const unknown = Object.keys(declaration).find(field => !fields.includes(field))
+  if (unknown !== undefined) fail(unknown, 'is not a declaration field; remove it (allowed: name, description, payloadSchema)', 'absent')
+  if (declaration.name !== expectedName) fail('name', `must equal the Registration route name ${JSON.stringify(expectedName)}`, expectedName)
+  if (typeof declaration.description !== 'string' || declaration.description.length === 0) fail('description', 'must be a non-empty string describing this Event', 'non-empty string')
+  if (declaration.payloadSchema === null || typeof declaration.payloadSchema !== 'object' || Array.isArray(declaration.payloadSchema)) fail('payloadSchema', 'must be a JSON object with $schema and type', 'object')
+  const schema = declaration.payloadSchema as Record<string, unknown>
+  const dialect = 'https://json-schema.org/draft/2020-12/schema'
+  if (schema.$schema !== dialect) fail('payloadSchema.$schema', `must equal ${JSON.stringify(dialect)}; set this field explicitly in payloadSchema`, dialect)
+  if (schema.type !== 'object') fail('payloadSchema.type', 'must equal "object"; set this field explicitly in payloadSchema', 'object')
 }
 function toRef(event: RuntimeEventEnvelope): RuntimeEventRef { return { source: 'worksurface', subject: event.subject, seq: event.seq, id: event.id } }
 function sortRecord<T>(value: Readonly<Record<string, T>>): Record<string, T> { return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) }

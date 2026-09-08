@@ -2,15 +2,19 @@ import { mkdir, open, readFile, readdir } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { stableStringify } from './hash.ts'
 import { WorkSurfaceError } from './error.ts'
+import { EventContractStore } from './runtime-authority-contract-store.ts'
 import {
   validateRuntimeEventEnvelope,
   validateRuntimeEventRef,
+  eventContractDigest,
+  validatePayload,
   type AuthorityId,
   type ContractDigest,
   type RuntimeEventEnvelope,
   type RuntimeEventRef,
   type RuntimeProducerKind,
   type RuntimeScope,
+  type RuntimeEventContract,
 } from './runtime-protocol.ts'
 import { acquireRuntimeLock, runtimeCorrupt, runtimeInvalid, syncDirectory, validateRuntimeLocalId } from './runtime-store-io.ts'
 import type { JsonValue } from './event-model.ts'
@@ -24,12 +28,15 @@ export interface RuntimeEventDraft {
   readonly operationKey: string
 }
 
+/** Contract persistence is replaceable; emission authorization is a domain invariant. */
+export interface RuntimeContractResolver { get(digest: ContractDigest): Promise<RuntimeEventContract> }
+
 /** Authority-qualified Surface Event streams using the target envelope. */
 export class RuntimeEventStore {
   readonly root: string
   private readonly mutations = new Map<string, Promise<void>>()
   private readonly listeners = new Set<(event: RuntimeEventEnvelope) => void>()
-  constructor(root: string, readonly authority: AuthorityId) { this.root = resolve(root) }
+  constructor(root: string, readonly authority: AuthorityId, private readonly contracts: RuntimeContractResolver = new EventContractStore(join(root, '..', 'contracts'))) { this.root = resolve(root) }
 
   async init(): Promise<void> {
     await Promise.all([
@@ -43,6 +50,10 @@ export class RuntimeEventStore {
     validateDraft(draft, this.authority)
     return this.serialize(surfaceId, async () => {
       await this.init()
+      const contract = await this.contracts.get(draft.type.contract)
+      if (eventContractDigest(contract) !== draft.type.contract || contract.name !== draft.type.name || stableStringify(contract.scope) !== stableStringify(draft.type.scope)) throw runtimeCorrupt('Runtime Event type does not match its Contract')
+      if (!contract.subjects.includes('surface') || !contract.producers.includes(draft.producer.kind)) throw new WorkSurfaceError('unauthorized', `producer '${draft.producer.kind}' cannot emit '${contract.name}' on a Surface`)
+      validatePayload(contract, draft.payload)
       const release = await acquireRuntimeLock(join(this.root, 'locks', `${encodeURIComponent(surfaceId)}.lock`))
       try {
         const stream = await this.replay(surfaceId)

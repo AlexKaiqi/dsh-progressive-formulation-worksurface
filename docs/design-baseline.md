@@ -7,10 +7,12 @@
 WorkSurface 管理可持续维护的工作上下文，以及这些上下文之间如何由事实驱动地继续推进。
 
 - **Surface**：一项工作依赖的、结构化、可寻址、持续维护且模型可见的上下文。当前物理地址边界是 `SurfaceId + relative file path`。
-- **DSH Session**：一个 Surface 当前唯一绑定的执行历史。Turn、Step、Tool Call 仍由 DSH 定义；不引入 Episode。
+- **执行者**：由宿主提供执行和历史。当前 DSH adapter 选择一个 Surface 唯一绑定一个 DSH Session；Turn、Step、Tool Call 仍由 DSH 定义。这个绑定规则不进入 Surface 核心语义；不引入 Episode。
 - **Event**：已经发生的不可变事实，不是命令。命名空间、Contract 和持久化语义见 [`event-type-system.md`](event-type-system.md)。
 - **Orchestrate**：描述已存在 Surface 之间关系的普通代码。它决定何时传递或改写上下文、影响谁、随后推进谁；不创建 Surface。执行边界见 [`orchestration-code-contract.md`](orchestration-code-contract.md)。
 - **Runtime**：确定性规则和可靠性边界，不是要求模型理解的新领域对象。
+
+具体代码分层、草稿/发布边界和 Agent 验收见[核心与宿主边界](core-and-host-boundaries.md)。
 
 ## 总原则
 
@@ -58,7 +60,7 @@ WorkSurface 管理可持续维护的工作上下文，以及这些上下文之�
 
 | 状态 | 范围 |
 | --- | --- |
-| 当前默认 | authority namespace、scoped Event Contract、四变量 shell Contract、Turn Brief、code-first Registration、Input Ledger、staged run view、Event/advance result 与 recoverable Operation batch |
+| 当前默认 | authority namespace、scoped Event Contract、实际 Bash 环境 Contract、Turn Brief、code-first Registration、Input Ledger、staged run view、Event/advance result 与 recoverable Operation batch |
 | 兼容路径 | `v4` Event/Definition v1/Activation/Operation 与既有 `definition.json` 目录；不与目标 envelope 混写，也不再注入新 authoring 指南 |
 | 尚未收敛 | 旧 v4 数据的显式迁移工具、`dsh.tool.completed` 之外的 DSH 安全 projection |
 

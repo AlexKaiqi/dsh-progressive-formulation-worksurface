@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { lstat, mkdir, readFile, readdir } from 'node:fs/promises'
-import { dirname, join, resolve, sep } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -42,6 +42,7 @@ import { WorkSurfaceContextRuntime } from './context/runtime.ts'
 import { BUILTIN_EVENT_CATALOG } from './builtin-event-catalog.ts'
 import { CodeFirstOrchestrator, type CodeFirstRegistrationInspection } from '@pf-worksurface/runtime'
 import { DshCodeFirstSurfacePort } from './code-first-surface-port.ts'
+import { installBlockToFileAdapter } from './block-to-file-adapter.ts'
 import { SubprocessOrchestrateCodeRunner } from './orchestrate-code-runner.ts'
 import { WORKSURFACE_GLOBAL_INSTRUCTIONS, WORKSURFACE_PROMPT_ORDER, WORKSURFACE_PROMPT_SECTION } from './model/global-instructions.ts'
 
@@ -67,7 +68,7 @@ export interface SurfaceTopologyNode {
   readonly lifecycle: SurfaceLifecycleProjection
 }
 
-export interface SurfaceChoice { readonly surfaceId: string; readonly title: string }
+export interface SurfaceChoice { readonly surfaceId: string; readonly title: string; readonly revision?: Revision }
 
 interface AuthoringRegistration {
   readonly version: 1
@@ -161,26 +162,28 @@ export class WorkSurfaceService extends Service {
         this.eventStore.init(),
         this.revisions.init(),
       ])
-      await this.surfaces.init()
       for (const id of await this.eventStore.list('registration')) this.registrationIds.add(id)
-      await this.collectGarbage()
       const unwatch = this.eventStore.watch(event => {
         if (event.subject.kind === 'surface' || event.name === 'registration.operation-recorded') this.queueReconcile()
       })
       await this.host.start()
       this.surfaces.registerTurnTransport(this.config.socketPath)
       installDshSessionAdapter(ctx, this.surfaces, this.contextRuntime, this.config.socketPath, async surfaceId => {
-        const result = await this.sessionAdmission.ensure({ surfaceId })
+        const result = await this.ensureSession({ surfaceId })
         return { sessionId: result.sessionId }
       }, surfaceId => this.prepareNextTurn(surfaceId))
       const authority = await new RuntimeAuthorityStore(this.config.targetRoot).init()
       this.surfaces.registerRuntimeAuthority(authority.id)
-      const targetEvents = new RuntimeEventStore(join(this.config.targetRoot, 'events'), authority.id)
       const targetContracts = new EventContractStore(join(this.config.targetRoot, 'contracts'))
+      const targetEvents = new RuntimeEventStore(join(this.config.targetRoot, 'events'), authority.id, targetContracts)
       const targetRegistrations = new RegistrationRecordStore(join(this.config.targetRoot, 'registrations'), authority.id)
       const targetInputs = new InputLedgerStore(join(this.config.targetRoot, 'input-ledgers'), authority.id)
       const targetOperations = new OperationLedgerStore(join(this.config.targetRoot, 'operation-ledger'), authority.id)
-      const targetSurfaces = new DshCodeFirstSurfacePort(ctx, this.config.workRoot, this.config.targetRoot, this.revisions, targetEvents, targetContracts, this.surfaces)
+      const targetSurfaces = new DshCodeFirstSurfacePort(ctx, this.config.workRoot, this.config.targetRoot, this.revisions, targetEvents, targetContracts, this.surfaces, undefined, targetOperations)
+      installBlockToFileAdapter(ctx, targetSurfaces.workspace, this.surfaces)
+      this.surfaces.registerRevisionHead(surfaceId => targetSurfaces.recordedHead(surfaceId))
+      await targetSurfaces.recover()
+      await this.surfaces.init()
       const codeFirst = new CodeFirstOrchestrator(
         authority.id,
         this.revisions,
@@ -196,14 +199,16 @@ export class WorkSurfaceService extends Service {
       this.codeFirst = codeFirst
       this.codeFirstEvents = targetEvents
       this.codeFirstSurfacePort = targetSurfaces
-      await codeFirst.init()
-      await targetSurfaces.recoverHeads()
+      const unwatchTarget = targetEvents.watch(event => { void this.initialization.then(() => codeFirst.accept(event)).catch(error => ctx.logger.warn(`WorkSurface code-first reconcile failed: ${renderError(error)}`)) })
+      await codeFirst.init({ recover: false })
+      await this.collectGarbage()
+      const surfaceFailures = await targetSurfaces.recoverHeads({ isolateFailures: true })
+      for (const failure of surfaceFailures) ctx.logger.warn(`WorkSurface unfinished authoring Surface '${failure.surfaceId}': ${failure.error}`)
       await this.syncAuthoringRegistrations({ isolateFailures: true })
       for (const binding of this.surfaces.listBindings()) await this.prepareNextTurn(binding.surfaceId)
-      const unwatchTarget = targetEvents.watch(event => { void codeFirst.accept(event).catch(error => ctx.logger.warn(`WorkSurface code-first reconcile failed: ${renderError(error)}`)) })
       ctx.on('session/event', (session, event) => {
         const adapted = targetSurfaces.adaptDshToolCompletion(session, event)
-        if (adapted !== undefined) void codeFirst.acceptExternal(adapted.ref, adapted.surfaceId, 'dsh.tool.completed').catch(error => ctx.logger.warn(`WorkSurface DSH Event adapter failed: ${renderError(error)}`))
+        if (adapted !== undefined) void this.initialization.then(() => codeFirst.acceptExternal(adapted.ref, adapted.surfaceId, 'dsh.tool.completed')).catch(error => ctx.logger.warn(`WorkSurface DSH Event adapter failed: ${renderError(error)}`))
       })
       await this.surfaces.recover()
       return async () => { unwatchTarget(); unwatch(); await this.host.close() }
@@ -211,6 +216,10 @@ export class WorkSurfaceService extends Service {
     this.initialization = Promise.resolve(lifecycle).then(() => undefined)
     this.sessionAdmission = new SurfaceSessionAdmission(ctx, this.surfaces, () => this.initialization)
     this.startupRecovery = this.initialization.then(async () => {
+      const externalFailures = await this.codeFirstSurfacePort?.recoverExternalInputs((ref, surfaceId, name) => this.codeFirst!.acceptExternal(ref, surfaceId, name)) ?? []
+      for (const failure of externalFailures) ctx.logger.warn(`WorkSurface external input recovery for '${failure.surfaceId}': ${failure.error}`)
+      const runtime = await this.codeFirst?.recover()
+      for (const failure of runtime?.failedRegistrations ?? []) ctx.logger.warn(`WorkSurface startup runtime recovery remains unfinished: ${JSON.stringify(failure)}`)
       const sessions = await this.sessionAdmission.recoverAfterRestart()
       const registrations = [...this.registrationIds].sort()
       const reconciled = await Promise.allSettled(registrations.map(id => this.engine.reconcile(id)))
@@ -244,6 +253,11 @@ export class WorkSurfaceService extends Service {
   }
 
   async emitTurn(capability: string, name: string, payload: JsonValue, operationKey?: string): Promise<EventRef | RuntimeEventRef> {
+    // Compatibility for callers predating the separate file publication command.
+    if (name === 'surface.revision.published') {
+      if (payload === null || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).some(key => key !== 'summary') || (payload.summary !== undefined && typeof payload.summary !== 'string')) throw new WorkSurfaceError('invalid-working-copy', 'publication accepts only an optional string summary')
+      return this.publishTurn(capability, operationKey ?? name, typeof payload.summary === 'string' ? payload.summary : undefined)
+    }
     const source = this.surfaces.planningSource(capability)
     await this.syncAuthoringRegistrations()
     const target = await this.codeFirst?.surfaceOutput(source.surfaceId, name)
@@ -265,23 +279,29 @@ export class WorkSurfaceService extends Service {
         operationKey: key,
       })
     }
-    const ref = await this.surfaces.emitTurn(capability, name, payload, operationKey)
-    if (name !== 'surface.revision.published' || this.codeFirstSurfacePort === undefined) return ref
-    const event = (await this.surfaces.replaySurface(source.surfaceId, ref.seq))[0]
-    if (event?.name !== 'surface.revision.published' || event.meta.outputRevision === undefined) return ref
-    return this.codeFirstSurfacePort.recordPublished(source.surfaceId, {
-      sessionId: source.sessionId,
-      turn: source.turn,
-      expectedRevision: event.meta.expectedHead ?? null,
-      revision: event.meta.outputRevision,
-      ...(payload !== null && typeof payload === 'object' && !Array.isArray(payload) && typeof payload.summary === 'string'
-        ? { summary: payload.summary }
-        : {}),
-    })
+    if (name in BUILTIN_EVENT_CATALOG) throw new WorkSurfaceError('unauthorized', `built-in '${name}' is emitted by its host adapter or runtime`)
+    return this.surfaces.emitTurn(capability, name, payload, operationKey)
+  }
+
+  /** Publish this active Turn's Surface files, independently of business outputs. */
+  async publishTurn(capability: string, operationKey: string, summary?: string): Promise<RuntimeEventRef> {
+    const source = this.surfaces.planningSource(capability)
+    if (typeof operationKey !== 'string' || operationKey.trim() === '') throw new WorkSurfaceError('invalid-working-copy', 'file publication requires a stable operation key')
+    if (summary !== undefined && typeof summary !== 'string') throw new WorkSurfaceError('invalid-working-copy', 'file publication summary must be a string')
+    if (this.codeFirstSurfacePort === undefined) throw new WorkSurfaceError('effect-failed', 'file publication is unavailable')
+    const active = this.surfaces.activeSurface(source.sessionId)!
+    if (resolve(active.cwd) !== resolve(this.surfaces.workRoot, 'surfaces', source.surfaceId)) {
+      throw new WorkSurfaceError('unauthorized', 'file publication requires the public Surface authoring directory; this legacy Session still uses a private worktree')
+    }
+    return this.codeFirstSurfacePort.publishTurn(source.surfaceId, {
+      sessionId: source.sessionId, turn: source.turn, expectedRevision: active.revision.expectedHead,
+      ...(summary === undefined ? {} : { summary }),
+    }, operationKey)
   }
 
   /** Called by the creator during DSH Agent setup, before the Surface Session starts. */
-  bindSession(session: Session, surfaceId: string, source?: SurfaceInputSource): Promise<SurfaceSessionBinding> {
+  async bindSession(session: Session, surfaceId: string, source?: SurfaceInputSource): Promise<SurfaceSessionBinding> {
+    await this.codeFirstSurfacePort?.head(surfaceId)
     return this.surfaces.bindSession(session, surfaceId, source)
   }
 
@@ -290,6 +310,7 @@ export class WorkSurfaceService extends Service {
 
   /** Product admission: create or resume the Surface's one real DSH Session without starting a Turn. */
   async ensureSession(request: SurfaceSessionAdmissionRequest): Promise<SurfaceSessionAdmissionResult> {
+    await this.codeFirstSurfacePort?.head(request.surfaceId)
     const result = await this.sessionAdmission.ensure(request)
     await this.prepareNextTurn(request.surfaceId)
     return result
@@ -430,7 +451,10 @@ export class WorkSurfaceService extends Service {
     try {
       for (const entry of await readdir(join(this.config.workRoot, 'surfaces'), { withFileTypes: true })) if (entry.isDirectory()) ids.add(entry.name)
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
-    return Promise.all([...ids].sort().map(async surfaceId => ({ surfaceId, title: await this.surfaceTitle(surfaceId) })))
+    return Promise.all([...ids].sort().map(async surfaceId => {
+      const revision = await this.codeFirstSurfacePort?.recordedHead(surfaceId)
+      return { surfaceId, title: await this.surfaceTitle(surfaceId), ...(revision === undefined ? {} : { revision }) }
+    }))
   }
 
   async inspectLegacyData(): Promise<LegacyDataReport> {
@@ -441,14 +465,45 @@ export class WorkSurfaceService extends Service {
 
   /** Collect only old immutable objects that no durable Event fact or pin can reach. */
   async collectGarbage(minAgeMs = 7 * 24 * 60 * 60 * 1_000): Promise<WorkSurfaceGcResult> {
-    const revisions = await this.surfaces.collectGarbage(minAgeMs)
+    const roots = [
+      ...await this.codeFirst?.revisionRoots() ?? [],
+      ...await this.codeFirstSurfacePort?.revisionRoots() ?? [],
+    ]
+    const revisions = await this.surfaces.collectGarbage(minAgeMs, roots)
     const sessions = await this.surfaces.collectSessionGarbage(minAgeMs)
     return { revisions, sessions, worktrees: sessions }
   }
 
   async dispatch(call: WorkSurfaceRpcCall, signal: AbortSignal): Promise<unknown> {
+    await this.initialization
     const p = call.params
     switch (call.method) {
+      case 'authoring.sync': {
+        await this.syncAuthoringRegistrations()
+        await this.codeFirstSurfacePort?.recoverHeads()
+        return { surfaces: await this.listSurfaces(), registrations: await this.codeFirst?.inspectRegistrations() ?? [] }
+      }
+      case 'surface.list': return this.listSurfaces()
+      case 'surface.run': {
+        const surfaceId = text(p, 'surfaceId')
+        const instruction = text(p, 'instruction')
+        const key = text(p, 'operationKey')
+        await this.ensureSession({ surfaceId })
+        return this.surfaces.followupSurface(surfaceId, instruction, `ws-request-${key}`)
+      }
+      case 'surface.publish': {
+        if (Object.keys(p).some(key => !['capability', 'operationKey', 'summary'].includes(key))) throw new WorkSurfaceError('invalid-working-copy', 'file publication accepts only capability, operationKey, and optional summary')
+        if (p.summary !== undefined && typeof p.summary !== 'string') throw new WorkSurfaceError('invalid-working-copy', 'file publication summary must be a string')
+        return this.publishTurn(text(p, 'capability'), text(p, 'operationKey'), p.summary)
+      }
+      case 'runtime.recover': {
+        const surfaceFailures = await this.codeFirstSurfacePort?.recoverHeads({ isolateFailures: true }) ?? []
+        await this.surfaces.recover()
+        await this.syncAuthoringRegistrations({ isolateFailures: true })
+        const externalFailures = await this.codeFirstSurfacePort?.recoverExternalInputs((ref, surfaceId, name) => this.codeFirst!.acceptExternal(ref, surfaceId, name)) ?? []
+        const runtime = await this.codeFirst?.recover()
+        return { runtime, surfaceFailures, externalFailures, registrations: await this.codeFirst?.inspectRegistrations() ?? [], authoringFailures: Object.fromEntries(this.authoringFailures) }
+      }
       case 'event.emit': {
         const eventId = optionalText(p, 'eventId')
         return this.emitEvent(text(p, 'surfaceId'), text(p, 'name'), json(p.payload), {
@@ -467,7 +522,8 @@ export class WorkSurfaceService extends Service {
       case 'revision.read': return this.revisions.read(text(p, 'revision') as Revision)
       case 'revision.materialize': {
         const path = this.materializationPath(text(p, 'path'))
-        await this.revisions.materialize(text(p, 'revision') as Revision, path)
+        if (this.codeFirstSurfacePort === undefined) throw new WorkSurfaceError('effect-failed', 'file workspace is unavailable')
+        await this.codeFirstSurfacePort.workspace.materialize(text(p, 'revision') as Revision, relative(this.config.workRoot, path), `rpc-materialize:${call.id}`)
         return { path }
       }
       case 'legacy.report': return this.inspectLegacyData()

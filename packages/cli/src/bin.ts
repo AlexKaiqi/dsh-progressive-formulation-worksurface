@@ -7,21 +7,22 @@ import { pathToFileURL } from 'node:url'
 import { asWorkSurfaceError, sha256, WorkSurfaceError } from '@pf-worksurface/core'
 import { WorkSurfaceHostClient } from './client.ts'
 import { HELP, VERSION, helpFor } from './help.ts'
+import { renderCliLocators, resolveCliEnvironment, type WorkSurfaceCliEnvironment } from './environment.ts'
 
 interface Args { readonly flags: Map<string, string | true>; readonly positional: readonly string[] }
 
 export async function main(argv = process.argv.slice(2), env = process.env): Promise<number> {
-  if (argv.length === 0 || argv.includes('--help')) { process.stdout.write(HELP); return 0 }
+  if (argv.length === 0 || argv.includes('--help')) { process.stdout.write(renderCliLocators(HELP, env)); return 0 }
   if (argv.length === 1 && argv[0] === '--version') { process.stdout.write(`${VERSION}\n`); return 0 }
   if (argv[0] === 'help') {
-    if (argv.length > 2) { process.stderr.write(helpFor(argv[1])); return 15 }
-    const output = helpFor(argv[1])
+    if (argv.length > 2) { process.stderr.write(helpFor(argv[1], env)); return 15 }
+    const output = helpFor(argv[1], env)
     if (argv[1] !== undefined && output.startsWith('Unknown WorkSurface help topic')) { process.stderr.write(output); return 15 }
     process.stdout.write(output)
     return 0
   }
   try {
-    const result = await execute(parseArgs(argv), env)
+    const result = await execute(parseArgs(argv), resolveCliEnvironment(env))
     process.stdout.write(`${JSON.stringify(result)}\n`)
     return 0
   } catch (error) {
@@ -31,18 +32,45 @@ export async function main(argv = process.argv.slice(2), env = process.env): Pro
   }
 }
 
-async function execute(args: Args, env: NodeJS.ProcessEnv): Promise<unknown> {
+async function execute(args: Args, env: WorkSurfaceCliEnvironment): Promise<unknown> {
   if (args.positional[0] === 'emit' && args.positional.length === 2) return emit(args, env)
-  throw usage('expected `ws emit`')
+  if (args.positional[0] === 'publish' && args.positional.length === 1) {
+    allowFlags(args, ['key', 'summary'])
+    const operationKey = stringFlag(args, 'key')
+    if (!operationKey?.trim()) throw usage('ws publish requires --key')
+    const runtime = turnRuntime(env)
+    const capability = runtime?.capability ?? env.capability
+    if (capability === undefined) throw new WorkSurfaceError('unauthorized', 'ws publish requires an active Surface Turn')
+    const summary = stringFlag(args, 'summary')
+    return clientFor(args, env, runtime?.socketPath).call('surface.publish', {
+      capability, operationKey, ...(summary === undefined ? {} : { summary }),
+    })
+  }
+  if (args.positional.length === 1) {
+    const method = { sync: 'authoring.sync', list: 'surface.list', recover: 'runtime.recover' } as const
+    const command = args.positional[0]!
+    if (Object.hasOwn(method, command)) {
+      allowFlags(args, ['socket'])
+      return clientFor(args, env).call(method[command as keyof typeof method], {})
+    }
+  }
+  if (args.positional[0] === 'run' && args.positional.length === 2) {
+    allowFlags(args, ['instruction', 'key', 'socket'])
+    const instruction = stringFlag(args, 'instruction')
+    const operationKey = stringFlag(args, 'key')
+    if (!instruction?.trim() || !operationKey?.trim()) throw usage('ws run requires --instruction and --key')
+    return clientFor(args, env).call('surface.run', { surfaceId: args.positional[1]!, instruction, operationKey })
+  }
+  throw usage('expected `ws sync`, `ws list`, `ws run`, `ws publish`, `ws recover`, or `ws emit`')
 }
 
-async function emit(args: Args, env: NodeJS.ProcessEnv): Promise<unknown> {
+async function emit(args: Args, env: WorkSurfaceCliEnvironment): Promise<unknown> {
   allowFlags(args, ['surface', 'key', 'payload', 'payload-file', 'socket', 'capability'])
   const target = args.positional[1]!
-  const surfaceId = stringFlag(args, 'surface') ?? env.DSH_SURFACE_ID
+  const surfaceId = stringFlag(args, 'surface') ?? env.surfaceId
   const runtime = turnRuntime(env)
   const client = clientFor(args, env, runtime?.socketPath)
-  const capability = stringFlag(args, 'capability') ?? runtime?.capability ?? env.DSH_WORKSURFACE_CAPABILITY
+  const capability = stringFlag(args, 'capability') ?? runtime?.capability ?? env.capability
   const operationKey = stringFlag(args, 'key')
   const value = parseJson(payload(args), 'payload')
   if (capability !== undefined) {
@@ -51,21 +79,21 @@ async function emit(args: Args, env: NodeJS.ProcessEnv): Promise<unknown> {
       ...(operationKey === undefined ? {} : { operationKey }),
     })
   }
-  if (surfaceId === undefined) throw new WorkSurfaceError('unauthorized', '--surface is required outside a managed DSH Turn')
+  if (surfaceId === undefined) throw new WorkSurfaceError('unauthorized', '--surface is required outside a managed Surface turn')
   const eventId = operationKey === undefined
     ? `evt_${randomUUID()}`
     : `evt_${sha256(`${surfaceId}\0${target}\0${operationKey}`).slice(0, 40)}`
   return client.call('event.emit', { surfaceId, name: target, payload: value, eventId })
 }
 
-function clientFor(args: Args, env: NodeJS.ProcessEnv, turnSocket?: string): WorkSurfaceHostClient {
-  const socket = stringFlag(args, 'socket') ?? turnSocket ?? env.DSH_WORKSURFACE_SOCKET
-  if (socket === undefined) throw new WorkSurfaceError('unauthorized', '--socket is required outside a managed DSH Turn')
+function clientFor(args: Args, env: WorkSurfaceCliEnvironment, turnSocket?: string): WorkSurfaceHostClient {
+  const socket = stringFlag(args, 'socket') ?? turnSocket ?? env.socketPath
+  if (socket === undefined) throw new WorkSurfaceError('unauthorized', '--socket is required outside a managed Surface turn')
   return new WorkSurfaceHostClient(socket)
 }
 
-function turnRuntime(env: NodeJS.ProcessEnv): { readonly socketPath: string; readonly capability: string } | undefined {
-  const view = env.DSH_WORKSURFACE_VIEW_DIR
+function turnRuntime(env: WorkSurfaceCliEnvironment): { readonly socketPath: string; readonly capability: string } | undefined {
+  const view = env.viewDir
   if (view === undefined) return undefined
   let value: unknown
   try { value = JSON.parse(readFileSync(join(view, '.runtime.json'), 'utf8')) }

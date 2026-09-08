@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { lstat, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { link, lstat, mkdir, open, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 import { KNOWN_SESSION_EVENT_TYPES, SESSION_FORMAT_VERSION, Session as DshSession, SessionId, type Session } from '@deepseek-ai/dsh-session'
 import {
@@ -133,6 +133,7 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
   private initialized = false
   private turnTransport: string
   private runtimeAuthority?: AuthorityId
+  private revisionHead?: (surfaceId: string) => Promise<Revision | undefined>
   private readonly pendingBriefs = new Map<string, SurfaceTurnBriefDraft>()
   // A fast continuation can open its next DSH Turn before the async adapter
   // refresh after turn/end has completed. Retain the last prepared brief as a
@@ -178,11 +179,48 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
 
   registerTurnTransport(socketPath: string): void { this.turnTransport = socketPath }
   registerRuntimeAuthority(authority: AuthorityId): void { this.runtimeAuthority = authority }
+  /** Select the current version authority before loading any persisted Session contexts. */
+  registerRevisionHead(resolve: (surfaceId: string) => Promise<Revision | undefined>): void { this.revisionHead = resolve }
   prepareTurnBrief(surfaceId: string, brief: SurfaceTurnBriefDraft): void {
     validateSurfaceId(surfaceId)
-    const snapshot = structuredClone(brief)
+    const snapshot = validateBrief(brief)
     this.pendingBriefs.set(surfaceId, snapshot)
     this.lastBriefs.set(surfaceId, snapshot)
+  }
+
+  /** Persist the Runtime batch's adapter projection before DSH accepts its message. */
+  async prepareFollowupBrief(surfaceId: string, messageId: string, brief: SurfaceTurnBriefDraft): Promise<void> {
+    const path = this.messageBriefPath(surfaceId, messageId)
+    const snapshot = { version: 1, surfaceId, messageId, brief: validateBrief(brief) }
+    await immutableJson(path, snapshot)
+  }
+
+  /** Carry only interrupted work's exact grants into DSH's restart notice. */
+  async prepareRestartBrief(surfaceId: string, messageId: string, session: Session): Promise<void> {
+    if (this.bindingForSession(String(session.id))?.surfaceId !== surfaceId) throw new WorkSurfaceError('unauthorized', 'restart brief requires the Surface\'s bound Session')
+    const boundary = session.events.findLast(event => event.type === 'turn/start' || event.type === 'turn/end')
+    if (boundary === undefined) return
+    if (boundary.type === 'turn/end' && boundary.data.reason.kind !== 'interrupted'
+      && !(boundary.data.reason.kind === 'aborted' && boundary.data.reason.reason.kind === 'disposed')) return
+    const brief = this.specificBriefForTurn(surfaceId, session, boundary.data.turn)
+    if (brief !== undefined) await this.prepareFollowupBrief(surfaceId, messageId, brief)
+  }
+
+  /** Called synchronously at DSH user/message admission, before the model can run. */
+  applyMessageBrief(session: Session, messageId: string): void {
+    const scope = this.currentBySession.get(String(session.id))
+    if (scope === undefined || !messagesForTurn(session, scope.turn).includes(messageId)) return
+    try {
+      const brief = this.specificBriefForTurn(scope.current.surfaceId, session, scope.turn)
+      if (brief === undefined) return
+      const view = this.createTurnView(scope.current.surfaceId, String(session.id), scope.turn, scope.capability, brief)
+      scope.current = { ...scope.current, ...view }
+    } catch (error) {
+      // A conflicting admitted message must never keep a broader generic or
+      // partially merged grant alive, even if the Host logs listener failures.
+      this.endTurn(String(session.id), scope.turn)
+      throw error
+    }
   }
 
   followupSurface(surfaceId: string, message: string, messageId: string): Promise<{ readonly sessionId: string; readonly messageId: string; readonly turnId: string }> {
@@ -278,7 +316,8 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     const revision = this.revisionsBySurface.get(binding.surfaceId)
     if (revision === undefined) throw new WorkSurfaceError('effect-failed', `Surface Session '${binding.surfaceId}' has no recovered revision state`)
     const capability = randomUUID()
-    const view = this.createTurnView(binding.surfaceId, sessionId, turn, capability)
+    const specific = this.specificBriefForTurn(binding.surfaceId, session, turn)
+    const view = this.createTurnView(binding.surfaceId, sessionId, turn, capability, specific)
     const current: BoundSurfaceSession = {
       capability,
       sessionId,
@@ -299,14 +338,16 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     return capability
   }
 
-  private createTurnView(surfaceId: string, sessionId: string, turn: number, capability: string): { readonly viewDir: string; readonly runtimeBinding?: RuntimeBinding } {
+  private createTurnView(surfaceId: string, sessionId: string, turn: number, capability: string, specific?: SurfaceTurnBriefDraft): { readonly viewDir: string; readonly runtimeBinding?: RuntimeBinding } {
     const viewDir = join(this.stateRoot, 'runtime', 'turn-views', sessionId, String(turn))
+    const draft = specific ?? this.pendingBriefs.get(surfaceId) ?? this.lastBriefs.get(surfaceId) ?? { instruction: 'Continue the current Surface objective using its files and acceptance criteria.', outputs: [] }
+    const resolved = Object.fromEntries(draft.outputs.flatMap(output => output.scope === undefined || output.digest === undefined ? [] : [[output.name, { scope: output.scope, digest: output.digest }]]))
+    const runtimeBinding = this.runtimeAuthority === undefined ? undefined : surfaceTurnRuntimeBinding(this.runtimeAuthority, { surfaceId, executionId: sessionId, turnId: String(turn) }, resolved)
     mkdirSync(join(viewDir, 'contracts'), { recursive: true, mode: 0o700 })
-    const draft = this.pendingBriefs.get(surfaceId) ?? this.lastBriefs.get(surfaceId) ?? { instruction: 'Continue the current Surface objective using its files and acceptance criteria.', outputs: [] }
     this.pendingBriefs.delete(surfaceId)
     const outputs = draft.outputs.map(output => {
       const schemaFile = `contracts/${output.name}.payload.schema.json`
-      writeFileSync(join(viewDir, schemaFile), `${stableStringify(output.payloadSchema)}\n`, { flag: 'w', mode: 0o400 })
+      atomicViewJson(join(viewDir, schemaFile), output.payloadSchema)
       return {
         name: output.name,
         when: `Emit only when ${output.description}`,
@@ -316,18 +357,48 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
       }
     })
     const brief = {
-      version: 1,
+      version: 2,
       surface: { handle: '$DSH_SURFACE_ID', directory: '$DSH_SURFACE_DIR', entryPaths: ['surface.md'] },
       runtimeView: '$DSH_WORKSURFACE_VIEW_DIR',
       instruction: draft.instruction,
       inputs: draft.inputs ?? [],
+      filePublication: {
+        when: 'Publish completed file changes before emitting an output that asks coordination to read those files.',
+        description: 'Publication makes the current Surface files available as a durable version. A business output does not publish files. Publication is available even when outputs is empty.',
+        command: { argv: ['$DSH_WORKSURFACE_CLI', 'publish', '--key', '<stable-publication-key>'] },
+      },
       outputs,
     }
-    writeFileSync(join(viewDir, 'turn-brief.json'), `${stableStringify(brief)}\n`, { flag: 'w', mode: 0o400 })
-    writeFileSync(join(viewDir, '.runtime.json'), `${stableStringify({ version: 1, socketPath: this.turnTransport, capability })}\n`, { flag: 'w', mode: 0o400 })
-    const resolved = Object.fromEntries(draft.outputs.flatMap(output => output.scope === undefined || output.digest === undefined ? [] : [[output.name, { scope: output.scope, digest: output.digest }]]))
-    const runtimeBinding = this.runtimeAuthority === undefined ? undefined : surfaceTurnRuntimeBinding(this.runtimeAuthority, { surfaceId, executionId: sessionId, turnId: String(turn) }, resolved)
+    atomicViewJson(join(viewDir, 'turn-brief.json'), brief)
+    atomicViewJson(join(viewDir, '.runtime.json'), { version: 1, socketPath: this.turnTransport, capability })
     return { viewDir, ...(runtimeBinding === undefined ? {} : { runtimeBinding }) }
+  }
+
+  private specificBriefForTurn(surfaceId: string, session: Session, turn: number): SurfaceTurnBriefDraft | undefined {
+    const briefs = [...new Set(messagesForTurn(session, turn))].flatMap(messageId => {
+      const brief = this.readMessageBrief(surfaceId, messageId)
+      return brief === undefined ? [] : [brief]
+    })
+    return briefs.length === 0 ? undefined : mergeBriefs(briefs)
+  }
+
+  private readMessageBrief(surfaceId: string, messageId: string): SurfaceTurnBriefDraft | undefined {
+    let text: string
+    try { text = readFileSync(this.messageBriefPath(surfaceId, messageId), 'utf8') }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error }
+    let value: unknown
+    try { value = JSON.parse(text) } catch { throw new WorkSurfaceError('canonical-corrupt', `invalid followup brief for '${messageId}'`) }
+    const snapshot = value as { version?: unknown; surfaceId?: unknown; messageId?: unknown; brief?: unknown } | null
+    if (snapshot === null || snapshot.version !== 1 || snapshot.surfaceId !== surfaceId || snapshot.messageId !== messageId) {
+      throw new WorkSurfaceError('canonical-corrupt', `followup brief identity does not match '${messageId}'`)
+    }
+    return validateBrief(snapshot.brief)
+  }
+
+  private messageBriefPath(surfaceId: string, messageId: string): string {
+    validateSurfaceId(surfaceId)
+    if (messageId === '') throw new WorkSurfaceError('invalid-id', 'followup message id must not be empty')
+    return join(this.stateRoot, 'runtime', 'followup-briefs', surfaceId, `${sha256(messageId)}.json`)
   }
 
   endTurn(sessionId: string, turn?: number): void {
@@ -371,7 +442,7 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     const current = this.revisionsBySurface.get(surfaceId)
     const binding = this.bindingsBySurface.get(surfaceId)
     if (current === undefined || binding === undefined) return
-    const adopted: SurfaceRevisionState = { inputSource: 'published', inputRevision: revision, expectedHead: current.expectedHead, outputRevision: revision }
+    const adopted: SurfaceRevisionState = { inputSource: 'published', inputRevision: revision, expectedHead: revision, outputRevision: revision }
     this.revisionsBySurface.set(surfaceId, adopted)
     const scope = this.currentBySession.get(binding.sessionId)
     if (scope !== undefined) scope.current = { ...scope.current, revision: adopted }
@@ -384,7 +455,7 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     validateSurfaceId(surfaceId)
     await this.assertSurfaceRoot()
     if (await exists(this.authoringPath(surfaceId))) return 'authoring'
-    if (publishedHead(await this.replaySurface(surfaceId)) !== null) return 'published'
+    if (await this.revisionHead?.(surfaceId) !== undefined || publishedHead(await this.replaySurface(surfaceId)) !== null) return 'published'
     throw new WorkSurfaceError('not-found', `Surface '${surfaceId}' has neither an authoring directory nor a published revision`)
   }
 
@@ -431,8 +502,8 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     }
   }
 
-  async collectGarbage(minAgeMs = 7 * 24 * 60 * 60 * 1_000): Promise<RevisionGcResult> {
-    const reachable = new Set<Revision>()
+  async collectGarbage(minAgeMs = 7 * 24 * 60 * 60 * 1_000, additionalRoots: Iterable<Revision> = []): Promise<RevisionGcResult> {
+    const reachable = new Set<Revision>(additionalRoots)
     for (const binding of this.bindingsBySurface.values()) {
       reachable.add(binding.inputRevision)
       const state = this.revisionsBySurface.get(binding.surfaceId)
@@ -486,7 +557,7 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     } else {
       inputSource = 'published'
     }
-    const head = publishedHead(await this.replaySurface(surfaceId))
+    const head = await this.revisionHead?.(surfaceId) ?? publishedHead(await this.replaySurface(surfaceId))
     if (source === 'published' && head === null) throw new WorkSurfaceError('not-found', `Surface '${surfaceId}' has no published head; bind it from authoring or an exact revision`)
     return {
       version: 1,
@@ -499,6 +570,8 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
   }
 
   private async deriveRevisionState(binding: SurfaceSessionBinding): Promise<SurfaceRevisionState> {
+    const head = await this.revisionHead?.(binding.surfaceId)
+    if (head !== undefined) return { inputSource: 'published', inputRevision: head, expectedHead: head, outputRevision: head }
     const events = await this.replaySurface(binding.surfaceId)
     const latest = events.findLast(event => event.name === 'surface.revision.published'
       && event.meta.sessionId === binding.sessionId
@@ -638,6 +711,87 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
 
 function bindingEvents(session: Session): SurfaceSessionBinding[] {
   return session.events.flatMap(event => event.type === 'worksurface/binding' ? [event.data as SurfaceSessionBinding] : [])
+}
+
+function messagesForTurn(session: Session, turn: number): string[] {
+  const start = session.events.findLastIndex(event => event.type === 'turn/start' && event.data.turn === turn)
+  if (start < 0) return []
+  const messages: string[] = []
+  for (const event of session.events.slice(start + 1)) {
+    if (event.type === 'turn/start' || event.type === 'turn/end') break
+    if (event.type === 'user/message') messages.push(String(event.data.id))
+  }
+  return messages
+}
+
+function atomicViewJson(path: string, value: unknown): void {
+  const temporary = `${path}.${randomUUID()}.tmp`
+  try {
+    writeFileSync(temporary, `${stableStringify(value)}\n`, { flag: 'wx', mode: 0o400 })
+    renameSync(temporary, path)
+  } finally { rmSync(temporary, { force: true }) }
+}
+
+function validateBrief(value: unknown): SurfaceTurnBriefDraft {
+  const invalid = (): never => { throw new WorkSurfaceError('invalid-working-copy', 'invalid WorkSurface Turn Brief') }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return invalid()
+  const brief = value as SurfaceTurnBriefDraft
+  if (typeof brief.instruction !== 'string' || !Array.isArray(brief.outputs)) return invalid()
+  if (brief.inputs !== undefined && (!Array.isArray(brief.inputs) || brief.inputs.some(input =>
+    input === null || typeof input !== 'object' || typeof input.label !== 'string' || typeof input.summary !== 'string'))) return invalid()
+  for (const output of brief.outputs) {
+    if (output === null || typeof output !== 'object' || typeof output.name !== 'string'
+      || !/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/.test(output.name)
+      || typeof output.description !== 'string' || output.payloadSchema === null
+      || typeof output.payloadSchema !== 'object' || Array.isArray(output.payloadSchema)
+      || (output.scope === undefined) !== (output.digest === undefined)) return invalid()
+    if (output.scope !== undefined && output.digest !== undefined) {
+      surfaceTurnRuntimeBinding(output.scope.authority, { surfaceId: 'brief', executionId: 'brief', turnId: '0' }, {
+        [output.name]: { scope: output.scope, digest: output.digest },
+      })
+    }
+  }
+  // The adapter stores JSON, so canonicalize before comparing replay identities.
+  return mergeBriefs([JSON.parse(stableStringify(brief)) as SurfaceTurnBriefDraft])
+}
+
+function mergeBriefs(briefs: readonly SurfaceTurnBriefDraft[]): SurfaceTurnBriefDraft {
+  const outputs = new Map<string, SurfaceTurnBriefOutput>()
+  const instructions = new Set<string>()
+  const inputs = new Map<string, { readonly label: string; readonly summary: string }>()
+  for (const brief of briefs) {
+    instructions.add(brief.instruction)
+    for (const input of brief.inputs ?? []) inputs.set(stableStringify(input), input)
+    for (const output of brief.outputs) {
+      const previous = outputs.get(output.name)
+      if (previous !== undefined && stableStringify(previous) !== stableStringify(output)) {
+        throw new WorkSurfaceError('already-exists-conflict', `Turn messages authorize different contracts for '${output.name}'`)
+      }
+      outputs.set(output.name, output)
+    }
+  }
+  return { instruction: [...instructions].join('\n\n'), inputs: [...inputs.values()], outputs: [...outputs.values()] }
+}
+
+/** An immutable adapter receipt: no DSH extension event or second execution fact. */
+async function immutableJson(path: string, value: unknown): Promise<void> {
+  const text = `${stableStringify(value)}\n`
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+  const temporary = `${path}.${randomUUID()}.tmp`
+  try {
+    const file = await open(temporary, 'wx', 0o400)
+    try { await file.writeFile(text); await file.sync() } finally { await file.close() }
+    try { await link(temporary, path) }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      if (await readFile(path, 'utf8') !== text) throw new WorkSurfaceError('already-exists-conflict', 'followup message already has a different Turn Brief')
+    }
+    // Persist both the receipt and newly created private adapter directories.
+    for (const directory of [dirname(path), dirname(dirname(path)), dirname(dirname(dirname(path)))]) {
+      const handle = await open(directory, 'r')
+      try { await handle.sync() } finally { await handle.close() }
+    }
+  } finally { await rm(temporary, { force: true }) }
 }
 
 /**

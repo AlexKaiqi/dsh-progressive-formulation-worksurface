@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentDefaultModel from '@deepseek-ai/dsh-agent-default-model'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import LlmRuntime, { LlmAdapter, createUserMessage, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { LlmAdapter, MessageId, createUserMessage, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionProjection from '@deepseek-ai/dsh-session-projection'
@@ -17,7 +17,7 @@ import { FileEventStore, RevisionStore, SURFACE_TEMPLATE } from '@pf-worksurface
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { installDshSessionAdapter } from '../src/session-adapter.ts'
 import { SurfaceSessionAdmission } from '../src/session-admission.ts'
-import { SurfaceSessionService } from '../src/session-surface.ts'
+import { SurfaceSessionService, type SurfaceTurnBriefDraft } from '../src/session-surface.ts'
 import { WorkSurfaceService } from '../src/service.ts'
 
 const roots: string[] = []
@@ -50,7 +50,7 @@ class ScriptedAdapter extends LlmAdapter {
   }
 }
 
-async function mountRuntime(root: string, surfaces: SurfaceSessionService, replies: (string | Promise<string>)[], persistenceRoot?: string) {
+async function mountRuntime(root: string, surfaces: SurfaceSessionService, replies: (string | Promise<string>)[], persistenceRoot?: string, prepareNextTurn?: (surfaceId: string) => Promise<void>) {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
@@ -65,8 +65,11 @@ async function mountRuntime(root: string, surfaces: SurfaceSessionService, repli
   ctx.provide('workspaceRegistry', testWorkspaceRegistry() as never)
   const adapter = new ScriptedAdapter(replies)
   ctx.llm.registerAdapter(['mock'], adapter)
-  installDshSessionAdapter(ctx, surfaces, join(root, 'unused.sock'))
   const admission = new SurfaceSessionAdmission(ctx, surfaces, () => Promise.resolve())
+  installDshSessionAdapter(ctx, surfaces, join(root, 'unused.sock'), async surfaceId => {
+    await prepareNextTurn?.(surfaceId)
+    return admission.ensure({ surfaceId })
+  }, undefined, prepareNextTurn)
   return { admission, adapter, ctx }
 }
 
@@ -118,6 +121,96 @@ async function fixture(options: { persistence?: boolean } = {}) {
 function send(agent: Agent, text: string): void {
   agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
 }
+
+const briefAuthority = 'wsa_specific_brief' as const
+function specificBrief(name: string): SurfaceTurnBriefDraft {
+  return { instruction: `Deliver ${name}`, outputs: [{
+    name, description: `${name} is complete`, payloadSchema: { type: 'object' },
+    scope: { authority: briefAuthority, kind: 'registration', id: 'one-registration' }, digest: `sha256:${'a'.repeat(64)}`,
+  }] }
+}
+function genericBrief(surfaces: SurfaceSessionService) {
+  surfaces.registerRuntimeAuthority(briefAuthority)
+  return async (surfaceId: string) => { surfaces.prepareTurnBrief(surfaceId, specificBrief('generic.completed')) }
+}
+async function briefState() {
+  const root = await mkdtemp(join(tmpdir(), 'ws-specific-brief-')); roots.push(root)
+  const work = join(root, 'work'); const state = join(root, 'state'); const persistenceRoot = join(root, 'sessions')
+  await mkdir(join(work, 'surfaces', 'surface-a'), { recursive: true })
+  await writeFile(join(work, 'surfaces', 'surface-a', 'surface.md'), SURFACE_TEMPLATE)
+  return { root, work, state, persistenceRoot, surfaces: await reloadBriefState(work, state) }
+}
+async function reloadBriefState(work: string, state: string) {
+  const events = new FileEventStore(join(state, 'events')); const revisions = new RevisionStore(join(state, 'revisions'))
+  await Promise.all([events.init(), revisions.init()])
+  const surfaces = new SurfaceSessionService(events, revisions, work, state); await surfaces.init()
+  return surfaces
+}
+function gate() {
+  let release!: (value: string) => void
+  const pending = new Promise<string>(resolve => { release = resolve })
+  return { pending, release: () => release('done') }
+}
+
+describe('message-specific Turn Briefs with the real DSH Agent Loop', () => {
+  it('keeps cold admission and busy queued followups scoped despite generic preparation', async () => {
+    const state = await briefState()
+    const first = gate(); const second = gate()
+    const prepare = vi.fn(genericBrief(state.surfaces))
+    const runtime = await mountRuntime(state.root, state.surfaces, [first.pending, second.pending], state.persistenceRoot, prepare)
+    try {
+      await state.surfaces.prepareFollowupBrief('surface-a', 'cold-specific', specificBrief('one.completed'))
+      const cold = await state.surfaces.followupSurface('surface-a', 'first managed work', 'cold-specific')
+      const agent = runtime.ctx.agents.get(SessionId(cold.sessionId))!
+      await expect.poll(() => runtime.adapter.requests.length).toBe(1)
+      expect(Object.keys(state.surfaces.activeSurface(cold.sessionId)!.runtimeBinding!.contracts)).toEqual(['one.completed'])
+      await state.surfaces.prepareFollowupBrief('surface-a', 'queued-specific', specificBrief('two.completed'))
+      const queued = state.surfaces.followupSurface('surface-a', 'second managed work', 'queued-specific')
+      await expect.poll(() => agent.session.events.some(event => event.type === 'agent/inbox/spliced'
+        && event.data.inserted.some(message => String(message.id) === 'queued-specific'))).toBe(true)
+      first.release()
+      expect((await queued).turnId).toBe('2')
+      await expect.poll(() => runtime.adapter.requests.length).toBe(2)
+      expect(prepare.mock.calls.length).toBeGreaterThanOrEqual(2)
+      const active = state.surfaces.activeSurface(cold.sessionId)!
+      expect(Object.keys(active.runtimeBinding!.contracts)).toEqual(['two.completed'])
+      expect(JSON.parse(await readFile(join(active.viewDir, 'turn-brief.json'), 'utf8')).outputs.map((output: { name: string }) => output.name)).toEqual(['two.completed'])
+      second.release(); await agent.whenIdle()
+    } finally {
+      first.release(); second.release(); await runtime.ctx.fiber.dispose()
+    }
+  })
+
+  it.each(['queued', 'interrupted', 'disposed'] as const)('recovers %s work with exact persisted grants after disposing and remounting the Host', async cause => {
+    const state = await briefState()
+    const first = await mountRuntime(state.root, state.surfaces, [], state.persistenceRoot, genericBrief(state.surfaces))
+    const opened = await first.admission.ensure({ surfaceId: 'surface-a' })
+    const agent = first.ctx.agents.get(SessionId(opened.sessionId))!
+    const original = { ...createUserMessage({ content: [{ type: 'text', text: 'specific work before restart' }], source: { kind: 'user' } }), id: MessageId('restart-specific') }
+    await state.surfaces.prepareFollowupBrief('surface-a', String(original.id), specificBrief('review.completed'))
+    if (cause === 'queued') agent.session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [original] })
+    else {
+      agent.session.append('turn/start', { turn: 1 })
+      agent.session.append('user/message', original, { surfaceOp: 'append' })
+      if (cause === 'disposed') agent.session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'disposed' } } })
+    }
+    await first.ctx.sessions.flush(agent.session)
+    await first.ctx.fiber.dispose()
+    const recovered = await reloadBriefState(state.work, state.state)
+    const model = gate()
+    const second = await mountRuntime(state.root, recovered, [model.pending], state.persistenceRoot, genericBrief(recovered))
+    try {
+      expect(await second.admission.recoverAfterRestart()).toEqual([{ surfaceId: 'surface-a', sessionId: opened.sessionId, cause: cause === 'queued' ? 'queued-followup' : cause }])
+      await expect.poll(() => second.adapter.requests.length).toBe(1)
+      const active = recovered.activeSurface(opened.sessionId)!
+      expect(Object.keys(active.runtimeBinding!.contracts)).toEqual(['review.completed'])
+      expect(JSON.parse(await readFile(join(active.viewDir, 'turn-brief.json'), 'utf8')).instruction).toBe('Deliver review.completed')
+      const resumed = second.ctx.agents.get(SessionId(opened.sessionId))!
+      expect(resumed.session.events.some(event => event.type === 'worksurface/binding')).toBe(false)
+      model.release(); await resumed.whenIdle()
+    } finally { model.release(); await second.ctx.fiber.dispose() }
+  })
+})
 
 describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
   // Model-readiness evidence: [MR-GLOBAL-ASSEMBLY-AND-ROOT-L1] [MR-FIRST-SURFACE-DISCOVERY-L2]
@@ -233,6 +326,9 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
       expect(receipt).toMatchObject({ messageId: 'managed-message', turnId: '1' })
       const agent = runtime.ctx.agents.get(SessionId(receipt.sessionId))!
       expect(agent.session.events.some(event => event.type === 'turn/end')).toBe(false)
+      await expect(surfaces.followupSurface('surface-a', 'managed work', 'managed-message')).resolves.toEqual(receipt)
+      await expect(surfaces.followupSurface('surface-a', 'different work', 'managed-message'))
+        .rejects.toMatchObject({ code: 'already-exists-conflict' })
       release('completed')
       await agent.whenIdle()
     } finally {

@@ -1,8 +1,9 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { defineOrchestration, type OrchestrationDefinition, type StoredDefinition } from './event-model.ts'
 import { WorkSurfaceError } from './error.ts'
 import { stableStringify } from './hash.ts'
+import { durableCreate } from './runtime-store-io.ts'
 
 /** Immutable content-addressed storage for exact orchestration programs. */
 export class DefinitionStore {
@@ -23,11 +24,12 @@ export class DefinitionStore {
     if (!/^sha256:[0-9a-f]{64}$/.test(revision)) throw new WorkSurfaceError('invalid-id', `invalid Definition revision '${revision}'`)
     const validated = defineOrchestration(input)
     const stored: StoredDefinition = { revision: revision as StoredDefinition['revision'], definition: validated.definition }
-    await mkdir(this.root, { recursive: true, mode: 0o700 })
     const path = this.path(stored.revision)
     const content = `${stableStringify(stored.definition)}\n`
     try {
-      await writeFile(path, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+      // Publish the name only after its bytes are complete and durable. Exclusive
+      // writeFile exposes an empty/partial object to an identical concurrent retry.
+      await durableCreate(path, stored.definition)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
       const existing = await readFile(path, 'utf8')

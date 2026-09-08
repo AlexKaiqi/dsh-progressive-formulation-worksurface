@@ -2,38 +2,102 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://worksurface.local/spec/design/session-shell-contract.schema.json",
   "title": "Model-visible WorkSurface Session Shell Contract",
-  "$comment": "Exact stable symbols available to model-authored shell and inherited child processes. Runtime-private CLI transport is deliberately absent.",
+  "$comment": "Stable model locators and separately declared host transport configuration. The adapter transport is not a domain input or an output authority.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "injection", "variables", "commands"],
+  "required": [
+    "version",
+    "injection",
+    "variables",
+    "commands",
+    "adapterTransport"
+  ],
   "properties": {
-    "version": { "const": 3 },
-    "injection": { "const": "each-model-shell-execution" },
+    "version": {
+      "const": 4
+    },
+    "injection": {
+      "const": "each-model-shell-execution"
+    },
     "variables": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["DSH_WORKSURFACE_CLI", "DSH_WORKSURFACE_ROOT", "DSH_SURFACE_ID", "DSH_SURFACE_DIR", "DSH_WORKSURFACE_VIEW_DIR"],
+      "required": [
+        "DSH_WORKSURFACE_CLI",
+        "DSH_WORKSURFACE_ROOT",
+        "DSH_SURFACE_ID",
+        "DSH_SURFACE_DIR",
+        "DSH_WORKSURFACE_VIEW_DIR"
+      ],
       "properties": {
-        "DSH_WORKSURFACE_CLI": { "$ref": "#/$defs/executableVariable" },
-        "DSH_WORKSURFACE_ROOT": { "$ref": "#/$defs/pathVariable" },
-        "DSH_SURFACE_ID": { "$ref": "#/$defs/idVariable" },
-        "DSH_SURFACE_DIR": { "$ref": "#/$defs/pathVariable" },
-        "DSH_WORKSURFACE_VIEW_DIR": { "$ref": "#/$defs/pathVariable" }
+        "DSH_WORKSURFACE_CLI": {
+          "$ref": "#/$defs/executableVariable"
+        },
+        "DSH_WORKSURFACE_ROOT": {
+          "$ref": "#/$defs/pathVariable"
+        },
+        "DSH_SURFACE_ID": {
+          "$ref": "#/$defs/idVariable"
+        },
+        "DSH_SURFACE_DIR": {
+          "$ref": "#/$defs/pathVariable"
+        },
+        "DSH_WORKSURFACE_VIEW_DIR": {
+          "$ref": "#/$defs/pathVariable"
+        }
       }
     },
     "commands": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["ws"],
+      "required": [
+        "ws"
+      ],
       "properties": {
         "ws": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["discovery", "purpose"],
+          "required": [
+            "discovery",
+            "purpose"
+          ],
           "properties": {
-            "discovery": { "const": "$DSH_WORKSURFACE_CLI" },
-            "purpose": { "const": "Submit Runtime-authorized WorkSurface events; exact argv comes from the Turn Brief." }
+            "discovery": {
+              "const": "$DSH_WORKSURFACE_CLI"
+            },
+            "purpose": {
+              "const": "Discover authoring and coordination help; admit authoring, inspect Surfaces, request host execution or recovery, and submit Turn-authorized events."
+            }
           }
+        }
+      }
+    },
+    "adapterTransport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "variable",
+        "portableVariable",
+        "availability",
+        "consumer",
+        "purpose"
+      ],
+      "properties": {
+        "variable": {
+          "const": "DSH_WORKSURFACE_SOCKET"
+        },
+        "portableVariable": {
+          "const": "WORKSURFACE_SOCKET"
+        },
+        "availability": {
+          "const": "all-agent-shell-executions"
+        },
+        "consumer": {
+          "const": "ws"
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
         }
       }
     }
@@ -42,34 +106,88 @@
     "executableVariable": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["valueType", "availability", "consumers", "purpose"],
+      "required": [
+        "valueType",
+        "availability",
+        "consumers",
+        "purpose"
+      ],
       "properties": {
-        "valueType": { "const": "absolute-executable-path" },
-        "availability": { "const": "all-agent-shell-executions" },
-        "consumers": { "const": ["model-shell", "child-process"] },
-        "purpose": { "type": "string", "minLength": 1 }
+        "valueType": {
+          "const": "absolute-executable-path"
+        },
+        "availability": {
+          "const": "all-agent-shell-executions"
+        },
+        "consumers": {
+          "const": [
+            "model-shell",
+            "child-process"
+          ]
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "pathVariable": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["valueType", "availability", "consumers", "purpose"],
+      "required": [
+        "valueType",
+        "availability",
+        "consumers",
+        "purpose"
+      ],
       "properties": {
-        "valueType": { "const": "absolute-directory-path" },
-        "availability": { "enum": ["all-agent-shell-executions", "active-surface-turn"] },
-        "consumers": { "const": ["model-shell", "child-process"] },
-        "purpose": { "type": "string", "minLength": 1 }
+        "valueType": {
+          "const": "absolute-directory-path"
+        },
+        "availability": {
+          "enum": [
+            "all-agent-shell-executions",
+            "active-surface-turn"
+          ]
+        },
+        "consumers": {
+          "const": [
+            "model-shell",
+            "child-process"
+          ]
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "idVariable": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["valueType", "availability", "consumers", "purpose"],
+      "required": [
+        "valueType",
+        "availability",
+        "consumers",
+        "purpose"
+      ],
       "properties": {
-        "valueType": { "const": "local-surface-handle" },
-        "availability": { "const": "active-surface-turn" },
-        "consumers": { "const": ["model-shell", "ws"] },
-        "purpose": { "type": "string", "minLength": 1 }
+        "valueType": {
+          "const": "local-surface-handle"
+        },
+        "availability": {
+          "const": "active-surface-turn"
+        },
+        "consumers": {
+          "const": [
+            "model-shell",
+            "ws"
+          ]
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     }
   }

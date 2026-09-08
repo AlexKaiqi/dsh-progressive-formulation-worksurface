@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "surface": {
     "handle": "$DSH_SURFACE_ID",
     "directory": "$DSH_SURFACE_DIR",
@@ -18,6 +18,11 @@
       "detailPath": "$DSH_SURFACE_DIR/inbox/reviews.jsonl"
     }
   ],
+  "filePublication": {
+    "when": "Publish review.md before emitting review.completed so coordination can read the review.",
+    "description": "Publication makes current Surface files available as a durable version. A business output does not publish files; publication is also available when outputs is empty.",
+    "command": { "argv": ["$DSH_WORKSURFACE_CLI", "publish", "--key", "review-case-7-files"] }
+  },
   "outputs": [
     {
       "name": "review.completed",

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "evidenceContract": "ENV-A1, WS-M1, WS-M2 and WS-M3 are separate gates. Mechanism tests and earlier prompted model runs do not satisfy them.",
+  "cases": {
+    "env": {
+      "gate": "ENV-A1",
+      "prompt": "检查当前 Agent 实际使用的 Bash 中 WorkSurface 的环境接入。第一条 Bash 调用只检查 DSH_WORKSURFACE_CLI 是否可执行、DSH_WORKSURFACE_ROOT 是否为目录，然后通过注入的 CLI 调用 help；不要手工 export、补 PATH、切换目录或猜测绝对路径。第二条独立 Bash 调用再次检查同样的注入变量并调用 CLI help，确认持久 shell 后续调用仍可用。请保留真实输出，并说明发现的接入失败。",
+      "requires": ["real Bash calls", "first and subsequent calls", "active Surface Turn", "host process restart"]
+    },
+    "m1": {
+      "gate": "WS-M1",
+      "prompt": "WorkSurface 是什么？什么情况下应该使用？",
+      "requires": ["fresh Session", "first answer before any tool call", "accurate purpose and applicable and inapplicable tasks"]
+    },
+    "m2": {
+      "gate": "WS-M2",
+      "prompt": "如何创建 WorkSurface？如何编排多个已有的工作单元？",
+      "requires": ["fresh Session", "autonomous Bash CLI help author", "autonomous Bash CLI help coordinate", "correct executable explanation"]
+    },
+    "m3": {
+      "gate": "WS-M3",
+      "prompt": "完成一个可中断后继续的内部数据报告任务。请建立资料整理、事实核验、报告成稿三个能够独立验收的工作单元，并让它们按条件协作：整理完成后核验数据；只有核验通过才交给报告成稿；条件未满足时不能开始成稿。原始资料：7月三个渠道的订单量分别为网页120、移动端180、合作方60；8月分别为网页150、移动端210、合作方40。资料整理要形成可复核的表格；核验要独立检查两个自然月的总订单量、各渠道的环比变化和是否存在缺失值；报告要给出总量及变化、各渠道占比变化、依据与计算过程，不把相关性写成因果。保留未完成的草稿和可核验过程记录，最终交付报告并逐条说明验收结果。",
+      "resumePrompt": "继续完成已经建立的工作，保留此前的工作身份、成果和草稿。",
+      "requires": ["Agent creates valid Surfaces", "Agent authors and admits Orchestrate code", "conditional advancement actually runs", "real Host stop and restart with same persistence", "no tester-authored work artifacts", "business report verified independently"]
+    }
+  }
+}

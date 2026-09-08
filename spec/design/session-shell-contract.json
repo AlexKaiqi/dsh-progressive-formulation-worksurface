@@ -1,42 +1,64 @@
 {
-  "version": 3,
+  "version": 4,
   "injection": "each-model-shell-execution",
   "variables": {
     "DSH_WORKSURFACE_CLI": {
       "valueType": "absolute-executable-path",
       "availability": "all-agent-shell-executions",
-      "consumers": ["model-shell", "child-process"],
+      "consumers": [
+        "model-shell",
+        "child-process"
+      ],
       "purpose": "Invoke WorkSurface help and exact Runtime-authorized emit argv even when the profile bin directory is absent from PATH."
     },
     "DSH_WORKSURFACE_ROOT": {
       "valueType": "absolute-directory-path",
       "availability": "all-agent-shell-executions",
-      "consumers": ["model-shell", "child-process"],
+      "consumers": [
+        "model-shell",
+        "child-process"
+      ],
       "purpose": "Locate Surface and Orchestrate authoring directories."
     },
     "DSH_SURFACE_ID": {
       "valueType": "local-surface-handle",
       "availability": "active-surface-turn",
-      "consumers": ["model-shell", "ws"],
+      "consumers": [
+        "model-shell",
+        "ws"
+      ],
       "purpose": "Identify the one Surface bound to the current DSH Session."
     },
     "DSH_SURFACE_DIR": {
       "valueType": "absolute-directory-path",
       "availability": "active-surface-turn",
-      "consumers": ["model-shell", "child-process"],
+      "consumers": [
+        "model-shell",
+        "child-process"
+      ],
       "purpose": "Read and maintain the current Surface files."
     },
     "DSH_WORKSURFACE_VIEW_DIR": {
       "valueType": "absolute-directory-path",
       "availability": "active-surface-turn",
-      "consumers": ["model-shell", "child-process"],
+      "consumers": [
+        "model-shell",
+        "child-process"
+      ],
       "purpose": "Read turn-brief.json plus the current Turn's filtered input details and Event Contracts."
     }
   },
   "commands": {
     "ws": {
       "discovery": "$DSH_WORKSURFACE_CLI",
-      "purpose": "Submit Runtime-authorized WorkSurface events; exact argv comes from the Turn Brief."
+      "purpose": "Discover authoring and coordination help; admit authoring, inspect Surfaces, request host execution or recovery, and submit Turn-authorized events."
     }
+  },
+  "adapterTransport": {
+    "variable": "DSH_WORKSURFACE_SOCKET",
+    "portableVariable": "WORKSURFACE_SOCKET",
+    "availability": "all-agent-shell-executions",
+    "consumer": "ws",
+    "purpose": "Private host transport locator. Supplied by the adapter and consumed automatically by the CLI; never a business input or model-authored authority."
   }
 }

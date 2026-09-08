@@ -70,7 +70,7 @@ describe('WorkSurface Agent readiness questions', () => {
     const delivered = [
       WORKSURFACE_GLOBAL_INSTRUCTIONS,
       session,
-      helpFor('author'),
+      helpFor('author', { DSH_WORKSURFACE_ROOT: '/work' }),
       helpFor('coordinate'),
       helpFor('emit'),
       helpFor('recover'),

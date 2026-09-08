@@ -5,9 +5,9 @@
   "$comment": "The exact Runtime-generated task-specific brief persisted at $DSH_WORKSURFACE_VIEW_DIR/turn-brief.json for audit and injected into one Surface model call. It contains semantic decisions and stable locators only, never transport, scope, digest, ledgers, locks, or global history.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "surface", "runtimeView", "instruction", "inputs", "outputs"],
+  "required": ["version", "surface", "runtimeView", "instruction", "inputs", "filePublication", "outputs"],
   "properties": {
-    "version": { "const": 1 },
+    "version": { "const": 2 },
     "surface": {
       "type": "object",
       "additionalProperties": false,
@@ -46,6 +46,16 @@
         }
       }
     },
+    "filePublication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["when", "description", "command"],
+      "properties": {
+        "when": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "command": { "$ref": "#/$defs/publishCommand" }
+      }
+    },
     "outputs": {
       "type": "array",
       "uniqueItems": true,
@@ -64,6 +74,25 @@
     }
   },
   "$defs": {
+    "publishCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["argv"],
+      "properties": {
+        "argv": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "prefixItems": [
+            { "const": "$DSH_WORKSURFACE_CLI" },
+            { "const": "publish" },
+            { "const": "--key" },
+            { "type": "string", "pattern": "\\S" }
+          ],
+          "items": false
+        }
+      }
+    },
     "rootedFilePath": {
       "type": "string",
       "pattern": "^\\$(?:DSH_SURFACE_DIR|DSH_WORKSURFACE_VIEW_DIR)/(?!\\.\\.?(?:/|$))(?!.*\/\\.\\.?(?:/|$))(?!.*\\\\)(?!.*[?#%\\u0000\\r\\n]).+$"

@@ -3,6 +3,7 @@ export { WorkSurfaceEngine, createFileEventPort } from './engine.ts'
 export type {
   BuiltinEventSource,
   CodeFirstRegistrationInspection,
+  CodeFirstRecoveryReport,
   CodeFirstSurfacePort,
 } from './code-first-orchestrator.ts'
 export type {
@@ -19,3 +20,6 @@ export type {
   OrchestrateCodeRunOutput,
   OrchestrateCodeRunner,
 } from './orchestrate-contract.ts'
+
+export { SurfaceContentRuntime } from './surface-content-runtime.ts'
+export type { SurfaceRevisionContracts } from './surface-content-runtime.ts'

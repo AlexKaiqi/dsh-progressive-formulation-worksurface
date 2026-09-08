@@ -1,7 +1,8 @@
-import { open, mkdir, readFile, readdir, unlink } from 'node:fs/promises'
+import { open, mkdir, readFile, readdir } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { stableStringify } from './hash.ts'
 import { WorkSurfaceError } from './error.ts'
+import { acquireRuntimeLock, syncDirectory } from './runtime-store-io.ts'
 import {
   eventRef,
   subjectKey,
@@ -12,8 +13,6 @@ import {
   type EventSubject,
   type WorkSurfaceEvent,
 } from './event-model.ts'
-
-const LOCK_WAIT_MS = 5_000
 
 /** Default append-only JSONL implementation of the public Event Service. */
 export class FileEventStore {
@@ -139,31 +138,7 @@ export class FileEventStore {
   }
 
   private async acquire(key: string): Promise<() => Promise<void>> {
-    const path = this.lockPath(key)
-    await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-    const deadline = Date.now() + LOCK_WAIT_MS
-    while (true) {
-      try {
-        const handle = await open(path, 'wx', 0o600)
-        await handle.writeFile(`${process.pid}\n${Date.now()}\n`)
-        await handle.sync()
-        await handle.close()
-        return async () => { await unlink(path).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }) }
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-        try {
-          if (!await lockOwnerIsAlive(path)) {
-            await unlink(path)
-            continue
-          }
-        } catch (inspectionError) {
-          if ((inspectionError as NodeJS.ErrnoException).code === 'ENOENT') continue
-          throw inspectionError
-        }
-        if (Date.now() >= deadline) throw new WorkSurfaceError('effect-failed', `timed out acquiring event stream lock '${key}'`)
-        await new Promise(resolve => setTimeout(resolve, 10))
-      }
-    }
+    return acquireRuntimeLock(this.lockPath(key))
   }
 
   private serialize<T>(key: string, operation: () => Promise<T>): Promise<T> {
@@ -174,25 +149,6 @@ export class FileEventStore {
     void settled.finally(() => { if (this.mutations.get(key) === settled) this.mutations.delete(key) })
     return result
   }
-}
-
-async function lockOwnerIsAlive(path: string): Promise<boolean> {
-  try {
-    const pid = Number((await readFile(path, 'utf8')).split('\n', 1)[0])
-    if (!Number.isSafeInteger(pid) || pid <= 0) return false
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM'
-  }
-}
-
-async function syncDirectory(path: string): Promise<void> {
-  const handle = await open(path, 'r')
-  try { await handle.sync() }
-  catch (error) {
-    if (!['EINVAL', 'EBADF', 'ENOTSUP'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error
-  } finally { await handle.close() }
 }
 
 function normalizeDraft(draft: EventDraft): Required<EventDraft> {

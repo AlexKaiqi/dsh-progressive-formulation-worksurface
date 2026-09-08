@@ -202,7 +202,10 @@ export class SurfaceSessionAdmission {
     // intent. Steering wakes it and is claimed in the same Turn; otherwise a
     // plugin followup is the new continuation Turn.
     if (candidate.hasQueuedFollowup) agent.steer(continuation)
-    else agent.followup(continuation)
+    else {
+      await this.surfaces.prepareRestartBrief(candidate.surfaceId, String(continuation.id), agent.session)
+      agent.followup(continuation)
+    }
     return {
       surfaceId: candidate.surfaceId,
       sessionId: candidate.sessionId,

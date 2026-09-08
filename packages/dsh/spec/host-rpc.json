@@ -1,13 +1,39 @@
 {
-  "version": 9,
+  "version": 11,
   "status": "replaceable transport contract",
   "authentication": "private Host socket, mode 0600",
-  "call": ["id", "method", "params"],
+  "call": [
+    "id",
+    "method",
+    "params"
+  ],
   "methods": [
-    "event.emit", "event.emit-turn", "event.replay", "event.watch",
-    "orchestrate.pause", "orchestrate.resume", "orchestrate.retire", "orchestrate.show", "orchestrate.list",
-    "topology.show", "revision.read", "revision.materialize",
+    "authoring.sync",
+    "surface.list",
+    "surface.run",
+    "surface.publish",
+    "runtime.recover",
+    "event.emit",
+    "event.emit-turn",
+    "event.replay",
+    "event.watch",
+    "orchestrate.pause",
+    "orchestrate.resume",
+    "orchestrate.retire",
+    "orchestrate.show",
+    "orchestrate.list",
+    "topology.show",
+    "revision.read",
+    "revision.materialize",
     "legacy.report"
   ],
-  "boundary": "A Surface is bound to one DSH Session before its first Turn. The Agent constructs Surface and Orchestration directories with ordinary file capabilities; event.emit-turn fixes pending file-authored registrations before appending the requested event. No RPC creates, opens, registers, or switches a Surface."
+  "surface.publish": {
+    "required": ["capability", "operationKey"],
+    "optional": ["summary"],
+    "scope": "The active Turn capability selects the only publishable Surface. A caller cannot supply surfaceId or any other scope override.",
+    "operationKey": "Required nonblank string; reuse it for an uncertain retry and choose a new key for a new publication.",
+    "summary": "Optional string.",
+    "result": "The durable surface.revision.published Runtime Event reference."
+  },
+  "boundary": "The Agent creates Surface and Orchestration authoring directories using ordinary file capabilities. authoring.sync validates and admits these facts. surface.run is an explicit external request whose DSH adapter selects or resumes a Session and starts a Turn. This execution policy does not belong to the Surface content or orchestration core. surface.publish publishes the active Turn's working files before coordination reads them; it is independent of the Turn Brief's business outputs. runtime.recover reports unresolved work; publication and business acceptance remain separate events."
 }

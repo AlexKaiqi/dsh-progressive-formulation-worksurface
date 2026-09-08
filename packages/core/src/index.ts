@@ -36,6 +36,7 @@ export type {
   OrchestrateBatchEvent,
   OrchestrateBatchSurface,
   OrchestrateEventRouteSource,
+  OrchestrateFailureRecord,
   OrchestrateHistoryBoundary,
   OrchestrateInputLedgerRecord,
   OrchestrateInputRecord,
@@ -70,7 +71,10 @@ export {
   RuntimeEventStore,
   runtimeRef,
 } from './runtime-store.ts'
-export type { RuntimeEventDraft } from './runtime-store.ts'
+export type { RuntimeEventDraft, RuntimeContractResolver } from './runtime-store.ts'
+export { durableCreate, syncDirectory } from './runtime-store-io.ts'
+export { FileWorkspace, LockedFileWorkspace, WorkspaceProjectionError } from './file-workspace.ts'
+export type { WorkspaceFile, WorkspaceChange, WorkspaceEditResult } from './file-workspace.ts'
 export { sha256, stableStringify } from './hash.ts'
 export { DefinitionStore } from './definition-store.ts'
 export { FileEventStore } from './file-event-store.ts'

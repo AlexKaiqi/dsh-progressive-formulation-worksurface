@@ -31,7 +31,7 @@ export class DshWorkSurfaceSessionAdapter {
     private readonly ctx: Context,
     private readonly service: SurfaceSessionService,
     private readonly contextRuntime: WorkSurfaceContextRuntime | undefined,
-    _socketPath: string,
+    private readonly socketPath: string,
     private readonly ensureSurface?: (surfaceId: string) => Promise<{ readonly sessionId: string }>,
     private readonly prepareNextTurn?: (surfaceId: string) => Promise<void>,
   ) {
@@ -58,6 +58,7 @@ export class DshWorkSurfaceSessionAdapter {
     }
     if (binding === undefined) throw new WorkSurfaceError('not-found', `Surface '${surfaceId}' has no DSH Session`)
     if (agent === undefined) throw new WorkSurfaceError('effect-failed', `DSH Session '${binding.sessionId}' is not live`)
+    assertFollowupContent(agent.session, messageId, message)
     let turnId = turnForMessage(agent.session, messageId)
     if (turnId === undefined) {
       const receipt = this.waitForFollowupReceipt(binding.sessionId, messageId)
@@ -99,6 +100,7 @@ export class DshWorkSurfaceSessionAdapter {
       }
       if (event.type === 'user/message') {
         const messageId = String(event.data.id)
+        this.service.applyMessageBrief(session, messageId)
         const turnId = turnForMessage(session, messageId)
         if (turnId !== undefined) this.resolveFollowupReceipt(String(session.id), messageId, turnId)
       }
@@ -221,13 +223,18 @@ export class DshWorkSurfaceSessionAdapter {
       variables: {
         DSH_WORKSURFACE_CLI: { description: 'Absolute executable path for WorkSurface help and Runtime-authorized emit commands.' },
         DSH_WORKSURFACE_ROOT: { description: 'Writable public authoring root containing surfaces/ and orchestrations/.' },
+        DSH_WORKSURFACE_SOCKET: { description: 'Private adapter transport locator consumed automatically by the WorkSurface CLI.' },
         DSH_SURFACE_ID: { description: 'The one WorkSurface whose progress this DSH Session records.' },
         DSH_SURFACE_DIR: { description: 'Authoring directory of the one Surface bound to this Session.' },
         DSH_WORKSURFACE_VIEW_DIR: { description: 'Runtime view containing turn-brief.json and authorized payload schemas.' },
       },
       resolve: execution => {
         if (execution.agent === undefined) return {}
-        const authoring = { DSH_WORKSURFACE_CLI: WORKSURFACE_CLI, DSH_WORKSURFACE_ROOT: this.service.workRoot }
+        const authoring = {
+          DSH_WORKSURFACE_CLI: WORKSURFACE_CLI,
+          DSH_WORKSURFACE_ROOT: this.service.workRoot,
+          DSH_WORKSURFACE_SOCKET: this.socketPath,
+        }
         // The shell execution's Agent id is not the persistence/session id on
         // every DSH host. Resolve the binding through the Session object that
         // owns the current Turn so the per-Turn locators are actually exposed
@@ -279,6 +286,20 @@ function hasMessageReceipt(session: Session, messageId: string): boolean {
     return event.type === 'agent/inbox/spliced'
       && event.data.inserted.some(message => String(message.id) === messageId)
   })
+}
+
+/** One request identity cannot silently acquire a different business instruction. */
+function assertFollowupContent(session: Session, messageId: string, text: string): void {
+  for (const event of session.events) {
+    const messages = event.type === 'user/message' ? [event.data]
+      : event.type === 'agent/inbox/spliced' ? event.data.inserted : []
+    for (const message of messages) {
+      if (String(message.id) !== messageId) continue
+      const same = message.content.length === 1
+        && message.content[0]?.type === 'text' && message.content[0].text === text
+      if (!same) throw new WorkSurfaceError('already-exists-conflict', `request '${messageId}' was already accepted with a different instruction; use a new request key for new work`)
+    }
+  }
 }
 
 function turnForMessage(session: Session, messageId: string): string | undefined {

@@ -59,6 +59,7 @@ describe('code-first Orchestrate Runtime', () => {
       head: async surface => base[surface]!,
       historyBoundary: async () => ({ surfaceEventSeq: -1, externalEventSeq: -1 }),
       resolveExternalInput: async () => { throw new Error('not used') },
+      recordBatch: async (_batch, record) => record(),
       apply,
       advance,
     }

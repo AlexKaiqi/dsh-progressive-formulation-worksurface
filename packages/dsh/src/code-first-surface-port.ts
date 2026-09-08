@@ -1,85 +1,120 @@
-import { randomUUID } from 'node:crypto'
-import { lstat, mkdir, readdir, rename, rm } from 'node:fs/promises'
-import { dirname, join, resolve, sep } from 'node:path'
+import { mkdir, readdir } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, type Session, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import {
+  FileWorkspace,
+  OperationLedgerStore,
   RevisionStore,
   EventContractStore,
   RuntimeEventStore,
   WorkSurfaceError,
   canonicalEventContract,
-  eventContractDigest,
   runtimeEventId,
   validatePayload,
   type OrchestrateHistoryBoundary,
+  type OrchestrateOperationBatch,
   type JsonValue,
   type Revision,
   type RuntimeContractIdentity,
   type RuntimeEventRef,
 } from '@pf-worksurface/core'
 import { BUILTIN_EVENT_CATALOG } from './builtin-event-catalog.ts'
-import type { CodeFirstSurfacePort } from '@pf-worksurface/runtime'
+import { SurfaceContentRuntime, type CodeFirstSurfacePort } from '@pf-worksurface/runtime'
 import type { SurfaceSessionService } from './session-surface.ts'
 
 /** Target publication projection and bridge to the Surface's unique DSH Session. */
 export class DshCodeFirstSurfacePort implements CodeFirstSurfacePort {
-  private readonly mutations = new Map<string, Promise<void>>()
+  readonly workspace: FileWorkspace
+  private readonly content: Promise<SurfaceContentRuntime>
   constructor(
     private readonly ctx: Context,
     private readonly workRoot: string,
-    private readonly runtimeRoot: string,
-    private readonly revisions: RevisionStore,
+    runtimeRoot: string,
+    revisions: RevisionStore,
     private readonly events: RuntimeEventStore,
     private readonly contracts: EventContractStore,
     private readonly sessions: SurfaceSessionService,
-  ) {}
+    workspace?: FileWorkspace,
+    operations = new OperationLedgerStore(join(runtimeRoot, 'operation-ledger'), events.authority),
+  ) {
+    this.workspace = workspace ?? new FileWorkspace(workRoot, join(runtimeRoot, 'workspace'), revisions)
+    this.content = Promise.all([this.builtinContract('surface.revision.admitted'), this.builtinContract('surface.revision.applied'), this.builtinContract('surface.revision.published')]).then(([admitted, applied, published]) => new SurfaceContentRuntime(this.workspace, join(runtimeRoot, 'surface-content'), events, { admitted, applied, published }, operations))
+  }
 
   head(surfaceId: string): Promise<Revision> {
-    return this.serialize(surfaceId, () => this.readOrAdmitHead(surfaceId))
+    return this.content.then(content => content.head(surfaceId))
   }
 
   async historyBoundary(surfaceId: string): Promise<OrchestrateHistoryBoundary> {
+    await this.content
     const stream = await this.events.replay(surfaceId)
     const binding = this.sessions.bindingForSurface(surfaceId)
-    const agent = binding === undefined ? undefined : this.ctx.agents.get(binding.sessionId as never)
-    return { surfaceEventSeq: stream.length - 1, externalEventSeq: agent?.session.events.at(-1)?.seq ?? -1 }
+    const external = binding === undefined ? [] : await this.sessionEvents(binding.sessionId, true)
+    return { surfaceEventSeq: stream.length - 1, externalEventSeq: external.at(-1)?.seq ?? -1 }
   }
 
   adaptDshToolCompletion(session: Session, event: SessionEvent): { readonly surfaceId: string; readonly ref: RuntimeEventRef } | undefined {
     if (event.type !== 'tool/result') return undefined
     const binding = this.sessions.bindingForSession(String(session.id))
     if (binding === undefined) return undefined
+    return this.toolCompletion(String(session.id), session.events, event, binding.surfaceId)
+  }
+
+  /** Rebuild advisory wakeups from durable host facts without starting an Agent. */
+  async recoverExternalInputs(accept: (ref: RuntimeEventRef, surfaceId: string, name: string) => Promise<void>): Promise<readonly { readonly surfaceId: string; readonly error: string }[]> {
+    await this.content
+    const bindings = this.sessions.listBindings()
+    const results = await Promise.all(bindings.map(async binding => {
+      const errors = new Set<string>()
+      try {
+        const history = [...await this.sessionEvents(binding.sessionId, true)]
+        for (const event of history) {
+          if (event.type !== 'tool/result') continue
+          try {
+            const adapted = this.toolCompletion(binding.sessionId, history, event, binding.surfaceId)
+            // Acceptance owns the immutable Registration history boundary and
+            // deduplication. Continue healthy routes after another route fails.
+            await accept(adapted.ref, adapted.surfaceId, 'dsh.tool.completed')
+          } catch (error) { errors.add(error instanceof Error ? error.message : String(error)) }
+        }
+      } catch (error) { errors.add(error instanceof Error ? error.message : String(error)) }
+      return errors.size === 0 ? [] : [{ surfaceId: binding.surfaceId, error: [...errors].join('; ') }]
+    }))
+    return results.flat()
+  }
+
+  private toolCompletion(sessionId: string, history: readonly SessionEvent[], event: Extract<SessionEvent, { readonly type: 'tool/result' }>, surfaceId: string): { readonly surfaceId: string; readonly ref: RuntimeEventRef } {
     const callId = String(event.data.message.content[0].toolCallId)
-    const call = session.events.slice(0, event.seq).findLast(candidate => candidate.type === 'tool/call' && String(candidate.data.callId) === callId)
+    const call = history.slice(0, event.seq).findLast(candidate => candidate.type === 'tool/call' && String(candidate.data.callId) === callId)
     if (call?.type !== 'tool/call') throw new WorkSurfaceError('canonical-corrupt', `DSH tool/result '${callId}' has no preceding tool/call`)
     return {
-      surfaceId: binding.surfaceId,
+      surfaceId,
       ref: {
         source: 'external',
-        subject: { authority: this.events.authority, kind: 'execution', id: String(session.id) },
+        subject: { authority: this.events.authority, kind: 'execution', id: sessionId },
         seq: event.seq,
-        id: runtimeEventId(this.events.authority, `dsh/${session.id}`, `tool-result-${event.seq}`, binding.surfaceId),
+        id: runtimeEventId(this.events.authority, `dsh/${sessionId}`, `tool-result-${event.seq}`, surfaceId),
       },
     }
   }
 
   async resolveExternalInput(ref: RuntimeEventRef): Promise<{ readonly surfaceId: string; readonly name: string; readonly payload: Readonly<Record<string, JsonValue>> }> {
+    await this.content
     const source = String(ref.source)
     const subjectKind = String(ref.subject.kind)
     // Legacy DSH refs are accepted only at this adapter boundary. New refs
     // are emitted with the host-neutral external/execution vocabulary.
     if (!['external', 'dsh'].includes(source) || ref.subject.authority !== this.events.authority || !['execution', 'dsh-session'].includes(subjectKind)) throw new WorkSurfaceError('canonical-corrupt', `DSH EventRef '${ref.id}' has an invalid subject`)
-    const agent = this.ctx.agents.get(ref.subject.id as never)
-    if (agent === undefined) throw new WorkSurfaceError('effect-failed', `DSH Session '${ref.subject.id}' is unavailable while resolving '${ref.id}'`)
     const binding = this.sessions.bindingForSession(ref.subject.id)
     if (binding === undefined) throw new WorkSurfaceError('canonical-corrupt', `DSH Session '${ref.subject.id}' is not bound to a Surface`)
-    const event = agent.session.events[ref.seq]
+    const history = await this.sessionEvents(ref.subject.id)
+    const event = history[ref.seq]
     if (event?.type !== 'tool/result' || event.seq !== ref.seq) throw new WorkSurfaceError('canonical-corrupt', `DSH EventRef '${ref.id}' does not resolve to tool/result`)
     const expectedId = runtimeEventId(this.events.authority, `dsh/${ref.subject.id}`, `tool-result-${event.seq}`, binding.surfaceId)
     if (expectedId !== ref.id) throw new WorkSurfaceError('canonical-corrupt', `DSH EventRef '${ref.id}' failed identity verification`)
     const callId = String(event.data.message.content[0].toolCallId)
-    const call = agent.session.events.slice(0, event.seq).findLast(candidate => candidate.type === 'tool/call' && String(candidate.data.callId) === callId)
+    const call = history.slice(0, event.seq).findLast(candidate => candidate.type === 'tool/call' && String(candidate.data.callId) === callId)
     if (call?.type !== 'tool/call') throw new WorkSurfaceError('canonical-corrupt', `DSH tool/result '${callId}' has no preceding tool/call`)
     const failed = event.data.error !== undefined || event.data.message.content[0].isError === true
     const payload = {
@@ -106,44 +141,26 @@ export class DshCodeFirstSurfacePort implements CodeFirstSurfacePort {
     candidateRevision: Revision,
     evidence: { readonly registrationId: string; readonly runId: string; readonly causes: readonly RuntimeEventRef[] },
   ): Promise<Revision> {
-    return this.serialize(surfaceId, async () => {
-      const current = await this.readOrAdmitHead(surfaceId)
-      if (current === candidateRevision) {
-        await this.sessions.adoptRuntimeRevision(surfaceId, candidateRevision)
-        return current
-      }
-      if (current !== baseRevision) throw new WorkSurfaceError('already-exists-conflict', `Surface '${surfaceId}' head changed from '${baseRevision}' to '${current}'`)
-      if ((await this.revisions.read(candidateRevision)).kind !== 'surface') throw new WorkSurfaceError('canonical-corrupt', `candidate '${candidateRevision}' is not a Surface Revision`)
-      const authoring = this.surfacePath(surfaceId)
-      const temporary = join(this.runtimeRoot, 'surface-apply', `${surfaceId}.${randomUUID()}.tmp`)
-      const backup = join(this.runtimeRoot, 'surface-apply', `${surfaceId}.${randomUUID()}.backup`)
-      await mkdir(dirname(temporary), { recursive: true, mode: 0o700 })
-      try {
-        await this.revisions.materialize(candidateRevision, temporary)
-        if (await exists(authoring)) await rename(authoring, backup)
-        await mkdir(dirname(authoring), { recursive: true })
-        await rename(temporary, authoring)
-        const contract = await this.builtinContract('surface.revision.applied')
-        const payload = { registrationId: evidence.registrationId, runId: evidence.runId, baseRevision, revision: candidateRevision }
-        validatePayload(contract, payload)
-        await this.events.append(surfaceId, {
-          id: runtimeEventId(contract.scope.authority, `${evidence.registrationId}/${evidence.runId}`, `apply-${surfaceId}`, surfaceId),
-          type: { scope: contract.scope, name: contract.name, contract: eventContractDigest(contract) },
-          payload,
-          causes: evidence.causes,
-          producer: { kind: 'runtime', ref: `${evidence.registrationId}/${evidence.runId}` },
-          operationKey: `apply-${surfaceId}`,
-        })
-        await this.sessions.adoptRuntimeRevision(surfaceId, candidateRevision)
-        await rm(backup, { recursive: true, force: true })
-        return candidateRevision
-      } catch (error) {
-        if (!await exists(authoring) && await exists(backup)) await rename(backup, authoring)
-        throw error
-      } finally {
-        await rm(temporary, { recursive: true, force: true })
-      }
+    return this.content.then(async content => {
+      const revision = await content.apply(surfaceId, baseRevision, candidateRevision, evidence)
+      await this.sessions.adoptRuntimeRevision(surfaceId, await content.head(surfaceId))
+      return revision
     })
+  }
+
+  recordBatch(batch: OrchestrateOperationBatch, record: () => Promise<void>): Promise<void> { return this.content.then(content => content.recordBatch(batch, record)) }
+
+  recordedHead(surfaceId: string): Promise<Revision | undefined> { return this.content.then(content => content.recordedHead(surfaceId)) }
+  revisionRoots(): Promise<readonly Revision[]> { return this.content.then(content => content.revisionRoots()) }
+  recover(): Promise<void> { return this.content.then(content => content.recover()) }
+
+  async publishTurn(surfaceId: string, source: { readonly sessionId: string; readonly turn: number; readonly expectedRevision: Revision | null; readonly summary?: string }, operationKey = 'surface.revision.published'): Promise<RuntimeEventRef> {
+    const content = await this.content
+    const ref = await content.publish(surfaceId, source.expectedRevision, `${source.sessionId}/${source.turn}`, operationKey, {
+      sessionId: source.sessionId, turn: source.turn, ...(source.summary === undefined ? {} : { summary: source.summary }),
+    })
+    await this.sessions.adoptRuntimeRevision(surfaceId, await content.head(surfaceId))
+    return ref
   }
 
   async advance(
@@ -153,17 +170,18 @@ export class DshCodeFirstSurfacePort implements CodeFirstSurfacePort {
     causes: readonly RuntimeEventRef[],
     operationKey: string,
   ): Promise<{ readonly executionId: string; readonly turnId: string }> {
+    await this.content
     const declaredOutputs = await Promise.all(outputs.map(async output => {
       const contract = await this.contracts.get(output.digest)
       return { name: output.name, description: contract.description, payloadSchema: contract.payloadSchema, scope: output.scope, digest: output.digest }
     }))
-    this.sessions.prepareTurnBrief(surfaceId, {
+    const messageId = `ws-advance-${operationKey}`
+    await this.sessions.prepareFollowupBrief(surfaceId, messageId, {
       instruction,
       inputs: causes.map((cause, index) => ({ label: `cause-${index + 1}`, summary: `${cause.source} Event ${cause.id}` })),
       outputs: declaredOutputs,
     })
     const message = `${instruction}\n\nRuntime-authorized outputs for this Turn are available in the WorkSurface Turn Brief. Do not infer outputs from this message.`
-    const messageId = `ws-advance-${operationKey}`
     const receipt = await this.sessions.followupSurface(surfaceId, message, messageId)
     return { executionId: receipt.sessionId, turnId: receipt.turnId }
   }
@@ -173,65 +191,53 @@ export class DshCodeFirstSurfacePort implements CodeFirstSurfacePort {
     surfaceId: string,
     source: { readonly sessionId: string; readonly turn: number; readonly expectedRevision: Revision | null; readonly revision: Revision; readonly summary?: string },
   ): Promise<RuntimeEventRef> {
-    return this.serialize(surfaceId, async () => {
-      const contract = await this.builtinContract('surface.revision.published')
-      const payload = {
-        sessionId: source.sessionId,
-        turn: source.turn,
-        expectedRevision: source.expectedRevision,
-        revision: source.revision,
-        ...(source.summary === undefined ? {} : { summary: source.summary }),
-      }
-      validatePayload(contract, payload)
-      return this.events.append(surfaceId, {
-        id: runtimeEventId(contract.scope.authority, `${source.sessionId}/${source.turn}`, 'surface.revision.published', surfaceId),
-        type: { scope: contract.scope, name: contract.name, contract: eventContractDigest(contract) },
-        payload,
-        causes: [],
-        producer: { kind: 'runtime', ref: `${source.sessionId}/${source.turn}` },
-        operationKey: 'surface.revision.published',
-      })
-    })
+    return this.content.then(content => content.publish(surfaceId, source.expectedRevision, `${source.sessionId}/${source.turn}`, 'surface.revision.published', {
+      sessionId: source.sessionId, turn: source.turn, ...(source.summary === undefined ? {} : { summary: source.summary }),
+    }, source.revision))
   }
 
-  async recoverHeads(): Promise<void> {
-    const ids = new Set(await this.events.listSurfaces())
+  async recoverHeads(options: { readonly isolateFailures?: boolean } = {}): Promise<readonly { readonly surfaceId: string; readonly error: string }[]> {
+    await this.recover()
+    const recordedSurfaces = new Set(await this.events.listSurfaces())
+    const ids = new Set(recordedSurfaces)
+    const failures: { surfaceId: string; error: string }[] = []
     const authoringRoot = resolve(this.workRoot, 'surfaces')
     await mkdir(authoringRoot, { recursive: true })
     for (const entry of await readdir(authoringRoot, { withFileTypes: true })) {
       if (entry.isDirectory() && !entry.isSymbolicLink()) ids.add(entry.name)
     }
     for (const surfaceId of [...ids].sort()) {
-      const revision = await this.head(surfaceId)
-      await this.sessions.adoptRuntimeRevision(surfaceId, revision)
+      let durable = recordedSurfaces.has(surfaceId)
+      try {
+        durable ||= await this.recordedHead(surfaceId) !== undefined
+        const revision = await this.head(surfaceId)
+        durable = true
+        await this.sessions.adoptRuntimeRevision(surfaceId, revision)
+      } catch (error) {
+        // An incomplete authoring directory is not an admitted Surface. Its
+        // validation failure must not prevent healthy work from recovering.
+        if (options.isolateFailures !== true || durable || (error instanceof WorkSurfaceError && error.code === 'canonical-corrupt')) throw error
+        failures.push({ surfaceId, error: error instanceof Error ? error.message : String(error) })
+      }
     }
+    return failures
   }
 
-  private async readOrAdmitHead(surfaceId: string): Promise<Revision> {
-    validateSurfaceId(surfaceId)
-    const stream = await this.events.replay(surfaceId)
-    const latest = stream.findLast(event => ['surface.revision.admitted', 'surface.revision.applied', 'surface.revision.published'].includes(event.type.name))
-    if (latest !== undefined) {
-      const revision = latest.payload.revision
-      if (typeof revision !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(revision)) throw new WorkSurfaceError('canonical-corrupt', `Surface '${surfaceId}' revision fact is invalid`)
-      if ((await this.revisions.read(revision as Revision)).kind !== 'surface') throw new WorkSurfaceError('canonical-corrupt', `Surface '${surfaceId}' revision fact does not name a Surface Revision`)
-      return revision as Revision
-    }
-    const info = await lstat(this.surfacePath(surfaceId))
-    if (!info.isDirectory() || info.isSymbolicLink()) throw new WorkSurfaceError('invalid-working-copy', `Surface '${surfaceId}' authoring path must be a real directory`)
-    const revision = (await this.revisions.snapshotSurface(this.surfacePath(surfaceId))).revision
-    const contract = await this.builtinContract('surface.revision.admitted')
-    const payload = { revision, source: 'authoring' as const }
-    validatePayload(contract, payload)
-    await this.events.append(surfaceId, {
-      id: runtimeEventId(contract.scope.authority, `surface-admission/${surfaceId}`, 'initial-revision', surfaceId),
-      type: { scope: contract.scope, name: contract.name, contract: eventContractDigest(contract) },
-      payload,
-      causes: [],
-      producer: { kind: 'runtime', ref: `surface-admission/${surfaceId}` },
-      operationKey: 'initial-revision',
-    })
-    return revision
+  /** Resolving durable input is read-only and never wakes a cold execution. */
+  private async sessionEvents(sessionId: string, allowUnmaterialized = false): Promise<readonly SessionEvent[]> {
+    const agent = this.ctx.agents.get(SessionId(sessionId))
+    if (agent !== undefined) return agent.session.events
+    const persistence = this.ctx.get?.('sessionPersistence') as {
+      inspect(id: ReturnType<typeof SessionId>): Promise<{ readonly meta: SessionHeader; readonly events: readonly SessionEvent[] }>
+      list?(): Promise<readonly { readonly id: ReturnType<typeof SessionId> }[]>
+    } | undefined
+    if (persistence === undefined) throw new WorkSurfaceError('effect-failed', `DSH Session '${sessionId}' has no available live or persisted history`)
+    // Binding may precede lazy Session materialization. Only the history
+    // boundary accepts that absence; a referenced input must still resolve.
+    if (allowUnmaterialized && persistence.list !== undefined && !(await persistence.list()).some(header => String(header.id) === sessionId)) return []
+    const inspected = await persistence.inspect(SessionId(sessionId))
+    if (String(inspected.meta.id) !== sessionId || !Array.isArray(inspected.events)) throw new WorkSurfaceError('canonical-corrupt', `persisted DSH Session '${sessionId}' has the wrong identity`)
+    return inspected.events
   }
 
   private async builtinContract(name: keyof typeof BUILTIN_EVENT_CATALOG) {
@@ -249,9 +255,4 @@ export class DshCodeFirstSurfacePort implements CodeFirstSurfacePort {
     await this.contracts.put(contract)
     return contract
   }
-  private surfacePath(surfaceId: string): string { validateSurfaceId(surfaceId); const root = resolve(this.workRoot, 'surfaces'); const path = resolve(root, surfaceId); if (!path.startsWith(`${root}${sep}`)) throw new WorkSurfaceError('unauthorized', 'Surface path escapes authoring root'); return path }
-  private serialize<T>(key: string, operation: () => Promise<T>): Promise<T> { const previous = this.mutations.get(key) ?? Promise.resolve(); const result = previous.then(operation); const settled = result.then(() => undefined, () => undefined); this.mutations.set(key, settled); void settled.finally(() => { if (this.mutations.get(key) === settled) this.mutations.delete(key) }); return result }
 }
-
-function validateSurfaceId(value: string): void { if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) throw new WorkSurfaceError('invalid-id', `invalid Surface id '${value}'`) }
-async function exists(path: string): Promise<boolean> { try { await lstat(path); return true } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error } }

@@ -185,6 +185,20 @@ export interface OrchestrateOperationSettlement {
   readonly settledAt: string
 }
 
+/** A failed attempt is durable evidence; it does not acknowledge or discard its input. */
+export interface OrchestrateFailureRecord {
+  readonly version: 1
+  readonly authority: AuthorityId
+  readonly attemptId: string
+  readonly registrationId: string
+  readonly triggerInputSeq: number
+  readonly phase: 'run' | 'apply'
+  readonly runId?: string
+  readonly code: string
+  readonly message: string
+  readonly failedAt: string
+}
+
 /** Read the host-event boundary while accepting pre-adapter records. */
 export function externalHistoryBoundarySeq(boundary: OrchestrateHistoryBoundary): number {
   const record = boundary as unknown as Record<string, unknown>

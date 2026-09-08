@@ -58,7 +58,7 @@ Event append 的边界是：
 
 Registration 只消费同时命中 `consumeFrom`、已绑定 Surface 与注册历史边界之后的事实。每个 handle 分别固定 Surface Event `seq` 与绑定 DSH Session Event `seq`，因为两条 stream 没有共享序号。Runtime 先按 [`orchestrate-input-ledger-record.schema.json`](../spec/design/orchestrate-input-ledger-record.schema.json) 将完整 EventRef 追加到该 Registration 的私有 Input Ledger，再向 code 物化 [`orchestrate-input-record.schema.json`](../spec/design/orchestrate-input-record.schema.json) 所定义的最小输入。
 
-Surface Session 不接触完整 envelope。Runtime 为当前 Turn 生成 [`surface-turn-brief.schema.json`](../spec/design/surface-turn-brief.schema.json) 所约束的 Brief，只告诉模型允许输出什么、何时输出、payload 在哪里校验，以及精确的 `ws emit` 命令。
+Surface Session 不接触完整 envelope。Runtime 为当前 Turn 生成 [`surface-turn-brief.schema.json`](../spec/design/surface-turn-brief.schema.json) 所约束的 Brief v2，说明允许输出什么、何时输出、payload 在哪里校验，以及 `ws emit` 命令模板。独立的 `filePublication` 提供 `ws publish --key` 模板：需要编排读取变更文件时，先发布当前 Surface 的文件版本，再发送业务输出。业务 emit 不自动发布文件，发布也不增加业务 outputs 授权；即使 `outputs=[]`，当前 Turn 仍可以发布。模板中的环境路径和参数占位符按 CLI help 解析后，以 argv 执行。
 
 DSH 的 Step、Tool Call 和 Tool Result 仍属于 DSH Session Log。当前目标只预定义 `dsh.tool.completed` adapter Contract：adapter 观察实际 `tool/result`，按 `callId` 找到 `tool/call` 的工具名，Input Ledger 保存原 DSH EventRef，code 只得到 catalog 规定的完成元数据，不得到整份工具结果。确切映射由 [`dsh-tool-completed-adapter.mjs`](../examples/dsh-tool-completed-adapter.mjs) 和实际形状 fixture [`dsh-tool-completed.events.json`](../examples/dsh-tool-completed.events.json) 证明。需要工具内容时，应由 Surface 把结果维护到文件并产生带文件 ref 的业务 Event。Registration lifecycle、Input Ledger 和 Operation Ledger 是 Runtime 私有记录，也不伪装成业务 Event。
 

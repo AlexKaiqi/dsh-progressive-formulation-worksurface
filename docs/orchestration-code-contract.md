@@ -57,9 +57,17 @@ Runtime 在产生外部副作用前必须：
 
 recorded batch 对其中所有 `(Surface, base Revision)` 建立跨重启 reservation；其他 run 在它 settled 前不能基于这些 Surface 记录新 batch。之后按 `record → apply → settle` 应用所有 Surface Revision。只有全部上下文变更完成，才能 append Event 或执行 `advance`；全部稳定结果由 [`orchestrate-operation-settlement.schema.json`](../spec/design/orchestrate-operation-settlement.schema.json) 记录并释放 reservation。Runtime 重启时必须先恢复未 settled batch，再接受新的 Surface mutation；锁前发现 base 已变化则不记录 batch、不产生可见副作用，基于新事实重跑。
 
+输入写入 Input Ledger 只代表已接受，不代表执行完成。只有对应 batch 已 settled，该输入才完成；重复投递和显式恢复都继续最早未完成输入。运行前失败重跑代码，record 后失败恢复同一个 batch，不能重跑后再产生另一组副作用。同一 Registration 按输入顺序推进；互不相关的 Registration 独立排队，一个失败或慢执行不阻塞其他工作。
+
+每次失败写入 [`orchestrate-failure-record.schema.json`](../spec/design/orchestrate-failure-record.schema.json) 定义的 Runtime 私有诊断记录，保存输入序号、失败阶段、错误及已有 run 身份。它不是业务 Event，也不确认输入完成。inspect 给出未完成输入和失败证据；recover 返回未恢复 Registration 清单。何时自动重试、使用哪个执行者及多久后再试，由宿主适配器决定，核心不内置 DSH 或无界重试策略。
+
+Registration 路由不能扩大 Contract 的生产者或 subject 权限。admission、batch record/apply 与 Event append 分别校验相应能力；恢复持久化 batch 时仍须在任何文件或执行副作用前重新校验。文件草稿由平台无关 `FileWorkspace` 负责串行编辑、版本检查与中断投影恢复；其 pending/receipt 是存储内部日志，不是新的业务协议。文件写入、Surface Revision 发布与业务验收保留各自的含义。
+
 这里保证的是可恢复和下游推进屏障，不宣称底层存储具备跨 Surface 原子快照：batch apply 期间，直接绕过 Runtime 读取 Surface head 的观察者可能短暂看到部分 Revision 已更新。若产品要求任意读者都获得 all-or-nothing 可见性，必须另行引入 authority-global commit record 和统一 head projection，不能靠“事务”一词暗示已经支持。
 
 `advance` 的目标只能是 Registration 已绑定 Surface。没有 DSH Session 时，Runtime 在首个 Turn 前创建并固定 1:1 binding；已有 binding 时复用原 Session。`followup`/managed advance 是 Runtime 向该唯一 Session 投递下一 Turn 的内部桥，不属于 authoring 协议。
+
+Revision GC 的存活集合由持久事实决定：所有 Registration 的代码 Revision、所有 recorded batch 的代码/base/candidate，以及精确 Surface revision Contract 引用的整个版本链都必须保留。新 Registration 和 batch 在写入事实前固定这些 Revision 的保留标记；历史未标记记录仍通过 `revisionRoots()` 参与 GC。作者代码目录被移除、批次长期未完成或进程重启，不会让恢复所需对象变成可回收垃圾。
 
 ## 可执行语义
 

@@ -13,7 +13,9 @@ export function workSurfaceInstructions(surfaceId: string) {
   return createUserMessage({
     content: [{
       type: 'text' as const,
-      text: renderSurfaceSessionGuidance({
+      text: [
+        `This DSH Session represents the complete progress history of WorkSurface ${JSON.stringify(surfaceId)}. Its binding was established before startup; you cannot open, select, or switch this Session to another Surface.`,
+        renderSurfaceSessionGuidance({
         surfaceId,
         hostSessionLabel: 'DSH Session',
         surfaceLocator: '$DSH_SURFACE_DIR',
@@ -21,19 +23,18 @@ export function workSurfaceInstructions(surfaceId: string) {
         authoringRootLocator: '$DSH_WORKSURFACE_ROOT',
         authoringHelp: '`"$DSH_WORKSURFACE_CLI" help author`',
         coordinationHelp: '`"$DSH_WORKSURFACE_CLI" help coordinate`',
-        emitHelp: '`"$DSH_WORKSURFACE_CLI" help emit` or `help recover`',
-        shellFallback: 'If a persistent DSH shell omits DSH_* variables, use `ws` from PATH, the session cwd as root, and `surfaces/<surface-id>` for this Surface; if the Turn Brief variable is missing, report the host injection failure instead of guessing a view path.',
-      }),
+        emitHelp: '`"$DSH_WORKSURFACE_CLI" help publish`, `help emit`, or `help recover`',
+        }),
+        'The host refreshes WorkSurface variables in each Bash call; if the Turn Brief variable is missing, report the host injection failure. Do not guess a hidden path or assume cwd is the authoring root.',
+      ].join(' '),
     }],
     source: { kind: 'plugin' as const, plugin: '@pf-worksurface/dsh', form: 'instructions' as const },
   })
 }
 
 /**
- * Concrete per-Turn locator fallback for hosts whose persistent PTY does not
- * consume the shell-env overlay. This is intentionally separate from the
- * stable session guidance so recurring Turns do not duplicate the concept
- * and boundary text.
+ * Concrete per-Turn context for inspection. Shell variables must still be
+ * supplied by the host consumer; these paths do not replace environment injection.
  */
 export function workSurfaceTurnInstructions(surfaceId: string, locators: WorkSurfaceTurnLocators) {
   return createUserMessage({
@@ -41,7 +42,7 @@ export function workSurfaceTurnInstructions(surfaceId: string, locators: WorkSur
       type: 'text' as const,
       text: [
         `Current WorkSurface adapter locators for DSH Turn (valid only for this Turn): Surface ${JSON.stringify(surfaceId)} directory is ${JSON.stringify(locators.surfaceDir)}; Turn Brief is ${JSON.stringify(locators.turnBriefPath)}; authoring root is ${JSON.stringify(locators.authoringRoot)}; CLI is ${JSON.stringify(locators.cliPath)}.`,
-        'If the persistent bash shell omits DSH_* variables, use these exact paths instead of guessing or searching hidden runtime directories. Read this Turn Brief before acting; do not reuse these Turn paths after the Turn ends.',
+        'Read this Turn Brief before acting; do not reuse these Turn paths after the Turn ends. Missing Bash environment variables are a host injection failure, even when these inspection paths remain readable.',
       ].join(' '),
     }],
     source: { kind: 'plugin' as const, plugin: '@pf-worksurface/dsh', form: 'instructions' as const },

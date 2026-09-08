@@ -43,6 +43,7 @@ const targetValidators = await loadSchemas(targetAjv, designRoot, [
   'orchestrate-result',
   'orchestrate-operation-batch',
   'orchestrate-operation-settlement',
+  'orchestrate-failure-record',
 ])
 
 const builtinCatalog = await validateBuiltinEventCatalog()
@@ -52,8 +53,19 @@ await validateTurnBrief(runtimeBindings.surfaceTurn)
 await validateDelegate(runtimeBindings.orchestrate, builtinCatalog)
 await validateFanoutJoin(builtinCatalog)
 await validateSerialLoop(builtinCatalog)
+validateOrchestrateFailureRecords()
 
 console.log('WorkSurface current and target protocols, contracts, and executable Orchestrate examples are valid')
+
+function validateOrchestrateFailureRecords() {
+  const record = { version: 1, authority: 'wsa_failure_validation', attemptId: 'attempt-1', registrationId: 'delegate', triggerInputSeq: 0, phase: 'run', code: 'effect-failed', message: 'worker unavailable', failedAt: '2026-09-08T00:00:00.000Z' }
+  validateValue('unrecorded Orchestrate failure', record, 'orchestrate-failure-record')
+  validateValue('recorded Orchestrate failure', { ...record, phase: 'apply', runId: 'run-1' }, 'orchestrate-failure-record')
+  const validate = targetValidators.get('orchestrate-failure-record')
+  for (const invalid of [{ ...record, phase: 'apply' }, { ...record, triggerInputSeq: -1 }, { ...record, acknowledged: true }]) {
+    if (validate(invalid)) throw new Error('orchestrate-failure-record.schema.json accepts an invalid failure receipt')
+  }
+}
 
 function createAjv() {
   const ajv = new Ajv2020({ allErrors: true, strict: true })
@@ -128,7 +140,7 @@ async function validateSessionShellContract() {
       throw new Error(`${key} must remain scoped to the active Surface Turn`)
     }
   }
-  const serialized = JSON.stringify(contract)
+  const serialized = JSON.stringify({ variables: contract.variables, commands: contract.commands })
   for (const forbidden of ['SOCKET', 'CAPABILITY', 'CONTEXT_FILE', 'EVENT_NAMESPACE']) {
     if (serialized.includes(forbidden)) throw new Error(`Session shell Contract exposes Runtime transport ${forbidden}`)
   }
@@ -266,6 +278,11 @@ async function validateTurnBrief(runtimeBinding) {
   if (!validate(brief)) {
     throw new Error(`turn-brief.review.json violates surface-turn-brief.schema.json: ${targetAjv.errorsText(validate.errors)}`)
   }
+  const publish = brief.filePublication.command.argv
+  if (publish[0] !== '$DSH_WORKSURFACE_CLI' || publish[1] !== 'publish' || publish[2] !== '--key' || !publish[3].trim()) {
+    throw new Error('Turn Brief file publication does not contain the scoped publish command and stable key')
+  }
+  if (!validate({ ...brief, outputs: [] })) throw new Error('Turn Brief must support file publication without business outputs')
   for (const output of brief.outputs) {
     const [command, verb, name, payloadFlag, payloadText] = output.command.argv
     if (command !== '$DSH_WORKSURFACE_CLI' || verb !== 'emit' || name !== output.name || payloadFlag !== '--payload') {
@@ -279,6 +296,9 @@ async function validateTurnBrief(runtimeBinding) {
     }
   }
   for (const [label, invalid] of [
+    ['missing file publication', Object.fromEntries(Object.entries(brief).filter(([key]) => key !== 'filePublication'))],
+    ['blank publication key', { ...brief, filePublication: { ...brief.filePublication, command: { argv: ['$DSH_WORKSURFACE_CLI', 'publish', '--key', ' '] } } }],
+    ['publication scope override', { ...brief, filePublication: { ...brief.filePublication, command: { argv: [...publish, '--surface', 'other'] } } }],
     ['escaping Surface entry path', { ...brief, surface: { ...brief.surface, entryPaths: ['../secret'] } }],
     ['escaping input detail path', { ...brief, inputs: [{ ...brief.inputs[0], detailPath: '$DSH_SURFACE_DIR/../secret' }] }],
     ['escaping output Schema path', { ...brief, outputs: [{ ...brief.outputs[0], schemaPath: '$DSH_WORKSURFACE_VIEW_DIR/contracts/%2e%2e/secret.json' }] }],

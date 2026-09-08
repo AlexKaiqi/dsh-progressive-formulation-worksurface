@@ -9,6 +9,7 @@ import {
   validateRuntimeEventRef,
   type AuthorityId,
   type OrchestrateInputLedgerRecord,
+  type OrchestrateFailureRecord,
   type OrchestrateOperationBatch,
   type OrchestrateOperationSettlement,
   type OrchestrateRegistrationRecord,
@@ -110,15 +111,46 @@ export class InputLedgerStore {
 export class OperationLedgerStore {
   readonly root: string
   constructor(root: string, readonly authority: AuthorityId) { this.root = resolve(root) }
-  async init(): Promise<void> { await Promise.all([mkdir(join(this.root, 'recorded'), { recursive: true, mode: 0o700 }), mkdir(join(this.root, 'settled'), { recursive: true, mode: 0o700 })]) }
+  async init(): Promise<void> { await Promise.all(['recorded', 'settled', 'failures'].map(name => mkdir(join(this.root, name), { recursive: true, mode: 0o700 }))) }
+  async withRegistrationLock<T>(registrationId: string, operation: () => Promise<T>): Promise<T> {
+    validateRuntimeLocalId(registrationId, 'Registration id')
+    const release = await acquireRuntimeLock(join(this.root, 'locks', `registration-${registrationId}.lock`))
+    try { return await operation() } finally { await release() }
+  }
+  async fail(record: OrchestrateFailureRecord): Promise<void> {
+    validateFailureRecord(record, this.authority)
+    await this.init()
+    await durableCreate(join(this.root, 'failures', `${record.attemptId}.json`), record)
+  }
+  async failures(registrationId?: string): Promise<readonly OrchestrateFailureRecord[]> {
+    await this.init()
+    const files = (await readdir(join(this.root, 'failures'))).filter(name => name.endsWith('.json')).sort()
+    const records = await Promise.all(files.map(async file => {
+      const value = await readRuntimeJson(join(this.root, 'failures', file), 'Orchestrate failure')
+      validateFailureRecord(value, this.authority)
+      if (file !== `${value.attemptId}.json`) throw runtimeCorrupt('Orchestrate failure has the wrong identity')
+      return value
+    }))
+    return records.filter(record => registrationId === undefined || record.registrationId === registrationId).sort((a, b) => a.failedAt.localeCompare(b.failedAt) || a.attemptId.localeCompare(b.attemptId))
+  }
   async record(batch: OrchestrateOperationBatch): Promise<void> {
     validateOperationBatch(batch); this.assertIdentity(batch.authority, batch.runId); await this.init()
-    try { await durableCreate(this.recordedPath(batch.runId), batch) }
+    const release = await acquireRuntimeLock(join(this.root, 'locks', 'record.lock'))
+    try {
+      const recorded = await this.recorded()
+      if (!recorded.some(existing => existing.runId === batch.runId)) {
+        if (recorded.some(existing => existing.registrationId === batch.registrationId && existing.triggerInputSeq === batch.triggerInputSeq)) throw new WorkSurfaceError('already-exists-conflict', 'input already has a recorded Operation batch')
+        for (const pending of await this.pending()) for (const candidate of Object.values(batch.surfaces)) for (const reserved of Object.values(pending.surfaces)) {
+          if (candidate.surfaceId === reserved.surfaceId) throw new WorkSurfaceError('already-exists-conflict', `Surface '${candidate.surfaceId}' is reserved by run '${pending.runId}'`)
+        }
+      }
+      await durableCreate(this.recordedPath(batch.runId), batch)
+    }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
       const existing = await this.getRecorded(batch.runId)
       if (stableStringify(existing) !== stableStringify(batch)) throw new WorkSurfaceError('already-exists-conflict', `run '${batch.runId}' already records a different Operation batch`)
-    }
+    } finally { await release() }
   }
   async settle(settlement: OrchestrateOperationSettlement): Promise<void> {
     validateOperationSettlement(settlement); this.assertIdentity(settlement.authority, settlement.runId); await this.getRecorded(settlement.runId); await this.init()
@@ -145,6 +177,15 @@ export class OperationLedgerStore {
   private assertIdentity(authority: AuthorityId, runId: string): void { if (authority !== this.authority) throw runtimeInvalid('Operation authority does not match its store'); validateRuntimeLocalId(runId, 'Run id') }
   private recordedPath(id: string): string { validateRuntimeLocalId(id, 'Run id'); return join(this.root, 'recorded', `${encodeURIComponent(id)}.json`) }
   private settledPath(id: string): string { validateRuntimeLocalId(id, 'Run id'); return join(this.root, 'settled', `${encodeURIComponent(id)}.json`) }
+}
+
+function validateFailureRecord(value: unknown, authority: AuthorityId): asserts value is OrchestrateFailureRecord {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw runtimeCorrupt('Orchestrate failure must be an object')
+  const record = value as OrchestrateFailureRecord
+  const keys = ['version', 'authority', 'attemptId', 'registrationId', 'triggerInputSeq', 'phase', 'runId', 'code', 'message', 'failedAt']
+  if (Object.keys(record).some(key => !keys.includes(key)) || record.version !== 1 || record.authority !== authority || !Number.isSafeInteger(record.triggerInputSeq) || record.triggerInputSeq < 0 || !['run', 'apply'].includes(record.phase) || (record.phase === 'apply' && record.runId === undefined) || typeof record.code !== 'string' || record.code.length === 0 || typeof record.message !== 'string' || typeof record.failedAt !== 'string' || !Number.isFinite(Date.parse(record.failedAt))) throw runtimeCorrupt('Orchestrate failure has an invalid shape')
+  validateRuntimeLocalId(record.attemptId, 'Attempt id'); validateRuntimeLocalId(record.registrationId, 'Registration id')
+  if (record.runId !== undefined) validateRuntimeLocalId(record.runId, 'Run id')
 }
 
 function validateInputRecord(value: unknown, authority: AuthorityId, registrationId: string, inputSeq: number): asserts value is OrchestrateInputLedgerRecord {

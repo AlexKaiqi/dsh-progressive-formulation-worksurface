@@ -3,9 +3,10 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
+import { MessageId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { FileEventStore, RevisionStore, SURFACE_TEMPLATE } from '@pf-worksurface/core'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SurfaceSessionService, supportsPersistedIgnorableSessionEvents } from '../src/session-surface.ts'
+import { SurfaceSessionService, supportsPersistedIgnorableSessionEvents, type SurfaceTurnBriefDraft } from '../src/session-surface.ts'
 
 const roots: string[] = []
 afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))))
@@ -42,7 +43,93 @@ function start(service: SurfaceSessionService, current: Session, number = 1): st
   return capability
 }
 
+const authority = 'wsa_brief_test' as const
+function brief(name: string, digest = 'a'): SurfaceTurnBriefDraft {
+  return { instruction: `Deliver ${name}`, outputs: [{
+    name, description: `${name} is complete`, payloadSchema: { type: 'object' },
+    scope: { authority, kind: 'registration', id: 'registration-a' }, digest: `sha256:${digest.repeat(64)}`,
+  }] }
+}
+function message(current: Session, id: string): void {
+  current.append('user/message', { ...createUserMessage({ content: [{ type: 'text', text: id }], source: { kind: 'user' } }), id: MessageId(id) }, { surfaceOp: 'append' })
+}
+
 describe('SurfaceSessionService', () => {
+  it('replaces cold-admission generic grants with the persisted message-specific brief', async () => {
+    const { service } = await fixture()
+    service.registerRuntimeAuthority(authority)
+    await service.prepareFollowupBrief('surface-a', 'cold', brief('review.completed'))
+    const current = session('cold', service.cwdForSurface('surface-a'))
+    await service.bindSession(current, 'surface-a', 'authoring')
+    service.prepareTurnBrief('surface-a', brief('generic.completed'))
+    start(service, current)
+    message(current, 'cold')
+    service.applyMessageBrief(current, 'cold')
+    const active = service.activeSurface('cold')!
+    expect(Object.keys(active.runtimeBinding!.contracts)).toEqual(['review.completed'])
+    expect(JSON.parse(await readFile(join(active.viewDir, 'turn-brief.json'), 'utf8'))).toMatchObject({
+      instruction: 'Deliver review.completed', outputs: [{ name: 'review.completed' }],
+    })
+  })
+
+  it('unions same-Turn specific grants without generic grants and revokes conflicting admissions', async () => {
+    const { service } = await fixture()
+    service.registerRuntimeAuthority(authority)
+    const current = session('union', service.cwdForSurface('surface-a'))
+    await service.bindSession(current, 'surface-a', 'authoring')
+    service.prepareTurnBrief('surface-a', brief('generic.completed'))
+    for (const [id, draft] of [['one', brief('one.completed')], ['two', brief('two.completed')], ['conflict', brief('one.completed', 'b')]] as const) {
+      await service.prepareFollowupBrief('surface-a', id, draft)
+    }
+    const capability = start(service, current)
+    for (const id of ['one', 'ordinary', 'two', 'one']) {
+      message(current, id)
+      service.applyMessageBrief(current, id)
+    }
+    service.prepareTurnBrief('surface-a', brief('generic.refresh'))
+    expect(Object.keys(service.activeSurface('union')!.runtimeBinding!.contracts)).toEqual(['one.completed', 'two.completed'])
+    message(current, 'conflict')
+    expect(() => service.applyMessageBrief(current, 'conflict')).toThrowError(expect.objectContaining({ code: 'already-exists-conflict' }))
+    expect(service.activeSurface('union')).toBeUndefined()
+    expect(() => service.planningSource(capability)).toThrowError(expect.objectContaining({ code: 'unauthorized' }))
+  })
+
+  it('restores an admitted current Turn from private snapshots and rejects changed replay identities', async () => {
+    const { service, state, work, events, revisions } = await fixture()
+    const current = session('restored', service.cwdForSurface('surface-a'))
+    await service.bindSession(current, 'surface-a', 'authoring')
+    const snapshot = brief('review.completed')
+    await service.prepareFollowupBrief('surface-a', 'original', snapshot)
+    start(service, current)
+    message(current, 'original')
+    const restarted = new SurfaceSessionService(events, revisions, work, state)
+    restarted.registerRuntimeAuthority(authority)
+    await restarted.init()
+    await restarted.prepareFollowupBrief('surface-a', 'original', snapshot)
+    await expect(restarted.prepareFollowupBrief('surface-a', 'original', brief('unexpected.completed')))
+      .rejects.toMatchObject({ code: 'already-exists-conflict' })
+    restarted.prepareTurnBrief('surface-a', brief('generic.completed'))
+    const resumed = Session.create(current.id, current.events, current.header)
+    restarted.beginTurn(resumed, 1)
+    expect(Object.keys(restarted.activeSurface('restored')!.runtimeBinding!.contracts)).toEqual(['review.completed'])
+    resumed.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    start(restarted, resumed, 2)
+    restarted.applyMessageBrief(resumed, 'original')
+    expect(Object.keys(restarted.activeSurface('restored')!.runtimeBinding!.contracts)).toEqual(['generic.completed'])
+    expect(resumed.events.some(event => event.type === 'worksurface/binding')).toBe(false)
+  })
+
+  it('publishes exactly one immutable brief under competing writers', async () => {
+    const { service, state, work, events, revisions } = await fixture()
+    const other = new SurfaceSessionService(events, revisions, work, state)
+    const drafts = [brief('one.completed'), brief('two.completed')]
+    const results = await Promise.allSettled(drafts.map((draft, index) => (index === 0 ? service : other).prepareFollowupBrief('surface-a', 'same-id', draft)))
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+    expect(results.find(result => result.status === 'rejected')).toMatchObject({ reason: { code: 'already-exists-conflict' } })
+    const winner = results.findIndex(result => result.status === 'fulfilled')
+    await expect(other.prepareFollowupBrief('surface-a', 'same-id', drafts[winner]!)).resolves.toBeUndefined()
+  })
+
   it('binds one Surface to one DSH Session before its first Turn', async () => {
     const { service, state, work } = await fixture()
     const current = session('session-a', service.cwdForSurface('surface-a'))
@@ -137,9 +224,10 @@ describe('SurfaceSessionService', () => {
     expect(service.planningSource(capability)).toEqual({ surfaceId: 'surface-a', sessionId: 'session-planner', turn: 1 })
     const active = service.activeSurface('session-planner')!
     expect(JSON.parse(await readFile(join(active.viewDir, 'turn-brief.json'), 'utf8'))).toMatchObject({
-      version: 1,
+      version: 2,
       runtimeView: '$DSH_WORKSURFACE_VIEW_DIR',
       instruction: 'Review the current evidence.',
+      filePublication: { command: { argv: ['$DSH_WORKSURFACE_CLI', 'publish', '--key', '<stable-publication-key>'] } },
       outputs: [{ name: 'review.completed', command: { argv: ['$DSH_WORKSURFACE_CLI', 'emit', 'review.completed', '--payload', '<JSON matching schema>'] } }],
     })
     service.endTurn('session-planner', 1)

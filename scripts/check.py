@@ -87,6 +87,7 @@ def static_checks() -> None:
         "orchestrate-result.schema.json",
         "orchestrate-operation-batch.schema.json",
         "orchestrate-operation-settlement.schema.json",
+        "orchestrate-failure-record.schema.json",
     )
     target_design_files = sorted(path.name for path in (SPEC / "design").glob("*.schema.json"))
     if target_design_files != sorted(target_schemas):

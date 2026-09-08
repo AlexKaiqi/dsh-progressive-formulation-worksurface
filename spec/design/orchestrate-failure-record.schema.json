@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worksurface.local/spec/design/orchestrate-failure-record.schema.json",
+  "title": "Runtime-private Orchestrate Attempt Failure",
+  "$comment": "Immutable diagnostic evidence. A failure neither acknowledges its input nor becomes a domain Event. The host chooses retry cadence; recovery resumes a recorded batch or retries an unrecorded input.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "authority", "attemptId", "registrationId", "triggerInputSeq", "phase", "code", "message", "failedAt"],
+  "properties": {
+    "version": { "const": 1 },
+    "authority": { "$ref": "runtime-authority.schema.json#/$defs/authorityId" },
+    "attemptId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+    "registrationId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+    "triggerInputSeq": { "type": "integer", "minimum": 0 },
+    "phase": { "enum": ["run", "apply"] },
+    "runId": { "$ref": "runtime-authority.schema.json#/$defs/localId" },
+    "code": { "type": "string", "minLength": 1 },
+    "message": { "type": "string" },
+    "failedAt": { "type": "string", "format": "date-time" }
+  },
+  "if": { "properties": { "phase": { "const": "apply" } }, "required": ["phase"] },
+  "then": { "properties": { "runId": {} }, "required": ["runId"] }
+}

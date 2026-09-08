@@ -87,6 +87,7 @@ describe('target Runtime protocol', () => {
     const contract = contractFor(authority.id)
     const digest = eventContractDigest(contract)
     const events = new RuntimeEventStore(join(directory, 'events'), authority.id)
+    await new EventContractStore(join(directory, 'contracts')).put(contract)
     const operationKey = 'turn-1-result'
     const ref = await events.append('case-a', {
       id: runtimeEventId(authority.id, 'session-a/turn-1', operationKey, 'case-a'),
@@ -128,6 +129,23 @@ describe('target Runtime protocol', () => {
     }
     await ledger.settle(settlement)
     expect(await ledger.pending()).toEqual([])
+  })
+
+  it('enforces producer, subject, payload, and exact Contract identity at append', async () => {
+    const directory = await root()
+    const authority = await new RuntimeAuthorityStore(directory).init()
+    const contract = contractFor(authority.id)
+    const contracts = new EventContractStore(join(directory, 'contracts'))
+    const digest = await contracts.put(contract)
+    const events = new RuntimeEventStore(join(directory, 'events'), authority.id, contracts)
+    const draft = { id: 'event-1', type: { scope: contract.scope, name: contract.name, contract: digest }, payload: { artifact: 'result.md' }, causes: [], producer: { kind: 'surface-session' as const, ref: 'session/turn' }, operationKey: 'one' }
+    await expect(events.append('case-a', { ...draft, producer: { kind: 'orchestrate', ref: 'fake' } })).rejects.toMatchObject({ code: 'unauthorized' })
+    await expect(events.append('case-a', { ...draft, type: { ...draft.type, name: 'surface.revision-published' } })).rejects.toMatchObject({ code: 'canonical-corrupt' })
+    await expect(events.append('case-a', { ...draft, payload: {} })).rejects.toThrow(/violates Event Contract/)
+    const executionContract = { ...contract, subjects: ['execution'] as const }
+    const executionDigest = await contracts.put(executionContract)
+    await expect(events.append('case-a', { ...draft, type: { ...draft.type, contract: executionDigest } })).rejects.toMatchObject({ code: 'unauthorized' })
+    expect(await events.replay('case-a')).toHaveLength(0)
   })
 
   it('keeps Registration replay closed over exact artifacts, routes, and boundaries', async () => {
