@@ -10,8 +10,11 @@ describe('platform-neutral WorkSurface design material', () => {
   it('keeps fixed discovery guidance small and host-independent', () => {
     expect(WORKSURFACE_GLOBAL_INSTRUCTIONS.length).toBeLessThanOrEqual(WORKSURFACE_GUIDANCE_MAX_CHARS)
     expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).toContain('WorkSurface is an available capability')
-    expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).toContain('independently assessable Surfaces')
-    expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).toContain('directly from this guidance, without tools or help')
+    expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).toContain('independent long-term reasoning context')
+    expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).toContain('independently solvable, independently verifiable')
+    expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).toContain('copy the Surface directory')
+    expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).toContain('directly from this guidance')
+    expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).not.toMatch(/without tools|no tools|tool calls?/i)
     expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).not.toMatch(/DSH|Cordis|DSH_/)
   })
 
@@ -32,7 +35,7 @@ describe('platform-neutral WorkSurface design material', () => {
       emitHelp: 'pi worksurface emit command',
     })
     expect(guidance).toContain('pi session')
-    expect(guidance).toContain('For how-to questions or actions, read the relevant help yourself')
+    expect(guidance).toContain('For how-to questions or actions, consult the relevant help before answering or acting')
     expect(session).toContain('/run/turn-brief.json')
     expect(session).toContain('resolve environment locators and replace parameter placeholders in `command.argv`')
     expect(session).toContain('execute the resolved argv directly')

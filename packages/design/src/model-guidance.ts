@@ -19,15 +19,16 @@ export function renderWorkSurfaceGuidance(options: WorkSurfaceGuidanceOptions = 
   const coordinationHelp = options.coordinationHelp ?? DEFAULT_COORDINATION_HELP
 
   return [
-    'WorkSurface is an available capability for durable, independently assessable work: multi-turn work, recovery or handoff, acceptance-checked artifacts, or independent workstreams that need coordination.',
-    'A Surface is one objective\'s durable context—goal, acceptance criteria, files, decisions, deliverables, and evidence. Author it in ordinary files; coordinate independently assessable Surfaces, one objective per Surface.',
-    `For a one-off edit, small answer, or short exploration: use an ordinary ${hostSessionLabel}. Orchestrate coordinates existing Surfaces only; it cannot create, delete, or rebind. The host owns session/turn/tools; WorkSurface records facts and progress, not arbitrary commands.`,
-    `Answer what WorkSurface is and when to use it directly from this guidance, without tools or help. For how-to questions or actions, read the relevant help yourself: ${authoringHelp} for creation; ${coordinationHelp} for coordination. Do not invent commands.`,
+    'WorkSurface is an available capability for durable work: a Surface holds one line of work\'s independent long-term reasoning context—goal, acceptance criteria, facts, decisions, deliverables, and evidence—so the work can progress across turns, recovery, or handoff. Author it in ordinary files.',
+    'Split complex work into independently solvable, independently verifiable parts, one Surface per part, and split off a new Surface whenever a workstream must accumulate and evolve its own durable context independently of the current one.',
+    'A fork needs no special creation method: copy the Surface directory, replace the divergent parts, and record the inheritance as an ordinary fact in surface.md. Bounded exploration whose result folds back may use a forked copy; exploration that needs no durable copy references the existing Surface and delegates with ordinary code.',
+    `For a one-off edit, small answer, or short exploration: use an ordinary ${hostSessionLabel}. Orchestrate coordinates existing Surfaces only; it cannot create, delete, or rebind. WorkSurface records durable facts and progress rather than arbitrary commands, while execution remains in the ordinary host lifecycle.`,
+    `Answer questions about what WorkSurface is or when to use it directly from this guidance. For how-to questions or actions, consult the relevant help before answering or acting: ${authoringHelp} for creation; ${coordinationHelp} for coordination. Do not invent commands or report implementation details that the user did not ask for.`,
   ].join(' ')
 }
 
 export const WORKSURFACE_GLOBAL_INSTRUCTIONS = renderWorkSurfaceGuidance()
-export const WORKSURFACE_GUIDANCE_MAX_CHARS = 1200
+export const WORKSURFACE_GUIDANCE_MAX_CHARS = 1700
 
 export interface SurfaceSessionGuidanceOptions {
   readonly surfaceId: string

@@ -7,16 +7,19 @@ import { workSurfaceInstructions, workSurfaceTurnInstructions } from '../src/mod
 
 describe('DSH Session WorkSurface model contract', () => {
   it('keeps global discovery short and sends operational detail to scenario help', () => {
-    expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).toContain('independently assessable Surfaces')
+    expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).toContain('independent long-term reasoning context')
+    expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).toContain('independently solvable, independently verifiable')
     expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).toContain('use an ordinary DSH Session')
     expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).toContain('`"$DSH_WORKSURFACE_CLI" help`')
-    expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).toContain('read the relevant help yourself')
-    expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).toContain('directly from this guidance, without tools or help')
+    expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).toContain('consult the relevant help before answering or acting')
+    expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).toContain('directly from this guidance')
+    expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).not.toMatch(/without tools|no tools|tool calls?/i)
+    expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).not.toContain('host owns session/turn/tools')
     expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).not.toContain('fallback')
     for (const runtimeOwned of ['namespace', 'digest', 'ledger', 'socket', 'CAS']) {
       expect(WORKSURFACE_GLOBAL_INSTRUCTIONS).not.toContain(runtimeOwned)
     }
-    expect(WORKSURFACE_GLOBAL_INSTRUCTIONS.length).toBeLessThanOrEqual(1_200)
+    expect(WORKSURFACE_GLOBAL_INSTRUCTIONS.length).toBeLessThanOrEqual(1_700)
   })
 
   it('states that the current DSH Session is one fixed Surface progression', () => {

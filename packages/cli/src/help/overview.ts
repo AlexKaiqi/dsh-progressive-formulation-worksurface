@@ -1,7 +1,7 @@
 export function overviewHelp(version: string): string {
   return `ws ${version}
 
-WorkSurface keeps durable, independently assessable work in Surfaces and coordinates existing Surfaces when that structure helps. Use an ordinary host session for work that does not benefit from this separation.
+WorkSurface keeps each line of work's independent long-term reasoning context in a Surface—facts, decisions, deliverables, and evidence—and coordinates existing Surfaces when that structure helps. Split complex work into independently solvable, independently verifiable parts, one Surface per part. Use an ordinary host session for work that does not benefit from this separation.
 
 Usage:
   ws help [author|coordinate|publish|emit|recover]

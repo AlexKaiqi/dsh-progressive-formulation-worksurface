@@ -76,7 +76,7 @@ describe('WorkSurface Agent readiness questions', () => {
       helpFor('recover'),
     ].join('\n')
     for (const signal of [
-      'independently assessable Surfaces',
+      'independently solvable, independently verifiable',
       'ordinary DSH Session',
       'starting a first Surface from an ordinary Agent Session',
       'DSH_WORKSURFACE_ROOT/surfaces/<surface-id>',

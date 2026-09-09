@@ -34,9 +34,9 @@
 
 > What is WorkSurface, what problem does it solve, and where are the boundaries between Surface, an ordinary Session, and Orchestrate? Name actions that must not be done.
 
-通过标准：Define WorkSurface as an available capability for durable, independently assessable work; distinguish Surface, host Session, and Orchestrate; and state that Orchestrate cannot create, delete, or rebind Surfaces.
+通过标准：Define WorkSurface as an available capability that keeps one line of work's independent long-term reasoning context in a Surface; distinguish Surface, host Session, and Orchestrate; and state that Orchestrate cannot create, delete, or rebind Surfaces.
 
-预期语义信号：WorkSurface is durable and independently assessable work；Surface holds one objective's context and durable artifacts；ordinary Session owns host conversation, turns, and tools；Orchestrate coordinates existing Surfaces only；WorkSurface is not an arbitrary command executor
+预期语义信号：a Surface holds one line of work's independent long-term reasoning context；Surface holds durable facts, decisions, deliverables, and evidence；ordinary Session owns host conversation, turns, and tools；Orchestrate coordinates existing Surfaces only；WorkSurface is not an arbitrary command executor
 
 - **L0 · concept-guidance**：The fixed guidance names the capability, its durable-work fit, and the Surface, Session, and Orchestrate boundary. 证据：`global-guidance-l0`
 - **L3 · concept-answer**：A fresh real Agent gives a correct definition, explains the problem solved, separates all three boundaries, and names forbidden actions. 证据：`real-model-concept-l3`
@@ -45,9 +45,9 @@
 
 > WorkSurface solves what kind of problem? Give one task that should use it and one that should stay in an ordinary DSH Session.
 
-通过标准：Choose WorkSurface for durable, independently assessable work or explicit coordination, and avoid it when the structure does not improve a simple task.
+通过标准：Choose WorkSurface for work that needs an independent long-term reasoning context, for independently solvable and verifiable parts, or for explicit coordination, and avoid it when the structure does not improve a simple task.
 
-预期语义信号：multi-turn, recovery, handoff, or acceptance-checked artifacts；ordinary Session for a one-off small task
+预期语义信号：multi-turn, recovery, handoff, or an independently evolving context；ordinary Session for a one-off small task
 
 - **L0 · knowledge**：The delivered fixed guidance contains the capability concept and ordinary-Session boundary. 证据：`global-guidance-l0`
 - **L3 · agent-choice**：A fresh real Agent selects WorkSurface for a suitable example and rejects it for an unsuitable example. 证据：`real-model-concept-l3`
@@ -80,15 +80,15 @@
 
 ### decomposition
 
-> The objective has three independently assessable parts. How do you represent and maintain them in WorkSurface?
+> The objective has three independently solvable, independently verifiable parts. How do you represent and maintain them in WorkSurface?
 
 通过标准：Author separate valid Surfaces with their own goal, acceptance criteria, files, deliverables, and evidence instead of drawing a generic task graph.
 
-预期语义信号：one Surface per independently assessable objective；coordinate existing Surfaces after authoring；do not substitute a generic workflow graph
+预期语义信号：one Surface per independently solvable, independently verifiable part；coordinate existing Surfaces after authoring；do not substitute a generic workflow graph
 
 - **L0 · decomposition-guidance**：Scenario help distinguishes independent Surface authoring from coordination over existing Surfaces. 证据：`scenario-help-l0`
 - **L2 · multi-surface-mechanism**：The Runtime can coordinate multiple existing Surfaces without creating a generic relationship DSL. 证据：`coordination-runtime-l2`
-- **L3 · agent-decomposition**：A real Agent creates one independently assessable Surface per part and does not substitute a generic graph. 证据：`real-model-decomposition-l3`
+- **L3 · agent-decomposition**：A real Agent creates one independently verifiable Surface per part and does not substitute a generic graph. 证据：`real-model-decomposition-l3`
 
 ### surface-authoring
 
@@ -144,6 +144,6 @@
 | real-model-authoring-l3 | L3 | profile-run / PASSED | [docs/verification-report-2026-09-02.md](../docs/verification-report-2026-09-02.md) | A fresh real Agent discovers author help, creates a valid first Surface with the required headings and a co-located supporting file, and leaves no Orchestration or domain Event for an authoring-only task. |
 | real-model-surface-turn-l3 | L3 | profile-run / PASSED | [docs/verification-report-2026-09-02.md](../docs/verification-report-2026-09-02.md) | A fresh real Agent entered the canonical Surface, located and read the current Turn Brief before acting, identified the bound Surface and entry file, treated the empty output authority as empty, and respected the no-write/no-Orchestration/no-emit boundary. |
 | real-model-persistent-locator-l3 | L3 | profile-run / PASSED | [docs/verification-report-2026-09-02.md](../docs/verification-report-2026-09-02.md) | A real Agent in the persistent-PTY profile received exact per-Turn locators, handled empty DSH_WORKSURFACE variables without guessing hidden paths, and used the concrete Turn view path to continue a managed output operation. |
-| real-model-decomposition-l3 | L3 | profile-run / BLOCKED | [docs/verification-report-2026-09-02.md](../docs/verification-report-2026-09-02.md) | Reserved for a fresh real Agent answer that decomposes independently assessable objectives into separate Surfaces, names each Surface's evidence boundary, and keeps orchestration behavior separate from authored work. |
+| real-model-decomposition-l3 | L3 | profile-run / BLOCKED | [docs/verification-report-2026-09-02.md](../docs/verification-report-2026-09-02.md) | Reserved for a fresh real Agent answer that decomposes independently solvable, independently verifiable parts into separate Surfaces, names each Surface's evidence boundary, and keeps orchestration behavior separate from authored work. |
 | ↳ blocker | L3 | BLOCKED | — | A fresh direct decomposition prompt was attempted in the post-refactor profile, but the provider returned HTTP 503 on the retry attempts; no answer is registered as model evidence. |
 | real-model-coordination-output-l3 | L3 | profile-run / PASSED | [docs/verification-report-2026-09-02.md](../docs/verification-report-2026-09-02.md) | A fresh real Agent in the post-refactor profile created a coordinator Brief, validated and emitted analysis.requested with the current Turn capability, automatically advanced the existing Registration to the analyst, created result.md, and emitted schema-valid analysis.completed without lifecycle Events. |

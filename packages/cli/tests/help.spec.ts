@@ -5,7 +5,8 @@ import { HELP, helpFor } from '../src/help.ts'
 
 describe('ws help', () => {
   it('routes an Agent by model-owned action without exposing Runtime internals', () => {
-    expect(HELP).toContain('durable, independently assessable work')
+    expect(HELP).toContain('independent long-term reasoning context')
+    expect(HELP).toContain('independently solvable, independently verifiable parts')
     expect(HELP).toContain('Use an ordinary host session')
     expect(HELP).not.toContain('DSH')
     for (const command of ['ws sync', 'ws list', 'ws run', 'ws publish', 'ws recover']) expect(HELP).toContain(command)

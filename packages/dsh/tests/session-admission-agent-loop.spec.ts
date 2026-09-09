@@ -222,8 +222,8 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
       const assembly = await runtime.ctx.systemPrompt.assemble()
       const prompt = assembly.sections.map(section => section.text).join('\n')
       const guidance = assembly.sections.find(section => section.name === 'worksurface:guidance')?.text ?? ''
-      expect(guidance.length).toBeLessThanOrEqual(1_200)
-      expect(prompt).toContain('WorkSurface is an available capability for durable, independently assessable work')
+      expect(guidance.length).toBeLessThanOrEqual(1_700)
+      expect(prompt).toContain('WorkSurface is an available capability for durable work')
       expect(prompt).toContain('Author it in ordinary files')
       expect(prompt).toContain('Orchestrate coordinates existing Surfaces only')
       expect(prompt).toContain('`"$DSH_WORKSURFACE_CLI" help author`')
