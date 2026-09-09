@@ -52,6 +52,8 @@ import {
       compatibleHint: 'The v4 engine is kept in an isolated compatibility view.',
       autoLayout: 'Auto layout', showMiniMap: 'Show minimap', hideMiniMap: 'Hide minimap',
       localLayout: 'Node positions stay in this browser', canvasHelp: 'Drag nodes to refine the layout. Pan, zoom, select, and fit the view with the canvas controls.',
+      subgraph: 'Subgraph', subgraphs: 'Subgraphs', allSubgraphs: 'All subgraphs', ungrouped: 'Ungrouped',
+      surfaceNode: 'Surface node', orchestrateNode: 'Orchestrate node', subgraphBox: 'Subgraph container',
     }
     const zh = {
       view: 'WorkSurface', title: 'WorkSurface 运行证据', subtitle: 'Evidence 模式：虚线是声明的可能通路，实线是已记录 Event 证明的实际因果。',
@@ -84,6 +86,8 @@ import {
       compatibleHint: 'v4 引擎只保留在独立的兼容视图中。',
       autoLayout: '自动排版', showMiniMap: '显示小地图', hideMiniMap: '隐藏小地图',
       localLayout: '节点位置仅保存在当前浏览器', canvasHelp: '拖动节点微调布局；画布支持平移、缩放、选择与适配视图。',
+      subgraph: '子图', subgraphs: '子图', allSubgraphs: '全部子图', ungrouped: '未分组',
+      surfaceNode: 'Surface 节点', orchestrateNode: 'Orchestrate 节点', subgraphBox: '子图容器',
     }
     const dictionaries = { en, zh, 'zh-TW': zh }
 
@@ -105,6 +109,7 @@ import {
       const [selected, setSelected] = React.useState(null)
       const [viewMode, setViewMode] = React.useState('relations')
       const [surfaceId, setSurfaceId] = React.useState('')
+      const [subgraphId, setSubgraphId] = React.useState('')
       const [surfaces, setSurfaces] = React.useState([])
       const [openingSurface, setOpeningSurface] = React.useState('')
       const surfaceIdRef = React.useRef('')
@@ -171,6 +176,15 @@ import {
         setSelected(null)
         try { window.sessionStorage.setItem('worksurface-anchor', id) } catch {}
       }, [])
+      const subgraphs = React.useMemo(() => snapshot ? buildSubgraphs(snapshot, t) : [], [snapshot, t])
+      const selectedSubgraph = subgraphId ? subgraphs.find(item => item.id === subgraphId) || null : null
+      const focusSubgraph = React.useCallback(id => {
+        setSubgraphId(id)
+        if (!id || !snapshot) return
+        const group = subgraphs.find(item => item.id === id)
+        const first = group ? snapshot.surfaces.find(surface => group.surfaceIds.has(surface.surfaceId)) : undefined
+        if (first) openSurface(first.surfaceId)
+      }, [openSurface, snapshot, subgraphs])
       const advanceSurface = React.useCallback(async () => {
         // Select and button activation may happen in one browser task. React
         // state is asynchronous, so use the event-time selection authority.
@@ -217,11 +231,21 @@ import {
           h('div', { key: 'copy', className: 'pf-ws-head-copy' }, [h('h2', { key: 'title' }, displayTitle), h('p', { key: 'sub' }, t(activeMode === 'relations' ? 'subtitle' : 'compatibleHint'))]),
           anchor ? h('span', { key: 'phase', className: `pf-ws-anchor-phase ${phaseTone(anchor.lifecycle.phase)}` }, `${phaseIcon(anchor.lifecycle.phase)} ${t(anchor.lifecycle.phase)}`) : null,
           h('div', { key: 'actions', className: 'pf-ws-head-actions' }, [
+            h('label', { key: 'subgraph', className: 'pf-ws-surface-choice' }, [
+              h('span', { key: 'label' }, t('subgraphs')),
+              h('select', { key: 'select', value: subgraphId, onChange: event => focusSubgraph(event.target.value), disabled: subgraphs.length === 0, 'aria-label': t('subgraphs') }, [
+                h('option', { key: 'all', value: '' }, t('allSubgraphs')),
+                ...subgraphs.map(group => h('option', { key: group.id, value: group.id }, `${group.title} · ${group.surfaceIds.size} ${t('surfaces')} · ${group.registrationIds.length} ${t('orchestrate')}`)),
+              ]),
+            ]),
             h('label', { key: 'surface', className: 'pf-ws-surface-choice' }, [
               h('span', { key: 'label' }, t('chooseSurface')),
-              h('select', { key: 'select', value: surfaceId, onChange: event => openSurface(event.target.value), disabled: surfaces.length === 0 }, [
+              h('select', { key: 'select', value: surfaceId, onChange: event => openSurface(event.target.value), disabled: surfaces.length === 0, 'aria-label': t('chooseSurface') }, [
                 surfaces.length === 0 ? h('option', { key: 'none', value: '' }, '—') : null,
-                ...surfaces.map(surface => h('option', { key: surface.surfaceId, value: surface.surfaceId }, surface.title)),
+                ...surfaceSelectGroups(surfaces, snapshot, subgraphs).map((group, groupIndex) =>
+                  group.groupTitle
+                    ? h('optgroup', { key: `group-${groupIndex}`, label: group.groupTitle }, group.items.map(item => h('option', { key: item.surface.surfaceId, value: item.surface.surfaceId }, item.label)))
+                    : group.items.map(item => h('option', { key: item.surface.surfaceId, value: item.surface.surfaceId }, item.label))),
               ]),
             ]),
             snapshot?.viewRevision ? h('code', { key: 'revision', title: snapshot.viewRevision }, shortRevision(snapshot.viewRevision)) : null,
@@ -234,13 +258,24 @@ import {
         error && snapshot ? h('div', { key: 'error-warning', className: 'pf-ws-warning pf-ws-danger', role: 'alert' }, error) : null,
         error && !snapshot ? h('div', { key: 'error', className: 'pf-ws-blank pf-ws-danger', role: 'alert' }, [h('strong', { key: 'label' }, t('loadFailed')), h('span', { key: 'message' }, error)]) : null,
         !surfaceId && !loading && !error ? h('div', { key: 'no-surfaces', className: 'pf-ws-blank' }, t('noSurfaces')) : null,
+        selectedSubgraph && snapshot ? h('div', { key: 'subgraph-summary', className: 'pf-ws-subgraph-summary', role: 'status' }, [
+          h('span', { key: 'title', className: 'pf-ws-summary-title' }, `${t('subgraph')}: ${selectedSubgraph.title}`),
+          ...[...selectedSubgraph.surfaceIds].map(surfaceId => {
+            const surface = snapshot.surfaces.find(item => item.surfaceId === surfaceId)
+            return surface ? h('span', { key: surfaceId, className: `pf-ws-summary-chip ${phaseTone(surface.lifecycle.phase)}`, title: `${surface.title}: ${t(surface.lifecycle.phase)}` }, `${phaseIcon(surface.lifecycle.phase)} ${surface.title}`) : null
+          }),
+          ...selectedSubgraph.registrationIds.map(registrationId => {
+            const registration = snapshot.codeFirst.find(item => item.registrationId === registrationId)
+            return registration ? h('span', { key: registrationId, className: `pf-ws-summary-chip orchestrate${registration.pendingRunCount ? ' pending' : ''}`, title: registration.registrationId }, `⬡ ${registration.registrationId} · ${registration.acceptedInputCount} ${t('inputs')} · ${registration.recordedRunCount} ${t('runs')}`) : null
+          }),
+        ]) : null,
         snapshot ? h('div', { key: 'body', className: `pf-ws-body${selected ? ' has-drawer' : ''}` }, [
           h('div', { key: 'canvas', className: 'pf-ws-canvas' }, [
             hasRelations && hasLegacy ? h('nav', { key: 'modes', className: 'pf-ws-modes', 'aria-label': t('view') }, [
               h('button', { key: 'relations', type: 'button', className: activeMode === 'relations' ? 'active' : '', onClick: () => { setViewMode('relations'); setSelected(null) } }, t('relations')),
               h('button', { key: 'legacy', type: 'button', className: activeMode === 'legacy' ? 'active' : '', onClick: () => { setViewMode('legacy'); setSelected(null) } }, t('legacy')),
             ]) : null,
-            activeMode === 'relations' && hasRelations ? h(CodeFirstGraph, { key: codeFirstGraphKey(snapshot, locale), snapshot, t, onSelect: setSelected }) : null,
+            activeMode === 'relations' && hasRelations ? h(CodeFirstGraph, { key: codeFirstGraphKey(snapshot, locale, subgraphId), snapshot, t, onSelect: setSelected, subgraphs, activeSubgraphId: subgraphId }) : null,
             activeMode === 'legacy' && hasLegacy ? h(TopologyGraph, { key: 'legacy', snapshot, t, onSurface: openSurface, onSelect: selection => setSelected({ ...selection, scope: 'legacy' }) }) : null,
             !hasLegacy && !hasRelations
               ? h('div', { key: 'empty', className: 'pf-ws-blank' }, [h('span', { key: 'mark', className: 'pf-ws-empty-mark' }, '◇'), h('strong', { key: 'title' }, t('empty')), h('p', { key: 'hint' }, t('emptyHint'))])
@@ -253,22 +288,31 @@ import {
       ])
     }
 
-    const CODE_FIRST_NODE_TYPES = { surface: SurfaceFlowNode, registration: OrchestrateFlowNode }
+    const CODE_FIRST_NODE_TYPES = { surface: SurfaceFlowNode, registration: OrchestrateFlowNode, subgraph: SubgraphFlowNode }
     const CODE_FIRST_EDGE_TYPES = { evidence: EvidenceFlowEdge }
+
+    function SubgraphFlowNode({ data }) {
+      return h('div', {
+        className: `pf-ws-subgraph${data.active ? ' active' : ''}`,
+        'aria-label': `${data.t('subgraph')}: ${data.subgraph.title}`,
+      }, h('span', { key: 'title' }, `${data.t('subgraph')}: ${data.subgraph.title}`))
+    }
 
     function CodeFirstGraph(props) {
       return h(ReactFlowProvider, null, h(CodeFirstFlow, props))
     }
 
-    function CodeFirstFlow({ snapshot, t, onSelect }) {
+    function CodeFirstFlow({ snapshot, t, onSelect, subgraphs, activeSubgraphId }) {
       const model = React.useMemo(() => buildCodeFirstGraph(snapshot), [snapshot])
-      const flow = React.useMemo(() => createCodeFirstFlow(model, snapshot, t, onSelect), [model, onSelect, snapshot, t])
+      const flow = React.useMemo(() => createCodeFirstFlow(model, snapshot, t, onSelect, subgraphs, activeSubgraphId), [activeSubgraphId, model, onSelect, snapshot, subgraphs, t])
       const storageKey = `pf-worksurface-layout:v1:${snapshot.anchorSurfaceId}`
       const stored = React.useMemo(() => readCanvasState(storageKey), [storageKey])
-      const [nodes, setNodes, onNodesChange] = useNodesState(hydrateFlowPositions(flow.nodes, stored.nodes))
+      const [nodes, setNodes, onNodesChange] = useNodesState(hydrateFlowPositions(flow.nodes, stored.nodes, subgraphs, activeSubgraphId))
       const [showMiniMap, setShowMiniMap] = React.useState(() => typeof window === 'undefined' || window.matchMedia('(min-width: 820px)').matches)
       const { fitView } = useReactFlow()
       const viewportRef = React.useRef(stored.viewport)
+      const nodesRef = React.useRef(nodes)
+      nodesRef.current = nodes
 
       const saveNodes = React.useCallback(current => {
         writeCanvasState(storageKey, current, viewportRef.current)
@@ -277,12 +321,20 @@ import {
         const timer = window.setTimeout(() => saveNodes(nodes), 160)
         return () => window.clearTimeout(timer)
       }, [nodes, saveNodes])
+      React.useEffect(() => {
+        if (!activeSubgraphId) return undefined
+        const timer = window.requestAnimationFrame(() => {
+          const container = nodesRef.current.find(node => node.id === activeSubgraphId)
+          if (container) void fitView({ nodes: [container], padding: .4, duration: 260 })
+        })
+        return () => window.cancelAnimationFrame(timer)
+      }, [activeSubgraphId, fitView])
       const autoLayout = React.useCallback(() => {
-        const arranged = arrangeFlowNodes(nodes, flow.edges)
+        const arranged = arrangeFlowNodes(nodes, flow.edges, subgraphs, t, activeSubgraphId)
         setNodes(arranged)
         saveNodes(arranged)
         window.requestAnimationFrame(() => { void fitView({ duration: 260, padding: .2 }) })
-      }, [fitView, flow.edges, nodes, saveNodes, setNodes])
+      }, [activeSubgraphId, fitView, flow.edges, nodes, saveNodes, setNodes, subgraphs, t])
 
       return h('div', { className: 'pf-ws-flow', 'aria-label': t('relations') }, h(ReactFlow, {
         nodes,
@@ -379,17 +431,18 @@ import {
       ])
     }
 
-    function createCodeFirstFlow(model, snapshot, t, onSelect) {
-      const nodes = [
+    function createCodeFirstFlow(model, snapshot, t, onSelect, subgraphs, activeSubgraphId) {
+      const memberNodes = [
         ...model.surfaces.map(node => ({
-          id: `surface:${node.surface.surfaceId}`, type: 'surface', position: node.position,
+          id: `surface:${node.surface.surfaceId}`, type: 'surface', position: node.position, zIndex: 3,
           data: { kind: 'surface', surface: node.surface, eventCount: node.eventCount, anchor: node.surface.surfaceId === snapshot.anchorSurfaceId, t, onSelect, selection: { scope: 'code-first', type: 'surface', surfaceId: node.surface.surfaceId } },
         })),
         ...model.registrations.map(node => ({
-          id: `registration:${node.registration.registrationId}`, type: 'registration', position: node.position,
+          id: `registration:${node.registration.registrationId}`, type: 'registration', position: node.position, zIndex: 3,
           data: { kind: 'registration', registration: node.registration, t, onSelect, selection: { scope: 'code-first', type: 'registration', registrationId: node.registration.registrationId } },
         })),
       ]
+      const nodes = [...recomputeSubgraphNodes(memberNodes, subgraphs || [], t, activeSubgraphId)]
       const nodeIds = new Set(nodes.map(node => node.id))
       const edges = model.declaredPaths.map(path => ({
         id: `declared:${path.key}`, source: `${path.from.kind}:${path.from.id}`, target: `${path.to.kind}:${path.to.id}`,
@@ -418,18 +471,20 @@ import {
     // refresh cannot leave measurements from an older topology paired with a
     // newer node set. Persisted positions and viewport are rehydrated by the
     // replacement instance, so user layout survives the remount.
-    function codeFirstGraphKey(snapshot, locale) {
+    function codeFirstGraphKey(snapshot, locale, activeSubgraphId) {
       const surfaces = snapshot.surfaces.map(surface => {
         const events = snapshot.runtimeEvents?.[surface.surfaceId] || []
         const evidence = surface.lifecycle.evidence || []
         return `${surface.surfaceId}:${surface.title}:${surface.group || ''}:${surface.lifecycle.phase}:${evidence.length}:${evidence.at(-1)?.ref?.id || ''}:${events.length}:${events.at(-1)?.id || ''}`
       })
       const registrations = snapshot.codeFirst.map(registration => `${registration.registrationId}:${registration.orchestrateRevision}:${registration.acceptedInputCount}:${registration.recordedRunCount}:${registration.pendingRunCount}`)
-      return `relations:${locale}:${snapshot.viewRevision || ''}:${snapshot.anchorSurfaceId}:${surfaces.join('|')}:${registrations.join('|')}`
+      return `relations:${locale}:${snapshot.viewRevision || ''}:${snapshot.anchorSurfaceId}:${activeSubgraphId || 'all'}:${surfaces.join('|')}:${registrations.join('|')}`
     }
 
-    function hydrateFlowPositions(nodes, positions) {
-      return nodes.map(node => ({ ...node, position: positions[node.id] || node.position }))
+    function hydrateFlowPositions(nodes, positions, subgraphs, activeSubgraphId) {
+      const members = nodes.filter(node => node.type !== 'subgraph')
+      const hydrated = members.map(node => ({ ...node, position: positions[node.id] || node.position }))
+      return recomputeSubgraphNodes(hydrated, subgraphs || [], members[0]?.data?.t, activeSubgraphId)
     }
     function readCanvasState(key) {
       try {
@@ -442,17 +497,20 @@ import {
     function writeCanvasState(key, nodes, viewport) {
       try {
         window.localStorage.setItem(key, JSON.stringify({
-          nodes: Object.fromEntries(nodes.map(node => [node.id, { x: node.position.x, y: node.position.y }])),
+          nodes: Object.fromEntries(nodes.filter(node => node.type !== 'subgraph').map(node => [node.id, { x: node.position.x, y: node.position.y }])),
           ...(viewport ? { viewport } : {}),
         }))
       } catch {}
     }
-    function arrangeFlowNodes(nodes, edges) {
-      const positions = layoutDirectedGraph(nodes.map(node => ({ key: node.id, kind: node.type, id: node.id })), edges.map(edge => ({ from: edge.source, to: edge.target })))
-      return nodes.map(node => ({ ...node, position: positions.get(node.id) || node.position }))
+    function arrangeFlowNodes(nodes, edges, subgraphs, t, activeSubgraphId) {
+      const members = nodes.filter(node => node.type !== 'subgraph')
+      const positions = layoutDirectedGraph(members.map(node => ({ key: node.id, kind: node.type, id: node.id })), edges.map(edge => ({ from: edge.source, to: edge.target })))
+      const arranged = members.map(node => ({ ...node, position: positions.get(node.id) || node.position }))
+      return recomputeSubgraphNodes(arranged, subgraphs || [], t, activeSubgraphId)
     }
     function minimapNodeColor(node) {
-      if (node.type === 'registration') return node.data.registration.pendingRunCount ? '#b7791f' : '#2f6feb'
+      if (node.type === 'subgraph') return '#8896a8'
+      if (node.type === 'registration') return node.data.registration.pendingRunCount ? '#b7791f' : '#7c3aed'
       const phase = node.data.surface.lifecycle.phase
       return phase === 'failed' || phase === 'conflicted' ? '#cf222e' : phase === 'published' || phase === 'completed' ? '#238636' : '#667085'
     }
@@ -510,6 +568,9 @@ import {
       return h('details', { className: 'pf-ws-legend' }, [
         h('summary', { key: 'summary' }, t('legend')),
         h('div', { key: 'items' }, [
+          mode === 'relations' ? h('span', { key: 'surface-node' }, [h('i', { key: 'mark', className: 'node surface' }), t('surfaceNode')]) : null,
+          mode === 'relations' ? h('span', { key: 'orchestrate-node' }, [h('i', { key: 'mark', className: 'node orchestrate' }), t('orchestrateNode')]) : null,
+          mode === 'relations' ? h('span', { key: 'subgraph-box' }, [h('i', { key: 'mark', className: 'subgraph' }), t('subgraphBox')]) : null,
           h('span', { key: 'possible' }, [h('i', { key: 'mark', className: 'line possible' }), t('possible')]),
           h('span', { key: 'observed' }, [h('i', { key: 'mark', className: 'line observed' }), mode === 'relations' ? t('actualFacts') : t('observed')]),
           mode === 'legacy' ? h('span', { key: 'emitted' }, [h('i', { key: 'mark', className: 'line emitted' }), t('emitted')]) : null,
@@ -886,6 +947,87 @@ import {
       return phases.reduce((strongest, phase) => order.indexOf(phase) > order.indexOf(strongest) ? phase : strongest, 'idle')
     }
     function surfaceTitle(snapshot, id) { return snapshot.surfaces.find(surface => surface.surfaceId === id)?.title || shortId(id) }
+    function buildSubgraphs(snapshot, t) {
+      const groups = []
+      const surfaceGroup = new Map()
+      const ensureGroup = (id, title, registrationId) => {
+        let group = groups.find(item => item.id === id)
+        if (!group) {
+          group = { id, title, surfaceIds: new Set(), registrationIds: registrationId ? [registrationId] : [] }
+          groups.push(group)
+        } else if (registrationId && !group.registrationIds.includes(registrationId)) {
+          group.registrationIds.push(registrationId)
+        }
+        return group
+      }
+      for (const registration of snapshot.codeFirst || []) {
+        const group = ensureGroup(`sub:${registration.registrationId}`, snapshot.view?.subgraphs?.[registration.registrationId]?.title ?? registration.registrationId, registration.registrationId)
+        for (const id of Object.values(registration.bindings || {})) {
+          if (typeof id === 'string' && id) { group.surfaceIds.add(id); surfaceGroup.set(id, group) }
+        }
+      }
+      for (const surface of snapshot.surfaces || []) {
+        const group = surfaceGroup.get(surface.surfaceId)
+        if (group) group.surfaceIds.add(surface.surfaceId)
+        else if (surface.group) {
+          const configured = ensureGroup(`sub:${surface.group}`, surface.group, undefined)
+          configured.surfaceIds.add(surface.surfaceId)
+          surfaceGroup.set(surface.surfaceId, configured)
+        }
+      }
+      const ungrouped = (snapshot.surfaces || []).filter(surface => !surfaceGroup.has(surface.surfaceId))
+      if (ungrouped.length) groups.push({ id: 'sub:__ungrouped', title: t('ungrouped'), surfaceIds: new Set(ungrouped.map(surface => surface.surfaceId)), registrationIds: [] })
+      return groups
+    }
+    function subgraphHas(subgraph, node) {
+      if (node.type === 'surface') return subgraph.surfaceIds.has(node.data.surface.surfaceId)
+      if (node.type === 'registration') return subgraph.registrationIds.includes(node.data.registration.registrationId)
+      return false
+    }
+    function flowNodeSize(node) { return node.type === 'registration' ? { width: 204, height: 94 } : { width: 226, height: 104 } }
+    function recomputeSubgraphNodes(members, subgraphs, t, activeSubgraphId) {
+      const containers = []
+      for (const subgraph of subgraphs) {
+        const own = members.filter(node => subgraphHas(subgraph, node))
+        if (!own.length) continue
+        let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity
+        for (const node of own) {
+          const size = flowNodeSize(node)
+          x1 = Math.min(x1, node.position.x); y1 = Math.min(y1, node.position.y)
+          x2 = Math.max(x2, node.position.x + size.width); y2 = Math.max(y2, node.position.y + size.height)
+        }
+        const pad = 26
+        const head = 22
+        containers.push({
+          id: subgraph.id, type: 'subgraph',
+          position: { x: x1 - pad, y: y1 - pad - head },
+          width: x2 - x1 + pad * 2,
+          height: y2 - y1 + pad * 2 + head,
+          data: { subgraph, t, active: subgraph.id === activeSubgraphId },
+          draggable: false, selectable: false, focusable: false, zIndex: 0,
+          style: { pointerEvents: 'none' },
+        })
+      }
+      return [...containers, ...members]
+    }
+    function surfaceSelectGroups(surfaces, snapshot, subgraphs) {
+      const byId = new Map(surfaces.map(surface => [surface.surfaceId, surface]))
+      const result = []
+      const added = new Set()
+      for (const group of subgraphs) {
+        const items = [...group.surfaceIds].map(id => byId.get(id)).filter(Boolean)
+        if (!items.length) continue
+        result.push({ groupTitle: group.title, items: items.map(surface => ({ surface, label: surfaceOptionLabel(surface, snapshot) })) })
+        items.forEach(surface => added.add(surface.surfaceId))
+      }
+      const rest = surfaces.filter(surface => !added.has(surface.surfaceId))
+      if (rest.length) result.push({ groupTitle: null, items: rest.map(surface => ({ surface, label: surfaceOptionLabel(surface, snapshot) })) })
+      return result
+    }
+    function surfaceOptionLabel(surface, snapshot) {
+      const live = snapshot?.surfaces.find(item => item.surfaceId === surface.surfaceId)
+      return live ? `${phaseIcon(live.lifecycle.phase)} ${surface.title}` : surface.title
+    }
     function shortId(value) { const text = String(value); return text.length <= 20 ? text : `${text.slice(0, 9)}…${text.slice(-6)}` }
     function shortRevision(value) { const text = String(value); return text.startsWith('sha256:') ? `sha256:${text.slice(7, 15)}…` : shortId(text) }
     function resolveSelection(previous, snapshot) {
