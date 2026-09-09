@@ -13,13 +13,13 @@ interface AgentRegistryPort {
     meta: { cwd: string; agentPreset?: string }
     agentOptions: { provider: string; model: string }
     signal?: AbortSignal
-    setup(agentCtx: Context): Promise<void>
+    setup(agentCtx: Context, agent?: Agent): Promise<void>
   }): Promise<AgentHandle>
   resume(options: {
     resumeSessionId: ReturnType<typeof SessionId>
     agentOptions: { provider: string; model: string }
     signal?: AbortSignal
-    setup(agentCtx: Context): Promise<void>
+    setup(agentCtx: Context, agent?: Agent): Promise<void>
   }): Promise<AgentHandle>
 }
 
@@ -233,7 +233,7 @@ export class SurfaceSessionAdmission {
           resumeSessionId: sessionId,
           agentOptions: this.agentOptions(),
           ...(request.signal === undefined ? {} : { signal: request.signal }),
-          setup: agentCtx => this.compose(agentCtx, request.surfaceId, source),
+          setup: (agentCtx, agent) => this.compose(agentCtx, agent ?? agentCtx.agent, request.surfaceId, source),
         })
         agent = handle.agent
         resumed = true
@@ -247,7 +247,7 @@ export class SurfaceSessionAdmission {
           },
           agentOptions: this.agentOptions(),
           ...(request.signal === undefined ? {} : { signal: request.signal }),
-          setup: agentCtx => this.compose(agentCtx, request.surfaceId, source, preset),
+          setup: (agentCtx, agent) => this.compose(agentCtx, agent ?? agentCtx.agent, request.surfaceId, source, preset),
         })
         agent = handle.agent
         created = true
@@ -289,8 +289,7 @@ export class SurfaceSessionAdmission {
     return this.workspace
   }
 
-  private async compose(agentCtx: Context, surfaceId: string, source: SurfaceInputSource, preset?: string): Promise<void> {
-    const agent = agentCtx.agent
+  private async compose(agentCtx: Context, agent: Agent | undefined, surfaceId: string, source: SurfaceInputSource, preset?: string): Promise<void> {
     if (agent === undefined) throw new WorkSurfaceError('effect-failed', 'DSH Agent setup did not expose its unpublished Session')
     const presets = this.runtime.get('agentPresets') as AgentPresetPort | undefined
     if (presets !== undefined) await presets.mount(agentCtx, preset ?? effectivePreset(agent.session))
