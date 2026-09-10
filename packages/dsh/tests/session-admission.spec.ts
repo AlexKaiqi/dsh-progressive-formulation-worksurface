@@ -30,11 +30,12 @@ class FakeAgents {
       version: SESSION_FORMAT_VERSION,
       id: options.sessionId,
       createdAt: 0,
+      isSeeded: false,
       ...options.meta,
     })
     const agent = { id: session.id, session, followup: () => {}, steer: () => {} } as unknown as Agent
     this.order.push('setup')
-    await options.setup({ agent } as unknown as Context)
+    await options.setup({ agent } as unknown as Context, agent)
     this.order.push('publish')
     this.live.set(String(options.sessionId), agent)
     this.stored.set(String(options.sessionId), session)
@@ -47,10 +48,10 @@ class FakeAgents {
   }): Promise<AgentHandle> {
     const stored = this.stored.get(String(options.resumeSessionId))
     if (stored === undefined) throw new Error('missing persisted Session')
-    const session = Session.create(options.resumeSessionId, stored.events, stored.header)
+    const session = Session.create(options.resumeSessionId, stored.snapshotEvents(), stored.header)
     const agent = { id: session.id, session, followup: () => {}, steer: () => {} } as unknown as Agent
     this.order.push('resume-setup')
-    await options.setup({ agent } as unknown as Context)
+    await options.setup({ agent } as unknown as Context, agent)
     this.order.push('resume-publish')
     this.live.set(String(options.resumeSessionId), agent)
     this.stored.set(String(options.resumeSessionId), session)
@@ -86,7 +87,7 @@ async function fixture() {
           inspect: (id: ReturnType<typeof SessionId>) => {
             const session = agents.stored.get(String(id))
             if (session === undefined) return Promise.reject(new Error('missing persisted Session'))
-            return Promise.resolve({ meta: session.header, events: session.events })
+            return Promise.resolve({ meta: session.header, events: session.snapshotEvents() })
           },
         }
       : undefined,
@@ -102,7 +103,7 @@ describe('SurfaceSessionAdmission', () => {
     expect(result).toMatchObject({ surfaceId: 'surface-a', created: true, resumed: false })
     expect(agents.order).toEqual(['setup', 'publish'])
     expect(surfaces.bindingForSurface('surface-a')).toMatchObject({ sessionId: result.sessionId, inputSource: 'authoring' })
-    expect(agents.live.get(result.sessionId)?.session.events).toEqual([])
+    expect(agents.live.get(result.sessionId)?.session.snapshotEvents()).toEqual([])
     expect(workspace.paths).toEqual([work])
     expect(workspace.sessions).toEqual([result.sessionId])
   })
@@ -132,7 +133,7 @@ describe('SurfaceSessionAdmission', () => {
     const resumed = await admission.ensure({ surfaceId: 'surface-a' })
     expect(resumed).toEqual({ surfaceId: 'surface-a', sessionId: first.sessionId, workspaceId: 'workspace-surfaces', created: false, resumed: true })
     expect(agents.order.slice(-2)).toEqual(['resume-setup', 'resume-publish'])
-    expect(agents.live.get(first.sessionId)?.session.events.some(event => event.type === 'turn/start')).toBe(false)
+    expect(agents.live.get(first.sessionId)?.session.snapshotEvents().some(event => event.type === 'turn/start')).toBe(false)
     expect(surfaces.bindingForSurface('surface-a')?.sessionId).toBe(first.sessionId)
   })
 

@@ -39,7 +39,7 @@ describe('code-first Surface fact projection', () => {
     await sessions.init()
     const base = await port.head('case-a')
     const id = SessionId('durable-session')
-    const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd: workRoot })
+    const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: 0, isSeeded: false, cwd: workRoot })
     await sessions.bindSession(session, 'case-a', 'authoring')
     const candidateRoot = join(root, 'candidate'); await revisions.materialize(base, candidateRoot)
     await writeFile(join(candidateRoot, 'answer.txt'), 'applied\n')
@@ -145,6 +145,7 @@ describe('code-first Surface fact projection', () => {
     const contracts = new EventContractStore(join(root, 'target', 'contracts'))
     const session = {
       id: 'session-a',
+      snapshotEvents() { return this.events },
       events: [
         { seq: 0, type: 'tool/call', data: { turn: 2, step: 1, callId: 'call-1', name: 'read_file', arguments: '{"path":"secret"}' } },
         {
@@ -166,7 +167,7 @@ describe('code-first Surface fact projection', () => {
       adoptRuntimeRevision: async () => undefined,
     } as never
     const port = new DshCodeFirstSurfacePort({ agents: { get: () => ({ session }) } } as never, workRoot, join(root, 'target'), revisions, events, contracts, sessions)
-    const adapted = port.adaptDshToolCompletion(session as never, session.events[1] as never)!
+    const adapted = port.adaptDshToolCompletion(session as never, session.snapshotEvents()[1] as never)!
     const resolved = await port.resolveDshInput(adapted.ref)
 
     expect(adapted.surfaceId).toBe('case-a')

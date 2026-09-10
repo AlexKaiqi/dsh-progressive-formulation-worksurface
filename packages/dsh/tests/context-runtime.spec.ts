@@ -21,9 +21,9 @@ describe('fact-backed WorkSurface context runtime', () => {
     const replay = await runtime.publishRevision(agent, 'surface-a', revision, null)
 
     expect(replay).toEqual(first)
-    expect(agent.session.events.filter(event => event.type === 'worksurface/context-revision')).toHaveLength(1)
-    expect(agent.session.events.at(-1)).toMatchObject({ ignorable: true })
-    expect(foldWorkSurfaceContext(agent.session.events)).toMatchObject({ surfaceId: 'surface-a', revision })
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'worksurface/context-revision')).toHaveLength(1)
+    expect(agent.session.snapshotEvents().at(-1)).toMatchObject({ type: 'worksurface/context-revision' })
+    expect(foldWorkSurfaceContext(agent.session.snapshotEvents())).toMatchObject({ surfaceId: 'surface-a', revision })
     const plan = buildContextPlan(agent)
     expect(buildContextPlan(agent)).toEqual(plan)
     expect(plan.items.map(item => item.itemId)).toEqual([
@@ -53,12 +53,12 @@ describe('fact-backed WorkSurface context runtime', () => {
     const firstId = await runtime.createOccurrence(agent, target, { kind: 'request' })
     expect(await runtime.createOccurrence(agent, target, { kind: 'request' })).toBe(firstId)
     expect(calls).toBe(2)
-    expect(foldInjectionState(agent.session.events).occurrences[0]?.sections.map(item => item.providerId)).toEqual(['a-first', 'b-second'])
+    expect(foldInjectionState(agent.session.snapshotEvents()).occurrences[0]?.sections.map(item => item.providerId)).toEqual(['a-first', 'b-second'])
 
     const rendered = await runtime.render(agent, { contextWindow: 4096 })
     runtime.recordRender(agent, rendered)
-    expect(foldInjectionState(agent.session.events).occurrences[0]).toMatchObject({ status: 'ended' })
-    expect(JSON.stringify(agent.session.events.find(event => event.type === 'context/rendered'))).not.toContain('"first"')
+    expect(foldInjectionState(agent.session.snapshotEvents()).occurrences[0]).toMatchObject({ status: 'ended' })
+    expect(JSON.stringify(agent.session.snapshotEvents().find(event => event.type === 'context/rendered'))).not.toContain('"first"')
   })
 
   it('fails required providers consistently and detects a corrupted provider blob', async () => {
@@ -79,7 +79,7 @@ describe('fact-backed WorkSurface context runtime', () => {
       provide: async () => contribution('canonical bytes'),
     })
     await corrupt.runtime.createOccurrence(corrupt.agent, { kind: 'analysis' }, { kind: 'session' })
-    const ref = foldInjectionState(corrupt.agent.session.events).occurrences[0]?.sections[0]?.contentRef
+    const ref = foldInjectionState(corrupt.agent.session.snapshotEvents()).occurrences[0]?.sections[0]?.contentRef
     if (ref?.kind !== 'blob') throw new Error('expected blob reference')
     const path = join(corrupt.root, 'runtime', 'context', 'blobs', `${ref.contentHash.slice(7)}.txt`)
     expect(await readFile(path, 'utf8')).toBe('canonical bytes')

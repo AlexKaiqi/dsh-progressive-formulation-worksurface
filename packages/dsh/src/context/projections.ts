@@ -1,9 +1,8 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { sha256, stableStringify } from '@pf-worksurface/core'
 import type { Revision } from '@pf-worksurface/core'
 import type { ContextItem, ContextPlan, InjectionOccurrence, InjectionState, RenderManifest, WorkSurfaceContextState } from './types.ts'
-
-type SessionEvent = Agent['session']['events'][number]
 
 export function foldWorkSurfaceContext(events: readonly SessionEvent[]): WorkSurfaceContextState {
   let state: WorkSurfaceContextState = { surfaceId: null, revision: null, manifestHash: null, files: [] }
@@ -42,7 +41,7 @@ export function foldInjectionState(events: readonly SessionEvent[]): InjectionSt
 
 export function buildContextPlan(agent: Agent): ContextPlan {
   const { session } = agent
-  const events = session.events
+  const events = session.snapshotEvents()
   const workSurface = foldWorkSurfaceContext(events)
   const items: ContextItem[] = []
   for (const seq of session.surface.nodes) {

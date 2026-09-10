@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { link, lstat, mkdir, open, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
-import { KNOWN_SESSION_EVENT_TYPES, SESSION_FORMAT_VERSION, Session as DshSession, SessionId, type Session } from '@deepseek-ai/dsh-session'
+import { KNOWN_SESSION_EVENT_TYPES, type Session } from '@deepseek-ai/dsh-session'
 import {
   FileEventStore,
   RevisionStore,
@@ -198,7 +198,7 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
   /** Carry only interrupted work's exact grants into DSH's restart notice. */
   async prepareRestartBrief(surfaceId: string, messageId: string, session: Session): Promise<void> {
     if (this.bindingForSession(String(session.id))?.surfaceId !== surfaceId) throw new WorkSurfaceError('unauthorized', 'restart brief requires the Surface\'s bound Session')
-    const boundary = session.events.findLast(event => event.type === 'turn/start' || event.type === 'turn/end')
+    const boundary = session.snapshotEvents().findLast(event => event.type === 'turn/start' || event.type === 'turn/end')
     if (boundary === undefined) return
     if (boundary.type === 'turn/end' && boundary.data.reason.kind !== 'interrupted'
       && !(boundary.data.reason.kind === 'aborted' && boundary.data.reason.reason.kind === 'disposed')) return
@@ -262,7 +262,7 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
       if (session.header.cwd === undefined || resolve(session.header.cwd) !== resolve(this.workRoot)) {
         throw new WorkSurfaceError('already-exists-conflict', `DSH Session '${sessionId}' cwd must be the WorkSurface authoring root '${this.workRoot}'`)
       }
-      if (session.events.some(event => event.type === 'turn/start')) {
+      if (session.snapshotEvents().some(event => event.type === 'turn/start')) {
         throw new WorkSurfaceError('already-exists-conflict', `DSH Session '${sessionId}' must bind its Surface before the first Turn`)
       }
 
@@ -309,7 +309,7 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
     const binding = this.attachSession(session)
     if (binding === undefined) return undefined
     if (!Number.isSafeInteger(turn) || turn < 0) throw new WorkSurfaceError('invalid-working-copy', 'Turn must be a non-negative safe integer')
-    const boundary = session.events.findLast(event => event.type === 'turn/start' || event.type === 'turn/end')
+    const boundary = session.snapshotEvents().findLast(event => event.type === 'turn/start' || event.type === 'turn/end')
     if (boundary?.type !== 'turn/start' || boundary.data.turn !== turn) throw new WorkSurfaceError('unauthorized', 'WorkSurface capability requires the currently open DSH Turn')
     const sessionId = String(session.id)
     this.endTurn(sessionId)
@@ -710,14 +710,14 @@ export class SurfaceSessionService implements WorkSurfaceEventPort {
 }
 
 function bindingEvents(session: Session): SurfaceSessionBinding[] {
-  return session.events.flatMap(event => event.type === 'worksurface/binding' ? [event.data as SurfaceSessionBinding] : [])
+  return session.snapshotEvents().flatMap(event => event.type === 'worksurface/binding' ? [event.data as SurfaceSessionBinding] : [])
 }
 
 function messagesForTurn(session: Session, turn: number): string[] {
-  const start = session.events.findLastIndex(event => event.type === 'turn/start' && event.data.turn === turn)
+  const start = session.snapshotEvents().findLastIndex(event => event.type === 'turn/start' && event.data.turn === turn)
   if (start < 0) return []
   const messages: string[] = []
-  for (const event of session.events.slice(start + 1)) {
+  for (const event of session.snapshotEvents().slice(start + 1)) {
     if (event.type === 'turn/start' || event.type === 'turn/end') break
     if (event.type === 'user/message') messages.push(String(event.data.id))
   }
@@ -802,18 +802,18 @@ async function immutableJson(path: string, value: unknown): Promise<void> {
  * positive when a linked plugin and Host resolve different package copies.
  */
 export function supportsPersistedIgnorableSessionEvents(
-  session: Session,
-  binding: SurfaceSessionBinding,
-  persistence: {
+  _session: Session,
+  _binding: SurfaceSessionBinding,
+  _persistence: {
     readonly borrowSession?: unknown
     readonly ensureMaterialized?: unknown
   },
 ): boolean {
-  if (typeof persistence.borrowSession !== 'function' || typeof persistence.ensureMaterialized !== 'function') return false
-  const id = SessionId(`worksurface-compat-${randomUUID()}`)
-  const constructor = session.constructor as typeof DshSession
-  const probe = constructor.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: 0 })
-  return probe.append('worksurface/binding', binding, { ignorable: true }).ignorable === true
+  // dsh-session (>= 0.1.5-alpha.1) validates the `ignorable` envelope but
+  // Session.append no longer retains it (unknown opts are rejected/ignored),
+  // so persisted ignorable extension facts are unsupported. Report false so
+  // callers take the compatible fallback path.
+  return false
 }
 
 function contextFor(binding: SurfaceSessionBinding, revision: SurfaceRevisionState): SurfaceSessionContext {

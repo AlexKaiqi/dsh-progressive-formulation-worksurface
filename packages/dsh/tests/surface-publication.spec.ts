@@ -54,7 +54,7 @@ async function fixture() {
     codeFirstSurfacePort: port, config: { workRoot: work }, authoringFailures: new Map(),
   })
   const id = SessionId('publication-session')
-  const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd: work })
+  const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: 0, isSeeded: false, cwd: work })
   await surfaces.bindSession(session, 'subject', 'authoring')
   await surfaces.prepareFollowupBrief('subject', 'files-only', { instruction: 'Prepare files only.', outputs: [] })
   session.append('turn/start', { turn: 1 })
@@ -104,7 +104,7 @@ describe('explicit Surface file publication', () => {
     const { service, surfaces, session, base, port, authoring, publish } = await fixture()
     const legacy = join(surfaces.stateRoot, 'surface-sessions', 'subject', 'work')
     await mkdir(legacy, { recursive: true }); await writeFile(join(legacy, 'result.txt'), 'private worktree draft\n')
-    const resumed = Session.create(session.id, session.events, { ...session.header, cwd: legacy })
+    const resumed = Session.create(session.id, session.snapshotEvents(), { ...session.header, cwd: legacy })
     const capability = surfaces.beginTurn(resumed, 1)!
     expect(surfaces.activeSurface(String(session.id))!.cwd).toBe(legacy)
     await expect(publish({ capability, operationKey: 'legacy' })).rejects.toMatchObject({ code: 'unauthorized', message: expect.stringContaining('private worktree') })

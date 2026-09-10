@@ -166,7 +166,7 @@ describe('message-specific Turn Briefs with the real DSH Agent Loop', () => {
       expect(Object.keys(state.surfaces.activeSurface(cold.sessionId)!.runtimeBinding!.contracts)).toEqual(['one.completed'])
       await state.surfaces.prepareFollowupBrief('surface-a', 'queued-specific', specificBrief('two.completed'))
       const queued = state.surfaces.followupSurface('surface-a', 'second managed work', 'queued-specific')
-      await expect.poll(() => agent.session.events.some(event => event.type === 'agent/inbox/spliced'
+      await expect.poll(() => agent.session.snapshotEvents().some(event => event.type === 'agent/inbox/spliced'
         && event.data.inserted.some(message => String(message.id) === 'queued-specific'))).toBe(true)
       first.release()
       expect((await queued).turnId).toBe('2')
@@ -206,7 +206,7 @@ describe('message-specific Turn Briefs with the real DSH Agent Loop', () => {
       expect(Object.keys(active.runtimeBinding!.contracts)).toEqual(['review.completed'])
       expect(JSON.parse(await readFile(join(active.viewDir, 'turn-brief.json'), 'utf8')).instruction).toBe('Deliver review.completed')
       const resumed = second.ctx.agents.get(SessionId(opened.sessionId))!
-      expect(resumed.session.events.some(event => event.type === 'worksurface/binding')).toBe(false)
+      expect(resumed.session.snapshotEvents().some(event => event.type === 'worksurface/binding')).toBe(false)
       model.release(); await resumed.whenIdle()
     } finally { model.release(); await second.ctx.fiber.dispose() }
   })
@@ -325,7 +325,7 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
       ])
       expect(receipt).toMatchObject({ messageId: 'managed-message', turnId: '1' })
       const agent = runtime.ctx.agents.get(SessionId(receipt.sessionId))!
-      expect(agent.session.events.some(event => event.type === 'turn/end')).toBe(false)
+      expect(agent.session.snapshotEvents().some(event => event.type === 'turn/end')).toBe(false)
       await expect(surfaces.followupSurface('surface-a', 'managed work', 'managed-message')).resolves.toEqual(receipt)
       await expect(surfaces.followupSurface('surface-a', 'different work', 'managed-message'))
         .rejects.toMatchObject({ code: 'already-exists-conflict' })
@@ -342,14 +342,14 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
     try {
       const opened = await admission.ensure({ surfaceId: 'surface-a' })
       const agent = ctx.agents.get(SessionId(opened.sessionId))!
-      expect(agent.session.events.some(event => event.type === 'worksurface/binding')).toBe(false)
-      expect(agent.session.events.some(event => event.type === 'turn/start' || event.type === 'user/message')).toBe(false)
+      expect(agent.session.snapshotEvents().some(event => event.type === 'worksurface/binding')).toBe(false)
+      expect(agent.session.snapshotEvents().some(event => event.type === 'turn/start' || event.type === 'user/message')).toBe(false)
 
       send(agent, 'start from the contract')
       await agent.whenIdle()
-      const eventTypes = agent.session.events.map(event => event.type)
+      const eventTypes = agent.session.snapshotEvents().map(event => event.type)
       expect(eventTypes).not.toContain('worksurface/binding')
-      expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+      expect(agent.session.snapshotEvents().filter(event => event.type === 'turn/start')).toHaveLength(1)
       expect(agent.session.header.cwd).toBe(surfaces.cwdForSurface('surface-a'))
       const turnPrompt = adapter.requests[0]?.messages
         .flatMap(message => message.content)
@@ -365,7 +365,7 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
       send(agent, 'continue the same work')
       await agent.whenIdle()
 
-      expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
+      expect(agent.session.snapshotEvents().filter(event => event.type === 'turn/start')).toHaveLength(2)
       expect(await readFile(wip, 'utf8')).toBe('same authoring WIP\n')
       expect(surfaces.bindingForSurface('surface-a')?.sessionId).toBe(opened.sessionId)
       expect(surfaces.activeSurface(opened.sessionId)).toBeUndefined()
@@ -398,11 +398,11 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
       const resumed = second.ctx.agents.get(SessionId(opened.sessionId))!
       await resumed.whenIdle()
       expect(recovery).toEqual([{ surfaceId: 'surface-a', sessionId: opened.sessionId, cause: 'interrupted' }])
-      expect(resumed.session.events.filter(event => event.type === 'worksurface/binding')).toHaveLength(0)
-      expect(resumed.session.events.filter(event => event.type === 'turn/start')).toHaveLength(3)
-      expect(resumed.session.events.filter(event => event.type === 'turn/end').map(event => event.type === 'turn/end' && event.data.reason.kind))
+      expect(resumed.session.snapshotEvents().filter(event => event.type === 'worksurface/binding')).toHaveLength(0)
+      expect(resumed.session.snapshotEvents().filter(event => event.type === 'turn/start')).toHaveLength(3)
+      expect(resumed.session.snapshotEvents().filter(event => event.type === 'turn/end').map(event => event.type === 'turn/end' && event.data.reason.kind))
         .toEqual(['completed', 'interrupted', 'completed'])
-      expect(resumed.session.events.some(event => event.type === 'user/message'
+      expect(resumed.session.snapshotEvents().some(event => event.type === 'user/message'
         && event.data.source.kind === 'plugin'
         && event.data.source.plugin === '@pf-worksurface/dsh')).toBe(true)
       expect(resumed.session.header.cwd).toBe(firstAgent.session.header.cwd)
@@ -459,7 +459,7 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
         .toEqual([{ surfaceId: 'surface-a', sessionId: opened.sessionId, cause: 'disposed' }])
       const resumed = second.ctx.agents.get(SessionId(opened.sessionId))!
       await resumed.whenIdle()
-      expect(resumed.session.events.filter(event => event.type === 'turn/start')).toHaveLength(3)
+      expect(resumed.session.snapshotEvents().filter(event => event.type === 'turn/start')).toHaveLength(3)
     } finally {
       await second.ctx.fiber.dispose()
     }
@@ -490,7 +490,7 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
       const resumed = second.ctx.agents.get(SessionId(opened.sessionId))!
       await resumed.whenIdle()
       expect(resumed.session.deriveMessages().some(message => message.content.some(block => block.type === 'text' && block.text === 'queued before restart'))).toBe(true)
-      expect(resumed.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+      expect(resumed.session.snapshotEvents().filter(event => event.type === 'turn/start')).toHaveLength(1)
     } finally {
       await second.ctx.fiber.dispose()
     }
@@ -570,10 +570,10 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
       const childBinding = runtime.ctx.workSurfaces.surfaces.bindingForSurface('dependent-child')!
       await vi.waitFor(() => expect(runtime.ctx.agents.get(SessionId(childBinding.sessionId))).toBeDefined())
       const child = runtime.ctx.agents.get(SessionId(childBinding.sessionId))!
-      await vi.waitFor(() => expect(child.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1))
+      await vi.waitFor(() => expect(child.session.snapshotEvents().filter(event => event.type === 'turn/start')).toHaveLength(1))
       await child.whenIdle()
-      expect(child.session.events.filter(event => event.type === 'worksurface/binding')).toHaveLength(0)
-      expect(child.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+      expect(child.session.snapshotEvents().filter(event => event.type === 'worksurface/binding')).toHaveLength(0)
+      expect(child.session.snapshotEvents().filter(event => event.type === 'turn/start')).toHaveLength(1)
       expect(child.session.deriveMessages().some(message => message.content.some(block => block.type === 'text'
         && block.text === 'Read surface.md and execute the dependent deliverable.'))).toBe(true)
       await vi.waitFor(async () => expect((await runtime.ctx.workSurfaces.inspectOrchestration('reg-dependent-plan')).pendingOperations).toEqual([]))
@@ -581,7 +581,7 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
       const target = inspection.runs[0]?.operations[0]?.target
       if (target === undefined || !('messageId' in target)) throw new Error('expected managed followup receipt')
       await runtime.ctx.workSurfaces.engine.reconcile('reg-dependent-plan')
-      expect(child.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+      expect(child.session.snapshotEvents().filter(event => event.type === 'turn/start')).toHaveLength(1)
       expect(runtime.ctx.agents.list().filter(agent => String(agent.id) === childBinding.sessionId)).toHaveLength(1)
       planner.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     } finally {
@@ -601,8 +601,8 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
     const firstAgent = first.ctx.agents.get(SessionId(opened.sessionId))!
     send(firstAgent, 'start before service restart')
     await firstAgent.whenIdle()
-    expect(firstAgent.session.events.find(event => event.type === 'worksurface/context-revision')).toMatchObject({ ignorable: true })
-    expect(firstAgent.session.events.find(event => event.type === 'context/rendered')).toMatchObject({ ignorable: true })
+    expect(firstAgent.session.snapshotEvents().find(event => event.type === 'worksurface/context-revision')).toBeDefined()
+    expect(firstAgent.session.snapshotEvents().find(event => event.type === 'context/rendered')).toBeDefined()
     expect(first.adapter.requests[0]?.messages.some(message => message.content.some(block => block.type === 'text'
       && block.text.includes('# Acceptance Criteria')))).toBe(true)
     await writeFile(join(firstAgent.session.header.cwd!, 'service-restart.txt'), 'same durable authoring WIP\n')
@@ -618,8 +618,8 @@ describe('SurfaceSessionAdmission with the real DSH Agent Loop', () => {
       expect(resumed).toBeDefined()
       await resumed.whenIdle()
       expect(second.adapter.requests).toHaveLength(1)
-      expect(resumed.session.events.filter(event => event.type === 'turn/start')).toHaveLength(3)
-      expect(resumed.session.events.filter(event => event.type === 'turn/end').map(event => event.type === 'turn/end' && event.data.reason.kind))
+      expect(resumed.session.snapshotEvents().filter(event => event.type === 'turn/start')).toHaveLength(3)
+      expect(resumed.session.snapshotEvents().filter(event => event.type === 'turn/end').map(event => event.type === 'turn/end' && event.data.reason.kind))
         .toEqual(['completed', 'interrupted', 'completed'])
       expect(await readFile(join(resumed.session.header.cwd!, 'service-restart.txt'), 'utf8'))
         .toBe('same durable authoring WIP\n')

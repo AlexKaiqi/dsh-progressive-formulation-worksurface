@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent, AgentHandle, ModelSelection } from '@deepseek-ai/dsh-agent'
+import { foldConsumedWork, type Agent, type AgentHandle, type ModelSelection } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
-import { SessionId, type Session, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
+import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { WorkSurfaceError } from '@pf-worksurface/core'
+import { inspectPersistedSession, persistedSessionIds } from './persistence-adapter.ts'
 import type { SurfaceInputSource, SurfaceSessionBinding, SurfaceSessionService } from './session-surface.ts'
 
 interface AgentRegistryPort {
@@ -26,14 +27,6 @@ interface AgentRegistryPort {
 interface AgentPresetPort {
   resolve(id?: string): Promise<{ readonly id: string }>
   mount(agentCtx: Context, id?: string): Promise<{ readonly id: string }>
-}
-
-interface SessionPersistencePort {
-  list(signal?: AbortSignal): Promise<readonly { readonly id: ReturnType<typeof SessionId> }[]>
-  inspect(id: ReturnType<typeof SessionId>, signal?: AbortSignal): Promise<{
-    readonly meta: SessionHeader
-    readonly events: readonly SessionEvent[]
-  }>
 }
 
 interface WorkspacePort {
@@ -77,6 +70,8 @@ export interface SurfaceSessionRecoveryResult {
 
 interface RecoveryCandidate extends SurfaceSessionRecoveryResult {
   readonly hasQueuedFollowup: boolean
+  /** The exact durable followups to re-deliver; empty falls back to a generic restart notice. */
+  readonly messages: readonly UserMessage[]
 }
 
 const RESTART_CONTINUATION = [
@@ -94,7 +89,6 @@ export class SurfaceSessionAdmission {
   private readonly surfaceOperations = new Map<string, Promise<void>>()
   private startupRecovery: Promise<readonly SurfaceSessionRecoveryResult[]> | undefined
   private workspace: Promise<WorkspacePort> | undefined
-
   constructor(
     ctx: Context,
     private readonly surfaces: SurfaceSessionService,
@@ -140,7 +134,7 @@ export class SurfaceSessionAdmission {
         'automatic WorkSurface restart recovery requires the DSH Session persistence service',
       )
     }
-    const persisted = new Set((await persistence.list(signal)).map(header => String(header.id)))
+    const persisted = new Set((await persistedSessionIds(persistence, signal)) ?? [])
     const bindings = this.surfaces.listBindings()
     const inspected = await Promise.allSettled(bindings.map(async binding => {
       const sessionId = SessionId(binding.sessionId)
@@ -148,16 +142,26 @@ export class SurfaceSessionAdmission {
       // A binding can legitimately precede lazy Session materialization. It has
       // no durable Turn to recover; a later admission recreates the same id.
       if (!persisted.has(binding.sessionId)) return undefined
-      const inspection = await persistence.inspect(sessionId, signal)
+      const inspection = await inspectPersistedSession(persistence, sessionId, signal)
       signal?.throwIfAborted()
-      const queued = pendingNextTurn(inspection.meta, inspection.events)
+      const inbox = nextTurnState(inspection.events)
+      // A graceful teardown cancels the inbox with `outcome: 'canceled'`
+      // splices, dropping unrun followups before any Turn opened over them.
+      // dsh-agent accounts that as dropped-unrun work: durable WorkSurface
+      // followups must be re-admitted, so it counts as a queued followup here.
+      const droppedUnrun = foldConsumedWork(inspection.events).droppedUnrun
+      const messages = inbox.pending.length > 0 ? inbox.pending : inbox.dropped
+      const hasQueued = messages.length > 0 || droppedUnrun
       const interruption = restartInterruption(inspection.events)
-      if (queued.length === 0 && interruption === undefined) return undefined
+      if (!hasQueued && interruption === undefined) return undefined
       return {
         surfaceId: binding.surfaceId,
         sessionId: binding.sessionId,
-        cause: queued.length > 0 ? 'queued-followup' : interruption!,
-        hasQueuedFollowup: queued.length > 0,
+        // An interrupted/disposed Turn is the primary recoverable work; a
+        // dropped-unrun followup only counts when no Turn ever opened.
+        cause: interruption ?? 'queued-followup',
+        hasQueuedFollowup: hasQueued && interruption === undefined,
+        messages,
       } satisfies RecoveryCandidate
     }))
     const candidates: RecoveryCandidate[] = []
@@ -199,10 +203,13 @@ export class SurfaceSessionAdmission {
       },
     })
     // A durable queued next-turn already carries the user's or orchestrator's
-    // intent. Steering wakes it and is claimed in the same Turn; otherwise a
-    // plugin followup is the new continuation Turn.
-    if (candidate.hasQueuedFollowup) agent.steer(continuation)
-    else {
+    // intent: re-deliver the exact messages so their durable briefs re-apply.
+    // Otherwise a plugin followup is the new continuation Turn.
+    if (candidate.hasQueuedFollowup && candidate.messages.length > 0) {
+      for (const message of candidate.messages) agent.steer(message)
+    } else if (candidate.hasQueuedFollowup) {
+      agent.steer(continuation)
+    } else {
       await this.surfaces.prepareRestartBrief(candidate.surfaceId, String(continuation.id), agent.session)
       agent.followup(continuation)
     }
@@ -233,7 +240,7 @@ export class SurfaceSessionAdmission {
           resumeSessionId: sessionId,
           agentOptions: this.agentOptions(),
           ...(request.signal === undefined ? {} : { signal: request.signal }),
-          setup: (agentCtx, agent) => this.compose(agentCtx, agent ?? agentCtx.agent, request.surfaceId, source),
+          setup: (agentCtx, agent) => this.compose(agentCtx, agent, request.surfaceId, source),
         })
         agent = handle.agent
         resumed = true
@@ -247,7 +254,7 @@ export class SurfaceSessionAdmission {
           },
           agentOptions: this.agentOptions(),
           ...(request.signal === undefined ? {} : { signal: request.signal }),
-          setup: (agentCtx, agent) => this.compose(agentCtx, agent ?? agentCtx.agent, request.surfaceId, source, preset),
+          setup: (agentCtx, agent) => this.compose(agentCtx, agent, request.surfaceId, source, preset),
         })
         agent = handle.agent
         created = true
@@ -309,30 +316,49 @@ export class SurfaceSessionAdmission {
   private async isPersisted(sessionId: ReturnType<typeof SessionId>, signal?: AbortSignal): Promise<boolean> {
     const persistence = this.persistence()
     if (persistence === undefined) return false
-    return (await persistence.list(signal)).some(header => String(header.id) === String(sessionId))
+    return (await persistedSessionIds(persistence, signal))?.includes(String(sessionId)) ?? false
   }
 
-  private persistence(): SessionPersistencePort | undefined {
-    return this.runtime.get('sessionPersistence') as SessionPersistencePort | undefined
+  /** The persistence service is normalized through persistence-adapter.ts. */
+  private persistence(): unknown {
+    return this.runtime.get('sessionPersistence')
   }
 }
 
 function restartInterruption(events: readonly SessionEvent[]): 'interrupted' | 'disposed' | undefined {
-  const ending = events.findLast(event => event.type === 'turn/end')
+  // A crash cut the log with a turn open: persistence hands back the physical
+  // log as-is (0.1.5-alpha.1 no longer synthesizes closers on cold read), so
+  // an unmatched `turn/start` is the durable signal of interrupted work.
+  let starts = 0
+  let ends = 0
+  let ending: SessionEvent | undefined
+  for (const event of events) {
+    if (event.type === 'turn/start') starts++
+    else if (event.type === 'turn/end') {
+      ends++
+      ending = event
+    }
+  }
+  if (starts > ends) return 'interrupted'
   if (ending?.type !== 'turn/end') return undefined
   if (ending.data.reason.kind === 'interrupted') return 'interrupted'
   if (ending.data.reason.kind === 'aborted' && ending.data.reason.reason.kind === 'disposed') return 'disposed'
   return undefined
 }
 
-/** Fold the same durable next-turn splice vocabulary used by the DSH Inbox. */
-function pendingNextTurn(meta: SessionHeader, events: readonly SessionEvent[]): readonly UserMessage[] {
+/** Fold the durable next-turn splice vocabulary used by the DSH Inbox. */
+function nextTurnState(events: readonly SessionEvent[]): { readonly pending: readonly UserMessage[]; readonly dropped: readonly UserMessage[] } {
   const pending: UserMessage[] = []
-  for (const event of events.slice(meta.seedLength ?? 0)) {
+  const dropped: UserMessage[] = []
+  for (const event of events) {
     if (event.type !== 'agent/inbox/spliced' || event.data.target !== 'next-turn') continue
-    pending.splice(event.data.start, event.data.removedCount ?? 0, ...event.data.inserted)
+    const removed = pending.splice(event.data.start, event.data.removedCount ?? 0, ...event.data.inserted)
+    // A graceful teardown cancels the inbox with an empty `inserted` list,
+    // dropping unrun followups before any Turn opened. Their content stays in
+    // the earlier insert splice, so recovery can re-deliver the exact message.
+    if (event.data.outcome === 'canceled' && event.data.inserted.length === 0) dropped.push(...removed)
   }
-  return pending
+  return { pending, dropped }
 }
 
 function sourceFor(binding: SurfaceSessionBinding): SurfaceInputSource {

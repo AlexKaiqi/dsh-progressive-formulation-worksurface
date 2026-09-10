@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   DefinitionStore,
@@ -65,7 +65,7 @@ describe('WorkSurfaceEngine v1', () => {
     })
     const targetId = SessionId('session-target')
     await surfaces.bindSession(Session.create(targetId, undefined, {
-      version: 0, id: targetId, createdAt: 0, cwd: surfaces.cwdForSurface('target'),
+      version: SESSION_FORMAT_VERSION, id: targetId, createdAt: 0, isSeeded: false, cwd: surfaces.cwdForSurface('target'),
     }), 'target', 'authoring')
     await surfaces.appendSurface('review-a', { id: 'ready-followup', name: 'review.accepted', payload: { caseId: 'case-7' } })
     const followupDefinition: OrchestrationDefinition = {
@@ -92,7 +92,7 @@ describe('WorkSurfaceEngine v1', () => {
       await writeFile(join(work, 'surfaces', target, 'surface.md'), SURFACE_TEMPLATE)
       const sessionId = SessionId(`session-${target}`)
       await surfaces.bindSession(Session.create(sessionId, undefined, {
-        version: 0, id: sessionId, createdAt: 0, cwd: surfaces.cwdForSurface(target),
+        version: SESSION_FORMAT_VERSION, id: sessionId, createdAt: 0, isSeeded: false, cwd: surfaces.cwdForSurface(target),
       }), target, 'authoring')
     }
     await surfaces.appendSurface('source', { id: 'fanout-ready', name: 'work.ready', payload: {} })

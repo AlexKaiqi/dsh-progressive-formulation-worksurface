@@ -8,7 +8,7 @@ import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-ses
 import { WorkSurfaceError } from '@pf-worksurface/core'
 import type { BashEnvContributor, ShellEnvRegistry } from '@deepseek-ai/dsh-shell-env'
 import { workSurfaceInstructions, workSurfaceTurnInstructions } from './model/session-instructions.ts'
-import { supportsPersistedIgnorableSessionEvents, type SurfaceSessionService } from './session-surface.ts'
+import type { SurfaceSessionService } from './session-surface.ts'
 import type { WorkSurfaceContextRuntime } from './context/runtime.ts'
 import type { RenderedContext } from './context/types.ts'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -85,7 +85,7 @@ export class DshWorkSurfaceSessionAdapter {
 
   private adoptLiveAgents(): void {
     for (const agent of this.ctx.agents.list()) {
-      const boundary = agent.session.events.findLast(event => event.type === 'turn/start' || event.type === 'turn/end')
+      const boundary = agent.session.snapshotEvents().findLast(event => event.type === 'turn/start' || event.type === 'turn/end')
       const binding = this.service.attachSession(agent.session)
       if (binding === undefined) continue
       if (boundary?.type === 'turn/start') this.service.beginTurn(agent.session, boundary.data.turn)
@@ -181,15 +181,13 @@ export class DshWorkSurfaceSessionAdapter {
       const binding = this.service.bindingForSession(String(agent.session.id))
       const active = this.service.activeSurface(String(agent.session.id))
       if (binding === undefined || active === undefined) return transformed
-      // Older DSH Session implementations accept append options but silently
-      // discard `ignorable`. Persisting any plugin extension fact there makes
-      // the Session unreadable after restart when Host and linked plugin use
-      // distinct Session package copies. Turn Brief and shell context remain
-      // available, so omit the optional fact-backed context layer as one unit.
-      const persistence = (this.ctx as unknown as {
-        readonly sessionPersistence?: { readonly borrowSession?: unknown; readonly ensureMaterialized?: unknown }
-      }).sessionPersistence
-      if (!supportsPersistedIgnorableSessionEvents(agent.session, binding, persistence ?? {})) return transformed
+      // The fact-backed context layer used to require a Session implementation
+      // that retains the `ignorable` envelope, gating on a live probe. On
+      // dsh-session >= 0.1.5-alpha.1 `append` validates but never retains
+      // `ignorable`, and the plugin registers every extension fact type in
+      // KNOWN_SESSION_EVENT_TYPES, so the extension facts persist and replay
+      // safely as ordinary non-surface events. The layer is therefore always
+      // available.
       context.signal?.throwIfAborted()
       const revision = active.revision.outputRevision ?? active.revision.inputRevision
       await runtime.publishRevision(agent, binding.surfaceId, revision, null)
@@ -281,7 +279,7 @@ function agentFromScope(scope: unknown): Agent | undefined {
 }
 
 function hasMessageReceipt(session: Session, messageId: string): boolean {
-  return session.events.some(event => {
+  return session.snapshotEvents().some(event => {
     if (event.type === 'user/message') return String(event.data.id) === messageId
     return event.type === 'agent/inbox/spliced'
       && event.data.inserted.some(message => String(message.id) === messageId)
@@ -290,7 +288,7 @@ function hasMessageReceipt(session: Session, messageId: string): boolean {
 
 /** One request identity cannot silently acquire a different business instruction. */
 function assertFollowupContent(session: Session, messageId: string, text: string): void {
-  for (const event of session.events) {
+  for (const event of session.snapshotEvents()) {
     const messages = event.type === 'user/message' ? [event.data]
       : event.type === 'agent/inbox/spliced' ? event.data.inserted : []
     for (const message of messages) {
@@ -304,7 +302,7 @@ function assertFollowupContent(session: Session, messageId: string, text: string
 
 function turnForMessage(session: Session, messageId: string): string | undefined {
   let turn: number | undefined
-  for (const event of session.events) {
+  for (const event of session.snapshotEvents()) {
     if (event.type === 'turn/start') turn = event.data.turn
     if (event.type === 'user/message' && String(event.data.id) === messageId) return turn === undefined ? undefined : String(turn)
   }

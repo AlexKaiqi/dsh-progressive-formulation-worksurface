@@ -1,7 +1,7 @@
 import { mkdir, readdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { SessionId, type Session, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
+import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   FileWorkspace,
   OperationLedgerStore,
@@ -20,6 +20,7 @@ import {
   type RuntimeEventRef,
 } from '@pf-worksurface/core'
 import { BUILTIN_EVENT_CATALOG } from './builtin-event-catalog.ts'
+import { inspectPersistedSession, persistedSessionIds } from './persistence-adapter.ts'
 import { SurfaceContentRuntime, type CodeFirstSurfacePort } from '@pf-worksurface/runtime'
 import type { SurfaceSessionService } from './session-surface.ts'
 
@@ -58,7 +59,7 @@ export class DshCodeFirstSurfacePort implements CodeFirstSurfacePort {
     if (event.type !== 'tool/result') return undefined
     const binding = this.sessions.bindingForSession(String(session.id))
     if (binding === undefined) return undefined
-    return this.toolCompletion(String(session.id), session.events, event, binding.surfaceId)
+    return this.toolCompletion(String(session.id), session.snapshotEvents(), event, binding.surfaceId)
   }
 
   /** Rebuild advisory wakeups from durable host facts without starting an Agent. */
@@ -226,16 +227,16 @@ export class DshCodeFirstSurfacePort implements CodeFirstSurfacePort {
   /** Resolving durable input is read-only and never wakes a cold execution. */
   private async sessionEvents(sessionId: string, allowUnmaterialized = false): Promise<readonly SessionEvent[]> {
     const agent = this.ctx.agents.get(SessionId(sessionId))
-    if (agent !== undefined) return agent.session.events
-    const persistence = this.ctx.get?.('sessionPersistence') as {
-      inspect(id: ReturnType<typeof SessionId>): Promise<{ readonly meta: SessionHeader; readonly events: readonly SessionEvent[] }>
-      list?(): Promise<readonly { readonly id: ReturnType<typeof SessionId> }[]>
-    } | undefined
+    if (agent !== undefined) return agent.session.snapshotEvents()
+    const persistence = this.ctx.get?.('sessionPersistence')
     if (persistence === undefined) throw new WorkSurfaceError('effect-failed', `DSH Session '${sessionId}' has no available live or persisted history`)
     // Binding may precede lazy Session materialization. Only the history
     // boundary accepts that absence; a referenced input must still resolve.
-    if (allowUnmaterialized && persistence.list !== undefined && !(await persistence.list()).some(header => String(header.id) === sessionId)) return []
-    const inspected = await persistence.inspect(SessionId(sessionId))
+    if (allowUnmaterialized) {
+      const persisted = await persistedSessionIds(persistence)
+      if (persisted !== undefined && !persisted.includes(sessionId)) return []
+    }
+    const inspected = await inspectPersistedSession(persistence, SessionId(sessionId))
     if (String(inspected.meta.id) !== sessionId || !Array.isArray(inspected.events)) throw new WorkSurfaceError('canonical-corrupt', `persisted DSH Session '${sessionId}' has the wrong identity`)
     return inspected.events
   }

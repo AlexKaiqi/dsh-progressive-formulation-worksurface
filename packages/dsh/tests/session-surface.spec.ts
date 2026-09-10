@@ -32,6 +32,7 @@ function session(id: string, cwd?: string): Session {
     version: SESSION_FORMAT_VERSION,
     id: sessionId,
     createdAt: 0,
+    isSeeded: false,
     ...(cwd === undefined ? {} : { cwd }),
   })
 }
@@ -109,14 +110,14 @@ describe('SurfaceSessionService', () => {
     await expect(restarted.prepareFollowupBrief('surface-a', 'original', brief('unexpected.completed')))
       .rejects.toMatchObject({ code: 'already-exists-conflict' })
     restarted.prepareTurnBrief('surface-a', brief('generic.completed'))
-    const resumed = Session.create(current.id, current.events, current.header)
+    const resumed = Session.create(current.id, current.snapshotEvents(), current.header)
     restarted.beginTurn(resumed, 1)
     expect(Object.keys(restarted.activeSurface('restored')!.runtimeBinding!.contracts)).toEqual(['review.completed'])
     resumed.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     start(restarted, resumed, 2)
     restarted.applyMessageBrief(resumed, 'original')
     expect(Object.keys(restarted.activeSurface('restored')!.runtimeBinding!.contracts)).toEqual(['generic.completed'])
-    expect(resumed.events.some(event => event.type === 'worksurface/binding')).toBe(false)
+    expect(resumed.snapshotEvents().some(event => event.type === 'worksurface/binding')).toBe(false)
   })
 
   it('publishes exactly one immutable brief under competing writers', async () => {
@@ -136,7 +137,7 @@ describe('SurfaceSessionService', () => {
     expect(current.header.cwd).toBe(work)
     const binding = await service.bindSession(current, 'surface-a', 'authoring')
     expect(binding).toMatchObject({ sessionId: 'session-a', surfaceId: 'surface-a', inputSource: 'authoring' })
-    expect(current.events).toEqual([])
+    expect(current.snapshotEvents()).toEqual([])
     expect(JSON.parse(await readFile(join(state, 'surface-sessions', 'surface-a', 'context.json'), 'utf8')))
       .toMatchObject({ execution: { sessionId: 'session-a' }, surface: { id: 'surface-a' }, capabilities: { targetSurfaces: ['surface-a'] } })
     expect(service.bindingForSession('session-a')).toEqual(binding)
@@ -161,9 +162,12 @@ describe('SurfaceSessionService', () => {
     })
 
     const currentPersistence = { borrowSession() {}, ensureMaterialized() {} }
+    // dsh-session (>= 0.1.5-alpha.1) validates the `ignorable` envelope but
+    // Session.append no longer retains it, so no Session/persistence pair
+    // supports persisted ignorable extension facts.
     expect(supportsPersistedIgnorableSessionEvents(current, binding, currentPersistence)).toBe(false)
     expect(supportsPersistedIgnorableSessionEvents(session('modern-host'), binding, {})).toBe(false)
-    expect(supportsPersistedIgnorableSessionEvents(session('modern-host'), binding, currentPersistence)).toBe(true)
+    expect(supportsPersistedIgnorableSessionEvents(session('modern-host'), binding, currentPersistence)).toBe(false)
   })
 
   it('rejects both a second Session for one Surface and a second Surface for one Session', async () => {
@@ -265,7 +269,7 @@ describe('SurfaceSessionService', () => {
       name: 'surface.revision.published',
       meta: { sessionId: 'session-publish', turn: 1, outputRevision: expect.stringMatching(/^sha256:/) },
     })
-    expect(current.events.filter(event => event.type === 'worksurface/binding')).toHaveLength(0)
+    expect(current.snapshotEvents().filter(event => event.type === 'worksurface/binding')).toHaveLength(0)
     service.endTurn('session-publish', 1)
     await expect(service.emitTurn(capability, 'review.accepted', {})).rejects.toMatchObject({ code: 'unauthorized' })
   })
@@ -282,7 +286,7 @@ describe('SurfaceSessionService', () => {
 
     const recovered = new SurfaceSessionService(events, revisions, work, state)
     await recovered.init()
-    const resumed = Session.create(SessionId('session-recover'), original.events, original.header)
+    const resumed = Session.create(SessionId('session-recover'), original.snapshotEvents(), original.header)
     const resumedCapability = start(recovered, resumed, 2)
     expect(resumedCapability).not.toBe(capability)
     expect(recovered.activeSurface('session-recover')!.cwd).toBe(cwd)
@@ -314,7 +318,7 @@ describe('SurfaceSessionService', () => {
 
     const recovered = new SurfaceSessionService(events, revisions, work, state)
     await recovered.init()
-    const resumed = Session.create(SessionId('session-legacy'), original.events, { ...original.header, cwd: legacyWorktree })
+    const resumed = Session.create(SessionId('session-legacy'), original.snapshotEvents(), { ...original.header, cwd: legacyWorktree })
     await recovered.bindSession(resumed, 'surface-a', 'authoring')
     start(recovered, resumed, 1)
     expect(recovered.activeSurface('session-legacy')!.cwd).toBe(legacyWorktree)

@@ -2,7 +2,9 @@
   "name": "@pf-worksurface/dsh",
   "description": "DSH adapter for file-native, event-driven WorkSurface orchestration",
   "version": "0.2.0-rc.1",
-  "publishConfig": { "access": "public" },
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/AlexKaiqi/dsh-progressive-formulation-worksurface.git",
@@ -12,11 +14,19 @@
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {
-    ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" },
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
-  "files": ["lib/index.js", "cordis.patch.yml", "lib/types/**/*.d.ts", "evals"],
+  "files": [
+    "lib/index.js",
+    "cordis.patch.yml",
+    "lib/types/**/*.d.ts",
+    "evals"
+  ],
   "license": "MIT",
   "scripts": {
     "bundle": "tsdown && npm run eval:check",
@@ -59,26 +69,26 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-agent": ">=0.1.0-rc.6 <0.2.0",
-    "@deepseek-ai/dsh-llm": ">=0.1.1-rc.2 <0.2.0",
-    "@deepseek-ai/dsh-session": ">=0.1.2-alpha.3 <0.2.0",
-    "@deepseek-ai/dsh-session-persistence": ">=0.1.1-rc.2 <0.2.0",
-    "@deepseek-ai/dsh-workspace": ">=0.1.0-rc.8 <0.2.0",
-    "@deepseek-ai/dsh-sandbox": ">=0.1.0-rc.6 <0.2.0",
-    "@deepseek-ai/dsh-subprocess": ">=0.1.0-rc.6 <0.2.0",
-    "@deepseek-ai/dsh-shell-env": ">=0.1.0-rc.6 <0.2.0",
-    "@deepseek-ai/dsh-system-prompt": ">=0.1.2-alpha.2 <0.2.0"
+    "@deepseek-ai/dsh-agent": ">=0.1.5-alpha.1 <0.2.0",
+    "@deepseek-ai/dsh-llm": ">=0.1.5-alpha.1 <0.2.0",
+    "@deepseek-ai/dsh-session": ">=0.1.5-alpha.1 <0.2.0",
+    "@deepseek-ai/dsh-session-persistence": ">=0.1.5-alpha.1 <0.2.0",
+    "@deepseek-ai/dsh-workspace": ">=0.1.5-alpha.1 <0.2.0",
+    "@deepseek-ai/dsh-sandbox": ">=0.1.5-alpha.1 <0.2.0",
+    "@deepseek-ai/dsh-subprocess": ">=0.1.5-alpha.1 <0.2.0",
+    "@deepseek-ai/dsh-shell-env": ">=0.1.5-alpha.1 <0.2.0",
+    "@deepseek-ai/dsh-system-prompt": ">=0.1.5-alpha.1 <0.2.0"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-agent": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-llm": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-session": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-session-persistence": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-workspace": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-sandbox": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-subprocess": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-shell-env": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-system-prompt": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-agent": "0.1.5-alpha.1",
+    "@deepseek-ai/dsh-llm": "0.1.5-alpha.1",
+    "@deepseek-ai/dsh-session": "0.1.5-alpha.1",
+    "@deepseek-ai/dsh-session-persistence": "0.1.5-alpha.1",
+    "@deepseek-ai/dsh-workspace": "0.1.5-alpha.1",
+    "@deepseek-ai/dsh-sandbox": "0.1.5-alpha.1",
+    "@deepseek-ai/dsh-subprocess": "0.1.5-alpha.1",
+    "@deepseek-ai/dsh-shell-env": "0.1.5-alpha.1",
+    "@deepseek-ai/dsh-system-prompt": "0.1.5-alpha.1"
   }
 }

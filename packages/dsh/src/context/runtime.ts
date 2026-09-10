@@ -74,7 +74,7 @@ export class WorkSurfaceContextRuntime {
     }))
     const canonical = { surfaceId, revision, files }
     const manifest: WorkSurfaceContextManifest = { ...canonical, manifestHash: digest(stableStringify(canonical)) }
-    const current = foldWorkSurfaceContext(agent.session.events)
+    const current = foldWorkSurfaceContext(agent.session.snapshotEvents())
     if (current.surfaceId === surfaceId && current.revision === revision && current.manifestHash === manifest.manifestHash) return manifest
     appendFact(agent.session, 'worksurface/context-revision', {
       surfaceId,
@@ -86,7 +86,7 @@ export class WorkSurfaceContextRuntime {
   }
 
   async prepareAutomaticOccurrences(agent: Agent, signal?: AbortSignal): Promise<void> {
-    const workSurface = foldWorkSurfaceContext(agent.session.events)
+    const workSurface = foldWorkSurfaceContext(agent.session.snapshotEvents())
     this.endExpiredOccurrences(agent, workSurface.revision)
     const target = {
       ...(workSurface.surfaceId === null ? {} : { surfaceId: workSurface.surfaceId }),
@@ -125,14 +125,14 @@ export class WorkSurfaceContextRuntime {
     }
     const occurrenceId = `ctx-${sha256(stableStringify({ kind: target.kind, target: canonicalTarget, lifetime })).slice(0, 24)}`
     const providers = this.providers.forPhase(target.kind)
-    const replay = foldInjectionState(agent.session.events).occurrences.find(item => item.occurrenceId === occurrenceId)
+    const replay = foldInjectionState(agent.session.snapshotEvents()).occurrences.find(item => item.occurrenceId === occurrenceId)
     if (replay !== undefined && replay.status !== 'collecting') {
       assertRequiredProviders(providers, replay.failures)
       return occurrenceId
     }
     if (replay === undefined) appendFact(agent.session, 'context/occurrence-created', { occurrenceId, kind: target.kind, target: canonicalTarget, lifetime })
     const occurrence = { occurrenceId, kind: target.kind, target: canonicalTarget, lifetime }
-    const settledIds = new Set(agent.session.events.flatMap(event => event.type === 'context/provider-settled' && (event.data as { occurrenceId: string }).occurrenceId === occurrenceId ? [(event.data as { providerId: string }).providerId] : []))
+    const settledIds = new Set(agent.session.snapshotEvents().flatMap(event => event.type === 'context/provider-settled' && (event.data as { occurrenceId: string }).occurrenceId === occurrenceId ? [(event.data as { providerId: string }).providerId] : []))
     const pending = providers.filter(provider => !settledIds.has(provider.providerId))
     if (providers.length === 0) {
       if (!settledIds.has('runtime:none')) appendFact(agent.session, 'context/provider-settled', { occurrenceId, providerId: 'runtime:none', result: { kind: 'no-contribution' }, ready: true })
@@ -147,7 +147,7 @@ export class WorkSurfaceContextRuntime {
         appendFact(agent.session, 'context/provider-settled', { occurrenceId, providerId: provider.providerId, result: normalized, ready: index === pending.length - 1 })
       }
     }
-    const settled = foldInjectionState(agent.session.events).occurrences.find(item => item.occurrenceId === occurrenceId)
+    const settled = foldInjectionState(agent.session.snapshotEvents()).occurrences.find(item => item.occurrenceId === occurrenceId)
     assertRequiredProviders(providers, settled?.failures ?? [])
     return occurrenceId
   }
@@ -159,7 +159,7 @@ export class WorkSurfaceContextRuntime {
 
   recordRender(agent: Agent, rendered: RenderedContext): void {
     appendFact(agent.session, 'context/rendered', { manifest: rendered.manifest })
-    const state = foldInjectionState(agent.session.events)
+    const state = foldInjectionState(agent.session.snapshotEvents())
     for (const occurrenceId of buildContextPlan(agent).sources.injectionOccurrenceIds) {
       const occurrence = state.occurrences.find(candidate => candidate.occurrenceId === occurrenceId)
       if (occurrence?.status !== 'ready') continue
@@ -176,11 +176,11 @@ export class WorkSurfaceContextRuntime {
       sessionId: String(agent.session.id),
       asOfSeq: agent.session.seq - 1,
       surfaceGeneration: agent.session.surface.replaceGeneration,
-      surfaceNodes: agent.session.surface.nodes.map((seq, position) => ({ position, seq, type: agent.session.events[seq]?.type ?? 'missing', estimatedTokens: estimateTokens(stableStringify(agent.session.events[seq]?.data ?? null)) })),
-      workSurface: foldWorkSurfaceContext(agent.session.events),
-      activeInjections: selectActiveInjections(agent.session.events),
+      surfaceNodes: agent.session.surface.nodes.map((seq, position) => ({ position, seq, type: agent.session.snapshotEvents()[seq]?.type ?? 'missing', estimatedTokens: estimateTokens(stableStringify(agent.session.snapshotEvents()[seq]?.data ?? null)) })),
+      workSurface: foldWorkSurfaceContext(agent.session.snapshotEvents()),
+      activeInjections: selectActiveInjections(agent.session.snapshotEvents()),
       plan,
-      lastRender: foldLastRender(agent.session.events),
+      lastRender: foldLastRender(agent.session.snapshotEvents()),
     }
   }
 
@@ -240,20 +240,20 @@ export class WorkSurfaceContextRuntime {
   }
 
   private endExpiredOccurrences(agent: Agent, revision: Revision | null): void {
-    for (const occurrence of foldInjectionState(agent.session.events).occurrences) {
+    for (const occurrence of foldInjectionState(agent.session.snapshotEvents()).occurrences) {
       if (occurrence.status === 'ended' || occurrence.status === 'collecting') continue
       if (occurrence.lifetime.kind === 'until-revision-change' && occurrence.lifetime.revision !== revision) {
         appendFact(agent.session, 'context/occurrence-ended', { occurrenceId: occurrence.occurrenceId, reason: 'revision-changed' })
       } else if (occurrence.lifetime.kind === 'until-event') {
         const eventType = occurrence.lifetime.eventType
-        const created = agent.session.events.find(event => event.type === 'context/occurrence-created' && (event.data as { occurrenceId?: string }).occurrenceId === occurrence.occurrenceId)
-        if (agent.session.events.some(event => event.seq > (created?.seq ?? -1) && event.type === eventType)) appendFact(agent.session, 'context/occurrence-ended', { occurrenceId: occurrence.occurrenceId, reason: `event:${eventType}` })
+        const created = agent.session.snapshotEvents().find(event => event.type === 'context/occurrence-created' && (event.data as { occurrenceId?: string }).occurrenceId === occurrence.occurrenceId)
+        if (agent.session.snapshotEvents().some(event => event.seq > (created?.seq ?? -1) && event.type === eventType)) appendFact(agent.session, 'context/occurrence-ended', { occurrenceId: occurrence.occurrenceId, reason: `event:${eventType}` })
       }
     }
   }
 
   private endSupersededPhase(agent: Agent, kind: ContextOccurrenceKind, phaseOccurrenceId: string): void {
-    for (const occurrence of foldInjectionState(agent.session.events).occurrences) {
+    for (const occurrence of foldInjectionState(agent.session.snapshotEvents()).occurrences) {
       if (occurrence.kind === kind && occurrence.lifetime.kind === 'phase' && occurrence.status !== 'ended' && occurrence.status !== 'collecting' && occurrence.target.phaseOccurrenceId !== phaseOccurrenceId) {
         appendFact(agent.session, 'context/occurrence-ended', { occurrenceId: occurrence.occurrenceId, reason: 'phase-superseded' })
       }
@@ -312,15 +312,18 @@ type ContextFactType =
   | 'context/rendered'
 
 function appendFact(session: Session, type: ContextFactType, data: SessionEventMap[ContextFactType]): void {
-  session.append(type, data, { ignorable: true })
+  // dsh-session (>= 0.1.5-alpha.1) drops the `ignorable` envelope through
+  // Session.append, so extension facts are appended unmarked (safe: they are
+  // log-only non-surface events that unknown readers treat as opaque).
+  session.append(type, data)
 }
 
 function maintenanceTrigger(agent: Agent, revision: Revision | null, tokenBudget: number): string | null {
-  const total = agent.session.surface.nodes.reduce((sum, seq) => sum + estimateTokens(stableStringify(agent.session.events[seq]?.data ?? null)), 0)
-  const largeTool = agent.session.surface.nodes.findLast(seq => agent.session.events[seq]?.type === 'tool/result' && estimateTokens(stableStringify(agent.session.events[seq]?.data ?? null)) > Math.max(1_000, Math.floor(tokenBudget / 4)))
+  const total = agent.session.surface.nodes.reduce((sum, seq) => sum + estimateTokens(stableStringify(agent.session.snapshotEvents()[seq]?.data ?? null)), 0)
+  const largeTool = agent.session.surface.nodes.findLast(seq => agent.session.snapshotEvents()[seq]?.type === 'tool/result' && estimateTokens(stableStringify(agent.session.snapshotEvents()[seq]?.data ?? null)) > Math.max(1_000, Math.floor(tokenBudget / 4)))
   if (total >= Math.floor(tokenBudget * 0.8)) return `pressure:${agent.session.surface.replaceGeneration}`
   if (largeTool !== undefined) return `tool-result:${largeTool}`
-  const previous = agent.session.events.filter(event => event.type === 'worksurface/context-revision').at(-2) as { data?: { revision?: Revision } } | undefined
+  const previous = agent.session.snapshotEvents().filter(event => event.type === 'worksurface/context-revision').at(-2) as { data?: { revision?: Revision } } | undefined
   if (previous?.data?.revision !== undefined && previous.data.revision !== revision) return `revision:${revision}`
   return null
 }
