@@ -7,6 +7,7 @@ import {
   InputLedgerStore,
   OperationLedgerStore,
   RegistrationRecordStore,
+  RegistrationStatusStore,
   RevisionStore,
   RuntimeAuthorityStore,
   RuntimeEventStore,
@@ -51,6 +52,7 @@ describe('code-first Orchestrate Runtime', () => {
     const events = new RuntimeEventStore(join(root, 'v5', 'events'), authority.id)
     const contracts = new EventContractStore(join(root, 'v5', 'contracts'))
     const registrations = new RegistrationRecordStore(join(root, 'v5', 'registrations'), authority.id)
+    const statuses = new RegistrationStatusStore(join(root, 'v5', 'registration-status'), authority.id)
     const inputs = new InputLedgerStore(join(root, 'v5', 'inputs'), authority.id)
     const operations = new OperationLedgerStore(join(root, 'v5', 'operations'), authority.id)
     const apply = vi.fn(async (_surface: string, _base: Revision, candidate: Revision) => candidate)
@@ -68,7 +70,7 @@ describe('code-first Orchestrate Runtime', () => {
       result: { version: 1 as const, events: [], advance: [{ surface: 'researcher', instruction: 'Investigate.', outputs: ['research.completed'] }] },
       candidates: input.baseRevisions,
     })) }
-    const orchestrator = new CodeFirstOrchestrator(authority.id, revisions, contracts, events, registrations, inputs, operations, runner as never, port, {})
+    const orchestrator = new CodeFirstOrchestrator(authority.id, revisions, contracts, events, registrations, statuses, inputs, operations, runner as never, port, {})
     await orchestrator.init()
     const registration = await orchestrator.admit(join(authoring, 'registration.json'), artifact)
     const contract = await contracts.get(registration.routes['research.requested']!.digest)
@@ -78,7 +80,7 @@ describe('code-first Orchestrate Runtime', () => {
       payload: { value: 'question' }, causes: [], producer: { kind: 'surface-session', ref: 'session-a/0' }, operationKey: 'request',
     })
     expect(await orchestrator.admit(join(authoring, 'registration.json'), artifact)).toEqual(registration)
-    const restarted = new CodeFirstOrchestrator(authority.id, revisions, contracts, events, registrations, inputs, operations, runner as never, port, {})
+    const restarted = new CodeFirstOrchestrator(authority.id, revisions, contracts, events, registrations, statuses, inputs, operations, runner as never, port, {})
     await restarted.init()
     expect(runner.run).toHaveBeenCalledOnce()
     expect(apply).toHaveBeenCalledTimes(2)

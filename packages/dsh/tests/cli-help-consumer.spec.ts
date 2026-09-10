@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   EventContractStore, FileWorkspace, InputLedgerStore, OperationLedgerStore,
-  RegistrationRecordStore, RevisionStore, RuntimeAuthorityStore, RuntimeEventStore,
+  RegistrationRecordStore, RegistrationStatusStore, RevisionStore, RuntimeAuthorityStore, RuntimeEventStore,
   SURFACE_TEMPLATE, eventContractDigest, type RuntimeEventRef,
 } from '@pf-worksurface/core'
 import { helpFor } from '../../cli/src/help.ts'
@@ -42,6 +42,7 @@ describe('CLI coordination example consumed by the implementation', () => {
     const contracts = new EventContractStore(join(root, 'contracts'))
     const events = new RuntimeEventStore(join(root, 'events'), authority, contracts)
     const registrations = new RegistrationRecordStore(join(root, 'registrations'), authority)
+    const statuses = new RegistrationStatusStore(join(root, 'registration-status'), authority)
     const inputs = new InputLedgerStore(join(root, 'inputs'), authority)
     const operations = new OperationLedgerStore(join(root, 'operations'), authority)
     const advances: { surface: string; instruction: string; causes: readonly RuntimeEventRef[] }[] = []
@@ -74,7 +75,7 @@ describe('CLI coordination example consumed by the implementation', () => {
       },
     }
     const runner = new SubprocessOrchestrateCodeRunner(context as never, join(root, 'runs'), revisions)
-    const runtime = new CodeFirstOrchestrator(authority, revisions, contracts, events, registrations, inputs, operations, runner, surfaces, {})
+    const runtime = new CodeFirstOrchestrator(authority, revisions, contracts, events, registrations, statuses, inputs, operations, runner, surfaces, {})
     await runtime.init()
     const registration = await runtime.admit(join(authoring, 'registration.json'), artifact)
     const contract = await contracts.get(registration.routes['research.ready']!.digest)

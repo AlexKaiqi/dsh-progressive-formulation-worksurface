@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { EventContractStore, InputLedgerStore, OperationLedgerStore, RegistrationRecordStore, RevisionStore, RuntimeAuthorityStore, RuntimeEventStore, SURFACE_TEMPLATE, type OrchestrateRegistrationRecord, type Revision, type RuntimeEventEnvelope } from '@pf-worksurface/core'
+import { EventContractStore, InputLedgerStore, OperationLedgerStore, RegistrationRecordStore, RegistrationStatusStore, RevisionStore, RuntimeAuthorityStore, RuntimeEventStore, SURFACE_TEMPLATE, type OrchestrateRegistrationRecord, type Revision, type RuntimeEventEnvelope } from '@pf-worksurface/core'
 import { CodeFirstOrchestrator, type CodeFirstSurfacePort } from '../src/code-first-orchestrator.ts'
 import type { OrchestrateCodeRunInput } from '../src/orchestrate-contract.ts'
 
@@ -16,6 +16,7 @@ async function fixture() {
   const contracts = new EventContractStore(join(root, 'contracts'))
   const events = new RuntimeEventStore(join(root, 'events'), authority, contracts)
   const registrations = new RegistrationRecordStore(join(root, 'registrations'), authority)
+  const statuses = new RegistrationStatusStore(join(root, 'registration-status'), authority)
   const inputs = new InputLedgerStore(join(root, 'inputs'), authority)
   const operations = new OperationLedgerStore(join(root, 'operations'), authority)
   const surfaceRoot = join(root, 'surface'); await mkdir(surfaceRoot); await writeFile(join(surfaceRoot, 'surface.md'), SURFACE_TEMPLATE)
@@ -35,7 +36,7 @@ async function fixture() {
     advance: vi.fn(async () => ({ executionId: 'execution-1', turnId: 'turn-1' })),
   }
   const runner = { run: vi.fn(async (input: OrchestrateCodeRunInput) => ({ runId: `run-${input.registration.registrationId}-${input.triggerInputSeq}`, candidates: input.baseRevisions, result: { version: 1 as const, events: [], advance: [] } })) }
-  const make = () => new CodeFirstOrchestrator(authority, revisions, contracts, events, registrations, inputs, operations, runner, port, { 'work.ready': builtin })
+  const make = () => new CodeFirstOrchestrator(authority, revisions, contracts, events, registrations, statuses, inputs, operations, runner, port, { 'work.ready': builtin })
   const orchestrator = make(); await orchestrator.init()
   async function register(id = 'delegate', surfaceId = 'case-a') {
     const registration: OrchestrateRegistrationRecord = { version: 1, authority, registrationId: id, orchestrateRevision: artifactRevision, entrypoint: 'main.py', surfaces: { target: surfaceId }, routes: { 'work.ready': { scope, digest, consumeFrom: ['target'] } }, historyBoundary: { target: { surfaceEventSeq: -1, externalEventSeq: -1 } } }
@@ -46,7 +47,7 @@ async function fixture() {
     const ref = await events.append(surfaceId, { id: `evt-${surfaceId}-${suffix}`, type: { scope, name: contract.name, contract: digest }, payload: {}, causes: [], producer: { kind: 'runtime', ref: 'fixture' }, operationKey: `ready-${suffix}` })
     return (await events.replay(surfaceId, ref.seq))[0]!
   }
-  return { root, authority, revisions, contracts, events, registrations, inputs, operations, runner, port, revision, artifactRevision, codeRoot, orchestrator, make, register, emit, digest, scope }
+  return { root, authority, revisions, contracts, events, registrations, statuses, inputs, operations, runner, port, revision, artifactRevision, codeRoot, orchestrator, make, register, emit, digest, scope }
 }
 
 describe('platform-neutral durable orchestration', () => {
@@ -63,15 +64,29 @@ describe('platform-neutral durable orchestration', () => {
     expect((await f.orchestrator.inspectRegistrations())[0]).toMatchObject({ recordedRunCount: 1, unfinishedInputCount: 0, failureCount: 1 })
   })
 
-  it('resumes a recorded batch after an apply failure without rerunning its code', async () => {
+  it('settles a recorded batch as failed after an apply failure instead of retrying effects blindly', async () => {
     const f = await fixture(); await f.register(); const event = await f.emit()
     vi.mocked(f.port.apply).mockRejectedValueOnce(new Error('content adapter unavailable'))
     await expect(f.orchestrator.accept(event)).rejects.toThrow(/remain incomplete/)
-    expect(await f.operations.pending()).toHaveLength(1)
+    expect(await f.operations.pending()).toHaveLength(0)
     expect((await f.operations.failures())[0]).toMatchObject({ phase: 'apply', runId: 'run-delegate-0' })
     await f.make().init()
     expect(f.runner.run).toHaveBeenCalledOnce()
+    expect(f.port.apply).toHaveBeenCalledOnce()
     expect(await f.operations.pending()).toHaveLength(0)
+    expect((await f.orchestrator.inspectRegistrations())[0]).toMatchObject({ unfinishedInputCount: 0, failureCount: 1 })
+  })
+
+  it('keeps a retired Registration inactive across restart and makes retirement idempotent', async () => {
+    const f = await fixture(); await f.register(); await f.orchestrator.accept(await f.emit())
+    await f.orchestrator.retire('delegate')
+    await f.orchestrator.retire('delegate')
+    expect((await f.orchestrator.inspectRegistrations())[0]).toMatchObject({ registrationId: 'delegate', status: 'retired' })
+    const restarted = f.make(); await restarted.init()
+    await restarted.accept(await f.emit('case-a', 'after-retirement'))
+    expect(f.runner.run).toHaveBeenCalledOnce()
+    expect(await f.inputs.replay('delegate')).toHaveLength(1)
+    expect((await restarted.inspectRegistrations())[0]).toMatchObject({ status: 'retired' })
   })
 
   it('recovers other registrations when one fails, and reports the incomplete one', async () => {
@@ -168,7 +183,7 @@ describe('platform-neutral durable orchestration', () => {
     expect((await f.revisions.readFile(f.artifactRevision, 'main.py')).toString()).toContain('immutable Orchestrate code')
   })
 
-  it('keeps all pending batch revisions across forced collection and restart, including legacy unpinned records', async () => {
+  it('keeps all recorded batch revisions across forced collection, including terminally failed records', async () => {
     const f = await fixture(); await f.register()
     const candidateRoot = join(f.root, 'candidate'); await f.revisions.materialize(f.revision, candidateRoot)
     await writeFile(join(candidateRoot, 'result.txt'), 'result produced before interruption')
@@ -181,6 +196,7 @@ describe('platform-neutral durable orchestration', () => {
     })
     vi.mocked(f.port.apply).mockRejectedValueOnce(new Error('writer unavailable for a long time'))
     await expect(f.orchestrator.accept(await f.emit())).rejects.toMatchObject({ code: 'effect-failed' })
+    expect(await f.operations.pending()).toHaveLength(0)
     const roots = await f.orchestrator.revisionRoots()
     expect(roots).toEqual([f.artifactRevision, f.revision, candidate].sort())
     for (const revision of await f.revisions.listPins()) await f.revisions.unpin(revision)

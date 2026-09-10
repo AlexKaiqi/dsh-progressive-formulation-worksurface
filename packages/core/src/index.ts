@@ -67,6 +67,7 @@ export {
   InputLedgerStore,
   OperationLedgerStore,
   RegistrationRecordStore,
+  RegistrationStatusStore,
   RuntimeAuthorityStore,
   RuntimeEventStore,
   runtimeRef,

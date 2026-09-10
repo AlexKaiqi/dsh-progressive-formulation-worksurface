@@ -56,6 +56,45 @@ export class RegistrationRecordStore {
   private path(id: string): string { return join(this.root, `${encodeURIComponent(id)}.json`) }
 }
 
+/** Lifecycle state for admitted Registrations. Immutable facts stay in RegistrationRecordStore. */
+export class RegistrationStatusStore {
+  readonly root: string
+  constructor(root: string, readonly authority: AuthorityId) { this.root = resolve(root) }
+  async init(): Promise<void> { await mkdir(this.root, { recursive: true, mode: 0o700 }) }
+  /** Retire a Registration so it stops consuming inputs and producing outputs. */
+  async retire(registrationId: string): Promise<void> {
+    validateRuntimeLocalId(registrationId, 'Registration id')
+    await this.init()
+    try {
+      await durableCreate(this.path(registrationId), { version: 1, authority: this.authority, registrationId, status: 'retired', retiredAt: new Date().toISOString() })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      await this.status(registrationId)
+    }
+  }
+  async status(registrationId: string): Promise<'active' | 'retired'> {
+    validateRuntimeLocalId(registrationId, 'Registration id')
+    let value: unknown
+    try { value = await readRuntimeJson(this.path(registrationId), `Registration status '${registrationId}'`) }
+    catch (error) {
+      if (error instanceof WorkSurfaceError && error.code === 'not-found') return 'active'
+      throw error
+    }
+    const record = value as { readonly version?: unknown; readonly authority?: unknown; readonly registrationId?: unknown; readonly status?: unknown; readonly retiredAt?: unknown }
+    if (record === null || typeof record !== 'object' || Array.isArray(record)
+      || record.version !== 1 || record.authority !== this.authority || record.registrationId !== registrationId || record.status !== 'retired'
+      || typeof record.retiredAt !== 'string' || !Number.isFinite(Date.parse(record.retiredAt))) throw runtimeCorrupt(`Registration status '${registrationId}' has the wrong identity`)
+    return 'retired'
+  }
+  async retired(): Promise<readonly string[]> {
+    await this.init()
+    const ids = (await readdir(this.root, { withFileTypes: true })).filter(entry => entry.isFile() && entry.name.endsWith('.json')).map(entry => decodeURIComponent(entry.name.slice(0, -5))).sort()
+    await Promise.all(ids.map(id => this.status(id)))
+    return ids
+  }
+  private path(id: string): string { return join(this.root, `${encodeURIComponent(id)}.json`) }
+}
+
 /** Per-Registration accepted input EventRefs. */
 export class InputLedgerStore {
   readonly root: string
@@ -161,11 +200,17 @@ export class OperationLedgerStore {
       if (stableStringify(existing) !== stableStringify(settlement)) throw runtimeCorrupt(`run '${settlement.runId}' has conflicting settlements`)
     }
   }
+  /** Settle a recorded run as failed so it stops pending and is never blindly retried. */
+  async settleFailed(runId: string, failure: Readonly<{ code: string; message: string; failedAt: string }>): Promise<void> {
+    this.assertIdentity(this.authority, runId); await this.getRecorded(runId); await this.init()
+    if (typeof failure.code !== 'string' || failure.code.length === 0 || typeof failure.message !== 'string' || typeof failure.failedAt !== 'string' || !Number.isFinite(Date.parse(failure.failedAt))) throw runtimeInvalid('Failed settlement has an invalid shape')
+    await durableCreate(this.failedSettlementPath(runId), { version: 1, authority: this.authority, runId, code: failure.code, message: failure.message, failedAt: failure.failedAt })
+  }
   async getRecorded(runId: string): Promise<OrchestrateOperationBatch> { const value = await readRuntimeJson(this.recordedPath(runId), `Operation batch '${runId}'`); validateOperationBatch(value); this.assertIdentity(value.authority, value.runId); return value }
   async getSettlement(runId: string): Promise<OrchestrateOperationSettlement> { const value = await readRuntimeJson(this.settledPath(runId), `Operation settlement '${runId}'`); validateOperationSettlement(value); this.assertIdentity(value.authority, value.runId); return value }
   async pending(): Promise<readonly OrchestrateOperationBatch[]> {
     await this.init()
-    const settled = new Set((await readdir(join(this.root, 'settled'))).filter(name => name.endsWith('.json')).map(name => decodeURIComponent(name.slice(0, -5))))
+    const settled = new Set((await readdir(join(this.root, 'settled'))).filter(name => name.endsWith('.json')).map(name => decodeURIComponent(name.slice(0, -5).replace(/\.failed$/, ''))))
     const ids = (await readdir(join(this.root, 'recorded'))).filter(name => name.endsWith('.json')).map(name => decodeURIComponent(name.slice(0, -5))).filter(id => !settled.has(id)).sort()
     return Promise.all(ids.map(id => this.getRecorded(id)))
   }
@@ -177,6 +222,7 @@ export class OperationLedgerStore {
   private assertIdentity(authority: AuthorityId, runId: string): void { if (authority !== this.authority) throw runtimeInvalid('Operation authority does not match its store'); validateRuntimeLocalId(runId, 'Run id') }
   private recordedPath(id: string): string { validateRuntimeLocalId(id, 'Run id'); return join(this.root, 'recorded', `${encodeURIComponent(id)}.json`) }
   private settledPath(id: string): string { validateRuntimeLocalId(id, 'Run id'); return join(this.root, 'settled', `${encodeURIComponent(id)}.json`) }
+  private failedSettlementPath(id: string): string { validateRuntimeLocalId(id, 'Run id'); return join(this.root, 'settled', `${encodeURIComponent(id)}.failed.json`) }
 }
 
 function validateFailureRecord(value: unknown, authority: AuthorityId): asserts value is OrchestrateFailureRecord {

@@ -11,6 +11,7 @@ import {
   InputLedgerStore,
   OperationLedgerStore,
   RegistrationRecordStore,
+  RegistrationStatusStore,
   RevisionStore,
   RuntimeAuthorityStore,
   RuntimeEventStore,
@@ -177,6 +178,7 @@ export class WorkSurfaceService extends Service {
       const targetContracts = new EventContractStore(join(this.config.targetRoot, 'contracts'))
       const targetEvents = new RuntimeEventStore(join(this.config.targetRoot, 'events'), authority.id, targetContracts)
       const targetRegistrations = new RegistrationRecordStore(join(this.config.targetRoot, 'registrations'), authority.id)
+      const targetStatuses = new RegistrationStatusStore(join(this.config.targetRoot, 'registration-status'), authority.id)
       const targetInputs = new InputLedgerStore(join(this.config.targetRoot, 'input-ledgers'), authority.id)
       const targetOperations = new OperationLedgerStore(join(this.config.targetRoot, 'operation-ledger'), authority.id)
       const targetSurfaces = new DshCodeFirstSurfacePort(ctx, this.config.workRoot, this.config.targetRoot, this.revisions, targetEvents, targetContracts, this.surfaces, undefined, targetOperations)
@@ -190,6 +192,7 @@ export class WorkSurfaceService extends Service {
         targetContracts,
         targetEvents,
         targetRegistrations,
+        targetStatuses,
         targetInputs,
         targetOperations,
         new SubprocessOrchestrateCodeRunner(ctx, this.config.targetRoot, this.revisions),
@@ -384,7 +387,16 @@ export class WorkSurfaceService extends Service {
 
   pauseDefinition(id: string): Promise<void> { return this.engine.pause(id) }
   resumeDefinition(id: string): Promise<void> { return this.engine.resume(id) }
-  retireDefinition(id: string): Promise<void> { return this.engine.retire(id) }
+  /** Retire a Registration from either the code-first Runtime or the legacy engine. */
+  async retireDefinition(id: string): Promise<void> {
+    if (this.codeFirst !== undefined) {
+      try { await this.codeFirst.retire(id); return }
+      catch (error) {
+        if (!(error instanceof WorkSurfaceError) || error.code !== 'not-found') throw error
+      }
+    }
+    await this.engine.retire(id)
+  }
   inspectOrchestration(id: string): Promise<OrchestrationInspection> { return this.engine.inspect(id) }
 
   async listOrchestrations(surfaceId?: string): Promise<readonly OrchestrationSummary[]> {

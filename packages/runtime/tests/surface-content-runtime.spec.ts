@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
-import { EventContractStore, FileWorkspace, InputLedgerStore, OperationLedgerStore, RegistrationRecordStore, RevisionStore, RuntimeAuthorityStore, RuntimeEventStore, SURFACE_TEMPLATE, canonicalEventContract, eventContractDigest, runtimeEventId, runtimeRef, type OrchestrateOperationBatch } from '@pf-worksurface/core'
+import { EventContractStore, FileWorkspace, InputLedgerStore, OperationLedgerStore, RegistrationRecordStore, RegistrationStatusStore, RevisionStore, RuntimeAuthorityStore, RuntimeEventStore, SURFACE_TEMPLATE, canonicalEventContract, eventContractDigest, runtimeEventId, runtimeRef, type OrchestrateOperationBatch } from '@pf-worksurface/core'
 import { SurfaceContentRuntime } from '../src/surface-content-runtime.ts'
 import { CodeFirstOrchestrator, type CodeFirstSurfacePort } from '../src/code-first-orchestrator.ts'
 import type { OrchestrateCodeRunInput } from '../src/orchestrate-contract.ts'
@@ -130,6 +130,7 @@ it('diagnoses a blocked Surface and resumes its accepted input once after explic
   await writeFile(join(report, 'surface.md'), `${SURFACE_TEMPLATE}\nUnpublished report draft.\n`)
   const authoring = await f.workspace.observe('surfaces/report', 'surface')
   const registrations = new RegistrationRecordStore(join(f.root, 'registrations'), f.authority.id)
+  const statuses = new RegistrationStatusStore(join(f.root, 'registration-status'), f.authority.id)
   const inputs = new InputLedgerStore(join(f.root, 'inputs'), f.authority.id)
   const code = join(f.root, 'code'); await mkdir(code); await writeFile(join(code, 'main.py'), '# test runner\n')
   const orchestrateRevision = (await f.revisions.snapshot(code, 'artifact')).revision
@@ -154,7 +155,7 @@ it('diagnoses a blocked Surface and resumes its accepted input once after explic
     const candidate = (await f.revisions.snapshotSurface(candidateDir)).revision
     return { runId: 'report-run', candidates: { source: input.baseRevisions.source!, target: candidate }, result: { version: 1 as const, events: [], advance: [{ surface: 'target', instruction: 'Review the prepared report.', outputs: [] }] } }
   })
-  const orchestrator = new CodeFirstOrchestrator(f.authority.id, f.revisions, f.store, f.events, registrations, inputs, f.operations, { run }, port)
+  const orchestrator = new CodeFirstOrchestrator(f.authority.id, f.revisions, f.store, f.events, registrations, statuses, inputs, f.operations, { run }, port)
   await orchestrator.init({ recover: false })
   await expect(orchestrator.accept((await f.events.replay('a'))[0]!)).rejects.toMatchObject({ code: 'effect-failed' })
   const failure = (await f.operations.failures('report-flow'))[0]!

@@ -6,6 +6,7 @@ import {
   InputLedgerStore,
   OperationLedgerStore,
   RegistrationRecordStore,
+  RegistrationStatusStore,
   RevisionStore,
   RuntimeEventStore,
   WorkSurfaceError,
@@ -48,6 +49,7 @@ export interface CodeFirstRegistrationInspection {
   readonly orchestrateRevision: Revision
   readonly bindings: Readonly<Record<string, string>>
   readonly routes: OrchestrateRegistrationRecord['routes']
+  readonly status: 'active' | 'retired'
   readonly acceptedInputCount: number
   readonly recordedRunCount: number
   readonly pendingRunCount: number
@@ -83,12 +85,14 @@ export interface CodeFirstRecoveryReport {
 /** Target code-first registration, input, run, record/apply/settle runtime. */
 export class CodeFirstOrchestrator {
   private readonly mutations = new Map<string, Promise<void>>()
+  private readonly retiredIds = new Set<string>()
   constructor(
     readonly authority: AuthorityId,
     private readonly revisions: RevisionStore,
     private readonly contracts: EventContractStore,
     private readonly events: RuntimeEventStore,
     private readonly registrations: RegistrationRecordStore,
+    private readonly statuses: RegistrationStatusStore,
     private readonly inputs: InputLedgerStore,
     private readonly operations: OperationLedgerStore,
     private readonly runner: OrchestrateCodeRunner,
@@ -97,7 +101,9 @@ export class CodeFirstOrchestrator {
   ) {}
 
   async init(options: { readonly recover?: boolean } = {}): Promise<void> {
-    await Promise.all([this.contracts.init(), this.events.init(), this.registrations.init(), this.inputs.init(), this.operations.init()])
+    await Promise.all([this.contracts.init(), this.events.init(), this.registrations.init(), this.statuses.init(), this.inputs.init(), this.operations.init()])
+    this.retiredIds.clear()
+    for (const id of await this.statuses.retired()) this.retiredIds.add(id)
     if (options.recover !== false) await this.recover()
   }
 
@@ -183,6 +189,13 @@ export class CodeFirstOrchestrator {
     return record
   }
 
+  /** Retire a Registration so it stops consuming inputs and producing outputs. */
+  async retire(registrationId: string): Promise<void> {
+    await this.registrations.get(registrationId)
+    await this.statuses.retire(registrationId)
+    this.retiredIds.add(registrationId)
+  }
+
   /** Wakeups are advisory. Durable acceptance never implies successful execution. */
   async accept(event: RuntimeEventEnvelope): Promise<void> {
     // Resolve the durable fact rather than trusting an arbitrary envelope supplied by a caller.
@@ -234,7 +247,9 @@ export class CodeFirstOrchestrator {
   }
 
   private async dispatch(operation: (registration: OrchestrateRegistrationRecord) => Promise<void>, throwFailures = true, select: (registration: OrchestrateRegistrationRecord) => boolean = () => true): Promise<CodeFirstRecoveryReport> {
-    const registrations = (await Promise.all((await this.registrations.list()).map(id => this.registrations.get(id)))).filter(select)
+    const registrations = (await Promise.all((await this.registrations.list()).map(id => this.registrations.get(id))))
+      .filter(registration => this.retiredIds.has(registration.registrationId) === false)
+      .filter(select)
     const ids = registrations.map(registration => registration.registrationId)
     const results = await Promise.allSettled(registrations.map(registration => this.serialize(registration.registrationId, () => this.operations.withRegistrationLock(registration.registrationId, async () => operation(registration)))))
     const failedRegistrations: { registrationId: string; code: string; message: string }[] = []
@@ -262,6 +277,11 @@ export class CodeFirstOrchestrator {
       } catch (cause) {
         const error = asWorkSurfaceError(cause)
         const recorded = batch ?? (await this.operations.recorded()).find(item => item.registrationId === registration.registrationId && item.triggerInputSeq === input.inputSeq)
+        if (recorded !== undefined) {
+          // Apply-phase failure settles the recorded run as failed so it stops
+          // pending forever and is never blindly retried on the next wakeup.
+          await this.operations.settleFailed(recorded.runId, { code: error.code, message: error.message, failedAt: new Date().toISOString() })
+        }
         await this.operations.fail({ version: 1, authority: this.authority, attemptId: `attempt_${randomUUID()}`, registrationId: registration.registrationId, triggerInputSeq: input.inputSeq, phase: recorded === undefined ? 'run' : 'apply', ...(recorded === undefined ? {} : { runId: recorded.runId }), code: error.code, message: error.message, failedAt: new Date().toISOString() })
         throw error
       }
@@ -271,6 +291,7 @@ export class CodeFirstOrchestrator {
   async surfaceOutput(surfaceId: string, name: string): Promise<{ readonly registration: OrchestrateRegistrationRecord; readonly contract: RuntimeEventContract } | undefined> {
     const matches: { registration: OrchestrateRegistrationRecord; contract: RuntimeEventContract }[] = []
     for (const id of await this.registrations.list()) {
+      if (this.retiredIds.has(id)) continue
       const registration = await this.registrations.get(id)
       const handle = Object.entries(registration.surfaces).find(([, surface]) => surface === surfaceId)?.[0]
       const route = registration.routes[name]
@@ -287,6 +308,7 @@ export class CodeFirstOrchestrator {
   async surfaceOutputs(surfaceId: string): Promise<readonly RuntimeEventContract[]> {
     const byName = new Map<string, RuntimeEventContract>()
     for (const id of await this.registrations.list()) {
+      if (this.retiredIds.has(id)) continue
       const registration = await this.registrations.get(id)
       const handle = Object.entries(registration.surfaces).find(([, surface]) => surface === surfaceId)?.[0]
       if (handle === undefined) continue
@@ -315,6 +337,7 @@ export class CodeFirstOrchestrator {
         orchestrateRevision: registration.orchestrateRevision,
         bindings: registration.surfaces,
         routes: registration.routes,
+        status: this.retiredIds.has(registrationId) ? 'retired' : 'active',
         acceptedInputCount: ledger.length,
         unfinishedInputCount: ledger.filter(input => !settledInputs.has(input.inputSeq)).length,
         failureCount: failures.length,

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { MessageId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import {
-  EventContractStore, FileEventStore, InputLedgerStore, OperationLedgerStore, RegistrationRecordStore,
+  EventContractStore, FileEventStore, InputLedgerStore, OperationLedgerStore, RegistrationRecordStore, RegistrationStatusStore,
   RevisionStore, RuntimeAuthorityStore, RuntimeEventStore, SURFACE_TEMPLATE,
 } from '@pf-worksurface/core'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -42,6 +42,7 @@ async function fixture() {
   const base = await port.head('subject')
   const codeFirst = new CodeFirstOrchestrator(authority, revisions, contracts, events,
     new RegistrationRecordStore(join(target, 'registrations'), authority),
+    new RegistrationStatusStore(join(target, 'registration-status'), authority),
     new InputLedgerStore(join(target, 'inputs'), authority),
     new OperationLedgerStore(join(target, 'operations'), authority),
     { run: async () => { throw new Error('publication must not execute orchestration code') } }, port, {})
