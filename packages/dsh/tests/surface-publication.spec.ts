@@ -50,8 +50,8 @@ async function fixture() {
   // Exercise the actual Service RPC methods with real scope, content, contracts,
   // and event stores; only Cordis startup and its unrelated UI adapters are absent.
   const service = Object.assign(Object.create(WorkSurfaceService.prototype) as WorkSurfaceService, {
-    initialization: Promise.resolve(), surfaces, revisions, codeFirst, codeFirstEvents: events,
-    codeFirstSurfacePort: port, config: { workRoot: work }, authoringFailures: new Map(),
+    initialization: Promise.resolve(), surfaces, revisions, eventStore: oldEvents, codeFirst, codeFirstEvents: events,
+    codeFirstSurfacePort: port, config: { workRoot: work }, authoringFailures: new Map(), registrationIds: new Set(),
   })
   const id = SessionId('publication-session')
   const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: 0, isSeeded: false, cwd: work })
@@ -75,6 +75,9 @@ describe('explicit Surface file publication', () => {
     await writeFile(join(authoring, 'result.txt'), 'published result\n')
     const first = await publish({ capability, operationKey: 'result-v1', summary: 'Ready to read.' })
     const revision = await port.head('subject'); expect(revision).not.toBe(base)
+    const topology = await service.inspectTopology('subject')
+    expect(topology.surfaces[0]).toMatchObject({ surfaceId: 'subject', revision })
+    expect(topology.surfaces[0]?.completed).toBeUndefined()
     expect((await revisions.readFile(revision, 'result.txt')).toString()).toBe('published result\n')
     await writeFile(join(authoring, 'result.txt'), 'later unpublished work\n')
     await expect(publish({ capability, operationKey: 'result-v1', summary: 'Ready to read.' })).resolves.toEqual(first)

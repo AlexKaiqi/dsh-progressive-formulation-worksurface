@@ -67,6 +67,12 @@ export interface SurfaceTopologyNode {
   readonly title: string
   readonly group?: string
   readonly lifecycle: SurfaceLifecycleProjection
+  /** Head revision recorded by the code-first runtime (undefined when never published). */
+  readonly revision?: Revision
+  /** True when the code-first runtime observed a business `*.completed` Event. */
+  readonly completed?: boolean
+  /** Recorded time of the most recent `surface.revision.published` runtime event. */
+  readonly lastPublishedAt?: string
 }
 
 export interface SurfaceChoice { readonly surfaceId: string; readonly title: string; readonly revision?: Revision }
@@ -438,17 +444,27 @@ export class WorkSurfaceService extends Service {
     }
     const orchestrations = all.filter(inspection => included.has(inspection.registrationId))
     const codeFirst = targetAll.filter(inspection => included.has(`v5:${inspection.registrationId}`))
+    const runtimeEvents = Object.fromEntries(await Promise.all([...surfaceIds].sort().map(async id => [id, await this.codeFirstEvents?.replay(id) ?? []] as const)))
     const surfaces = await Promise.all([...surfaceIds].sort().map(async id => {
       const events = await this.replayEvents(id)
       const configured = view?.surfaces?.[id]
+      const runtime = runtimeEvents[id] ?? []
+      // Durable run evidence lives in the code-first runtime event stream;
+      // the legacy surface projection alone stays `idle` because the legacy
+      // stream is empty. Keep publication distinct from business completion.
+      const published = [...runtime].reverse().find(event => event.type.name === 'surface.revision.published')
+      const revision = await this.codeFirstSurfacePort?.recordedHead(id)
+      const completed = runtime.some(event => event.type.name.endsWith('.completed'))
       return {
         surfaceId: id,
         title: configured?.title ?? await this.surfaceTitle(id),
         ...(configured?.group === undefined ? {} : { group: configured.group }),
         lifecycle: projectSurfaceLifecycle(events.map(event => ({ ref: { subject: `surface:${id}`, seq: event.seq, id: event.id }, event })), view?.interpretations ?? [], id),
+        ...(revision === undefined ? {} : { revision }),
+        ...(published === undefined ? {} : { lastPublishedAt: published.recordedAt }),
+        ...(completed ? { completed: true } : {}),
       }
     }))
-    const runtimeEvents = Object.fromEntries(await Promise.all([...surfaceIds].sort().map(async id => [id, await this.codeFirstEvents?.replay(id) ?? []] as const)))
     return { anchorSurfaceId: surfaceId, surfaces, orchestrations, codeFirst, runtimeEvents, ...(view === undefined ? {} : { view }) }
   }
 

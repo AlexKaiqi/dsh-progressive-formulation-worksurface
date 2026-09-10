@@ -94,17 +94,19 @@ Definition v1 拓扑只在独立的“v4 兼容”模式中出现，不与 code-
 
 ## 5. 视觉编码
 
-每个视觉通道只承担一种含义：形状表示对象种类，颜色表示当前投影，线型区分声明路径与实际证据，动画只表示刚到达的 live wakeup。
+每个视觉通道只承担一种含义：**形状表示对象种类**（Surface=圆角矩形文档卡、Orchestrate=六边形机器节点、v4 条件=圆形汇合点），**颜色表示当前状态投影**（色相=状态基调，同色相内填充密度=强度），**线型区分声明路径与实际证据**（虚线=声明，实线=已记录），**动画只表示刚到达的 live wakeup**，**标记只表示焦点**（锚点 pin、选中环，不占用状态色相）。完整语言定义与状态矩阵见[视觉语言](visual-language.md)。
 
 | 对象 | 图面表达 | 权威事实 |
 | --- | --- | --- |
-| Surface | 统一圆角节点 | Surface stream + optional view definition |
-| Orchestrate | 双圆角处理节点 | exact Registration + revision |
+| Surface | 统一圆角矩形（文档卡），状态=填充+描边+字形 | Surface stream + optional view definition |
+| Orchestrate | 六边形机器节点，内容居中于最宽中带 | exact Registration + revision |
 | declared route | 带箭头虚线 | Registration route |
-| recorded causal path | 带箭头实线 | Runtime Event producer + causes |
-| v4 subscription | 兼容模式的条件汇合点 | exact Definition |
+| recorded causal path | 带箭头实线（源侧蓝、目标侧绿） | Runtime Event producer + causes |
+| v4 subscription | 兼容模式的条件汇合点（圆形） | exact Definition |
 | v4 managed emit/followup | 兼容模式的带箭头实线 | Operation record/settlement |
 | Session execution | 独立 DSH 轨迹 | DSH Session events |
+
+显示状态派生：`displayPhase(surface)` 在 `lifecycle.phase` 为 idle 时，先回落业务完成标志 `surface.completed`，再回落 code-first 发布修订 `surface.revision`；因此已发布与业务完成不会被混为同一状态，原始 phase 投影仍保留在证据抽屉。
 
 位置、线长和布局不表示 happens-before、依赖强度或执行顺序。
 

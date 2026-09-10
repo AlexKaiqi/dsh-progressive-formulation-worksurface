@@ -29,7 +29,8 @@ const snapshot = {
   surfaces: [
     { surfaceId: 'research', title: '整理用户研究', group: 'inputs', lifecycle: { phase: 'completed', evidence: [], verified: true, verificationEvidence: [] } },
     { surfaceId: 'review', title: '审核发布素材', group: 'inputs', lifecycle: { phase: 'waiting-user', evidence: [{ ref: ref('surface:review', 2, 'input'), name: 'approval.requested' }], verified: false, verificationEvidence: [] } },
-    { surfaceId: 'publish', title: '生成发布包', group: 'delivery', lifecycle: { phase: 'published', evidence: [{ ref: ref('surface:publish', 0, 'publication'), name: 'surface.revision.published' }], verified: false, verificationEvidence: [] } },
+    { surfaceId: 'publish', title: '生成发布包', group: 'delivery', revision: `sha256:${'b'.repeat(64)}`, completed: true, lastPublishedAt: '2026-09-01T00:00:01.000Z', lifecycle: { phase: 'idle', evidence: [], verified: false, verificationEvidence: [] } },
+    { surfaceId: 'draft', title: '准备下一版', revision: `sha256:${'9'.repeat(64)}`, lastPublishedAt: '2026-09-01T00:00:02.000Z', lifecycle: { phase: 'idle', evidence: [], verified: false, verificationEvidence: [] } },
   ],
   orchestrations: [{
     orchestrationId: 'release-flow', registrationId: 'reg-release', definitionRevision: `sha256:${'a'.repeat(64)}`,

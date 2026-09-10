@@ -229,7 +229,7 @@ import {
       return h('section', { className: 'pf-ws-view', 'aria-label': displayTitle }, [
         h('header', { key: 'head', className: 'pf-ws-head' }, [
           h('div', { key: 'copy', className: 'pf-ws-head-copy' }, [h('h2', { key: 'title' }, displayTitle), h('p', { key: 'sub' }, t(activeMode === 'relations' ? 'subtitle' : 'compatibleHint'))]),
-          anchor ? h('span', { key: 'phase', className: `pf-ws-anchor-phase ${phaseTone(anchor.lifecycle.phase)}` }, `${phaseIcon(anchor.lifecycle.phase)} ${t(anchor.lifecycle.phase)}`) : null,
+          anchor ? h('span', { key: 'phase', className: `pf-ws-anchor-phase ${phaseTone(displayPhase(anchor))}` }, `${phaseIcon(displayPhase(anchor))} ${t(displayPhase(anchor))}`) : null,
           h('div', { key: 'actions', className: 'pf-ws-head-actions' }, [
             h('label', { key: 'subgraph', className: 'pf-ws-surface-choice' }, [
               h('span', { key: 'label' }, t('subgraphs')),
@@ -262,7 +262,7 @@ import {
           h('span', { key: 'title', className: 'pf-ws-summary-title' }, `${t('subgraph')}: ${selectedSubgraph.title}`),
           ...[...selectedSubgraph.surfaceIds].map(surfaceId => {
             const surface = snapshot.surfaces.find(item => item.surfaceId === surfaceId)
-            return surface ? h('span', { key: surfaceId, className: `pf-ws-summary-chip ${phaseTone(surface.lifecycle.phase)}`, title: `${surface.title}: ${t(surface.lifecycle.phase)}` }, `${phaseIcon(surface.lifecycle.phase)} ${surface.title}`) : null
+            return surface ? h('span', { key: surfaceId, className: `pf-ws-summary-chip ${phaseTone(displayPhase(surface))}`, title: `${surface.title}: ${t(displayPhase(surface))}` }, `${phaseIcon(displayPhase(surface))} ${surface.title}`) : null
           }),
           ...selectedSubgraph.registrationIds.map(registrationId => {
             const registration = snapshot.codeFirst.find(item => item.registrationId === registrationId)
@@ -372,37 +372,51 @@ import {
 
     function SurfaceFlowNode({ data, selected }) {
       const { surface, eventCount, anchor, t, selection } = data
-      const phase = surface.lifecycle.phase
+      const phase = displayPhase(surface)
+      const tone = phaseTone(phase)
       return h('article', {
-        className: `pf-ws-flow-node pf-ws-surface-node ${phase}${anchor ? ' current' : ''}${selected ? ' selected' : ''}`,
-        role: 'button', tabIndex: 0, 'aria-label': `${surface.title}: ${t(phase)}`,
+        className: `pf-ws-flow-node pf-ws-surface-node state-${tone} ${phase}${anchor ? ' current' : ''}${selected ? ' selected' : ''}`,
+        role: 'button', tabIndex: 0, 'aria-label': `${t('surfaceNode')}: ${surface.title} · ${t(phase)}${surface.completed && phase !== 'completed' ? `, ${t('completed')}` : ''}`,
         onKeyDown: event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); data.onSelect(selection) } },
       }, [
         h(Handle, { key: 'target', id: 'in', type: 'target', position: Position.Left, isConnectable: false }),
-        h('header', { key: 'header' }, [
-          h('span', { key: 'type' }, 'Surface'),
-          eventCount ? h('span', { key: 'events' }, `${eventCount} Event`) : null,
-        ]),
+        anchor ? h('span', { key: 'pin', className: 'pf-ws-anchor-pin', 'aria-hidden': 'true' }) : null,
         h('div', { key: 'body', className: 'pf-ws-flow-node-body' }, [
           h('span', { key: 'icon', className: 'pf-ws-node-icon', 'aria-hidden': 'true' }, phaseIcon(phase)),
-          h('span', { key: 'copy' }, [surface.group ? h('small', { key: 'group' }, surface.group) : null, h('strong', { key: 'title', title: surface.title }, surface.title)]),
+          h('span', { key: 'copy', className: 'pf-ws-flow-node-copy' }, [
+            surface.group ? h('small', { key: 'group' }, surface.group) : null,
+            h('strong', { key: 'title', title: surface.title }, surface.title),
+            h('span', { key: 'meta', className: 'pf-ws-surface-meta' }, [
+              h('b', { key: 'status', className: 'pf-ws-surface-status' }, t(phase)),
+              surface.completed && phase !== 'completed' ? h('b', { key: 'done', className: 'pf-ws-node-done', title: surface.lastPublishedAt || '' }, t('completed')) : null,
+              eventCount ? h('span', { key: 'events' }, `${eventCount} Event`) : null,
+              surface.revision ? h('code', { key: 'rev', className: 'pf-ws-node-rev', title: `${surface.revision}${surface.lastPublishedAt ? `\n${surface.lastPublishedAt}` : ''}` }, shortRevision(surface.revision)) : null,
+            ]),
+          ]),
         ]),
-        h('footer', { key: 'footer' }, [h('span', { key: 'phase' }, t(phase)), anchor ? h('b', { key: 'current' }, t('current')) : null]),
         h(Handle, { key: 'source', id: 'out', type: 'source', position: Position.Right, isConnectable: false }),
       ])
     }
 
     function OrchestrateFlowNode({ data, selected }) {
       const { registration, t, selection } = data
+      const pending = registration.pendingRunCount > 0
+      const worked = registration.recordedRunCount > 0
       return h('article', {
-        className: `pf-ws-flow-node pf-ws-orchestrate-node${registration.pendingRunCount ? ' pending' : ''}${selected ? ' selected' : ''}`,
-        role: 'button', tabIndex: 0, 'aria-label': `${t('registration')}: ${registration.registrationId}`,
+        className: `pf-ws-flow-node pf-ws-orchestrate-node${worked ? ' worked' : ''}${pending ? ' pending' : ''}${selected ? ' selected' : ''}`,
+        role: 'button', tabIndex: 0, 'aria-label': `${t('orchestrateNode')}: ${registration.registrationId}`,
         onKeyDown: event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); data.onSelect(selection) } },
       }, [
         h(Handle, { key: 'target', id: 'in', type: 'target', position: Position.Left, isConnectable: false }),
-        h('header', { key: 'header' }, [h('span', { key: 'type' }, t('registration')), registration.pendingRunCount ? h('b', { key: 'pending' }, `${registration.pendingRunCount} ${t('pendingRuns')}`) : null]),
-        h('div', { key: 'body', className: 'pf-ws-flow-node-body' }, h('strong', { title: registration.registrationId }, registration.registrationId)),
-        h('footer', { key: 'footer' }, `${registration.acceptedInputCount} ${t('inputs')} · ${registration.recordedRunCount} ${t('runs')}`),
+        h('svg', { key: 'shape', className: 'pf-ws-orchestrate-shape', viewBox: '0 0 100 100', preserveAspectRatio: 'none', 'aria-hidden': 'true' },
+          h('polygon', { key: 'hex', points: '18,3 82,3 98,50 82,97 18,97 2,50' })),
+        h('div', { key: 'body', className: 'pf-ws-orchestrate-body' }, [
+          h('strong', { key: 'id', title: registration.registrationId }, registration.registrationId),
+          h('span', { key: 'counts', className: 'pf-ws-orchestrate-counts' }, [
+            pending ? h('b', { key: 'pending', className: 'pf-ws-orchestrate-pending', title: `${registration.pendingRunCount} ${t('pendingRuns')}` }, `${registration.pendingRunCount} ${t('pendingRuns')}`) : null,
+            `${registration.acceptedInputCount} ${t('inputs')} · ${registration.recordedRunCount} ${t('runs')}`,
+          ]),
+        ]),
         h(Handle, { key: 'source', id: 'out', type: 'source', position: Position.Right, isConnectable: false }),
       ])
     }
@@ -475,7 +489,7 @@ import {
       const surfaces = snapshot.surfaces.map(surface => {
         const events = snapshot.runtimeEvents?.[surface.surfaceId] || []
         const evidence = surface.lifecycle.evidence || []
-        return `${surface.surfaceId}:${surface.title}:${surface.group || ''}:${surface.lifecycle.phase}:${evidence.length}:${evidence.at(-1)?.ref?.id || ''}:${events.length}:${events.at(-1)?.id || ''}`
+        return `${surface.surfaceId}:${surface.title}:${surface.group || ''}:${displayPhase(surface)}:${evidence.length}:${evidence.at(-1)?.ref?.id || ''}:${events.length}:${events.at(-1)?.id || ''}`
       })
       const registrations = snapshot.codeFirst.map(registration => `${registration.registrationId}:${registration.orchestrateRevision}:${registration.acceptedInputCount}:${registration.recordedRunCount}:${registration.pendingRunCount}`)
       return `relations:${locale}:${snapshot.viewRevision || ''}:${snapshot.anchorSurfaceId}:${activeSubgraphId || 'all'}:${surfaces.join('|')}:${registrations.join('|')}`
@@ -511,8 +525,8 @@ import {
     function minimapNodeColor(node) {
       if (node.type === 'subgraph') return '#8896a8'
       if (node.type === 'registration') return node.data.registration.pendingRunCount ? '#b7791f' : '#7c3aed'
-      const phase = node.data.surface.lifecycle.phase
-      return phase === 'failed' || phase === 'conflicted' ? '#cf222e' : phase === 'published' || phase === 'completed' ? '#238636' : '#667085'
+      const phase = displayPhase(node.data.surface)
+      return phase === 'failed' || phase === 'conflicted' ? '#cf222e' : phase === 'completed' ? '#238636' : phase === 'published' ? '#2f6feb' : '#667085'
     }
 
     function TopologyGraph({ snapshot, t, onSurface, onSelect }) {
@@ -569,12 +583,13 @@ import {
         h('summary', { key: 'summary' }, t('legend')),
         h('div', { key: 'items' }, [
           mode === 'relations' ? h('span', { key: 'surface-node' }, [h('i', { key: 'mark', className: 'node surface' }), t('surfaceNode')]) : null,
-          mode === 'relations' ? h('span', { key: 'orchestrate-node' }, [h('i', { key: 'mark', className: 'node orchestrate' }), t('orchestrateNode')]) : null,
+          mode === 'relations' ? h('span', { key: 'orchestrate-node' }, [h('svg', { key: 'mark', className: 'pf-ws-legend-hex', viewBox: '0 0 20 18', 'aria-hidden': 'true' }, h('polygon', { key: 'hex', points: '10,1 18,5 18,13 10,17 2,13 2,5' })), t('orchestrateNode')]) : null,
           mode === 'relations' ? h('span', { key: 'subgraph-box' }, [h('i', { key: 'mark', className: 'subgraph' }), t('subgraphBox')]) : null,
+          mode === 'relations' ? h('span', { key: 'anchor-pin' }, [h('i', { key: 'mark', className: 'anchor' }), t('anchor')]) : null,
           h('span', { key: 'possible' }, [h('i', { key: 'mark', className: 'line possible' }), t('possible')]),
           h('span', { key: 'observed' }, [h('i', { key: 'mark', className: 'line observed' }), mode === 'relations' ? t('actualFacts') : t('observed')]),
           mode === 'legacy' ? h('span', { key: 'emitted' }, [h('i', { key: 'mark', className: 'line emitted' }), t('emitted')]) : null,
-          ...['idle', 'published', 'waiting-user', 'completed', 'failed', 'conflicted'].map(phase => h('span', { key: phase }, [h('i', { key: 'mark', className: `phase ${phase}` }, phaseIcon(phase)), t(phase)])),
+          ...['idle', 'published', 'completed', 'waiting-user', 'conflicted', 'failed'].map(phase => h('span', { key: phase }, [h('i', { key: 'mark', className: `phase ${phase}` }, phaseIcon(phase)), t(phase)])),
         ]),
       ])
     }
@@ -586,11 +601,11 @@ import {
         if (!surface) return null
         const events = [...(snapshot.runtimeEvents?.[surface.surfaceId] || [])].reverse()
         return h(EvidenceShell, { label: 'Surface', title: surface.title, onClose }, [
-          h('div', { key: 'meta', className: 'pf-ws-drawer-meta' }, [h('span', { key: 'status', className: `status ${surface.lifecycle.phase}` }, t(surface.lifecycle.phase)), h('code', { key: 'id', title: surface.surfaceId }, shortId(surface.surfaceId))]),
+          h('div', { key: 'meta', className: 'pf-ws-drawer-meta' }, [h('span', { key: 'status', className: `status ${phaseTone(displayPhase(surface))}` }, `${phaseIcon(displayPhase(surface))} ${t(displayPhase(surface))}`), h('code', { key: 'id', title: surface.surfaceId }, shortId(surface.surfaceId))]),
           h(DrawerSection, { key: 'identity', title: t('exactEvidence') }, h('dl', { className: 'pf-ws-path-facts' }, [
             factRow('SurfaceId', surface.surfaceId),
             surface.group ? factRow(t('group'), surface.group) : null,
-            factRow(t('phase'), t(surface.lifecycle.phase)),
+            factRow(t('phase'), `${t(surface.lifecycle.phase)}${surface.completed ? ` · ${t('completed')}` : ''}`),
           ])),
           surface.lifecycle.evidence?.length ? h(DrawerSection, { key: 'lifecycle', title: t('evidence') }, surface.lifecycle.evidence.map(item => h('div', { key: `${item.ref.subject}:${item.ref.seq}:${item.ref.id}`, className: 'pf-ws-cause' }, [h('span', { key: 'source' }, item.name), h('strong', { key: 'subject' }, item.ref.subject), h('code', { key: 'seq' }, `#${item.ref.seq}`), h('small', { key: 'id', title: item.ref.id }, shortId(item.ref.id))]))) : null,
           surface.surfaceId !== snapshot.anchorSurfaceId ? h('div', { key: 'focus', className: 'pf-ws-drawer-action' }, h('button', { type: 'button', className: 'primary', onClick: () => onSurface(surface.surfaceId) }, t('setAnchor'))) : null,
@@ -797,7 +812,7 @@ import {
       const keys = new Set(nodes.map(node => node.key))
       const sizes = new Map()
       for (const node of nodes) {
-        const size = node.kind === 'registration' ? { width: 204, height: 94 } : { width: 226, height: 104 }
+        const size = node.kind === 'registration' ? { width: 208, height: 92 } : { width: 226, height: 86 }
         sizes.set(node.key, size)
         graph.setNode(node.key, size)
       }
@@ -940,43 +955,79 @@ import {
       return 'all' in subscription.when ? '∧' : 'any' in subscription.when ? '∨' : 'sequence' in subscription.when ? '→' : '●'
     }
     function average(points, fallback) { if (!points.length) return fallback; return { x: points.reduce((sum, item) => sum + item.x, 0) / points.length, y: points.reduce((sum, item) => sum + item.y, 0) / points.length } }
-    function phaseIcon(phase) { return phase === 'completed' || phase === 'published' ? '✓' : phase === 'failed' || phase === 'conflicted' ? '×' : phase === 'waiting-user' ? '?' : '○' }
-    function phaseTone(phase) { return phase === 'completed' || phase === 'published' ? 'positive' : phase === 'failed' || phase === 'conflicted' ? 'danger' : phase === 'waiting-user' ? 'attention' : 'neutral' }
+    function phaseIcon(phase) {
+      return phase === 'completed' ? '✓' : phase === 'failed' ? '×' : phase === 'conflicted' ? '!' : phase === 'waiting-user' ? '?' : phase === 'published' ? '●' : '○'
+    }
+    function phaseTone(phase) {
+      return phase === 'completed' ? 'positive' : phase === 'failed' || phase === 'conflicted' ? 'danger' : phase === 'waiting-user' ? 'attention' : phase === 'published' ? 'active' : 'neutral'
+    }
+    // 显示状态 = 最强可用投影：精确 phase 优先，code-first 业务完成标志兜底。
+    function displayPhase(surface) {
+      if (surface.lifecycle.phase !== 'idle') return surface.lifecycle.phase
+      if (surface.completed) return 'completed'
+      return surface.revision ? 'published' : 'idle'
+    }
     function strongestPhase(phases) {
       const order = ['idle', 'published', 'completed', 'waiting-user', 'conflicted', 'failed']
       return phases.reduce((strongest, phase) => order.indexOf(phase) > order.indexOf(strongest) ? phase : strongest, 'idle')
     }
     function surfaceTitle(snapshot, id) { return snapshot.surfaces.find(surface => surface.surfaceId === id)?.title || shortId(id) }
     function buildSubgraphs(snapshot, t) {
-      const groups = []
-      const surfaceGroup = new Map()
-      const ensureGroup = (id, title, registrationId) => {
-        let group = groups.find(item => item.id === id)
-        if (!group) {
-          group = { id, title, surfaceIds: new Set(), registrationIds: registrationId ? [registrationId] : [] }
-          groups.push(group)
-        } else if (registrationId && !group.registrationIds.includes(registrationId)) {
-          group.registrationIds.push(registrationId)
+      // 子图 = orchestrate 在运行时产生的实质连通分量：以 surface 与
+      // registration 为节点、bindings 为无向边求连通分量；含至少一个
+      // registration 的分量成为一个命名子图，孤立 Surface 归入"未分组"。
+      const surfaces = snapshot.surfaces || []
+      const registrations = snapshot.codeFirst || []
+      const parent = new Map()
+      const find = key => {
+        let root = key
+        while (parent.get(root) !== root) root = parent.get(root)
+        while (parent.get(key) !== key) {
+          const next = parent.get(key)
+          parent.set(key, root)
+          key = next
         }
-        return group
+        return root
       }
-      for (const registration of snapshot.codeFirst || []) {
-        const group = ensureGroup(`sub:${registration.registrationId}`, snapshot.view?.subgraphs?.[registration.registrationId]?.title ?? registration.registrationId, registration.registrationId)
+      const union = (a, b) => {
+        const ra = find(a)
+        const rb = find(b)
+        if (ra !== rb) parent.set(ra, rb)
+      }
+      for (const surface of surfaces) parent.set(`s:${surface.surfaceId}`, `s:${surface.surfaceId}`)
+      for (const registration of registrations) parent.set(`r:${registration.registrationId}`, `r:${registration.registrationId}`)
+      for (const registration of registrations) {
+        const rk = `r:${registration.registrationId}`
         for (const id of Object.values(registration.bindings || {})) {
-          if (typeof id === 'string' && id) { group.surfaceIds.add(id); surfaceGroup.set(id, group) }
+          if (typeof id === 'string' && id && parent.has(`s:${id}`)) union(rk, `s:${id}`)
         }
       }
-      for (const surface of snapshot.surfaces || []) {
-        const group = surfaceGroup.get(surface.surfaceId)
-        if (group) group.surfaceIds.add(surface.surfaceId)
-        else if (surface.group) {
-          const configured = ensureGroup(`sub:${surface.group}`, surface.group, undefined)
-          configured.surfaceIds.add(surface.surfaceId)
-          surfaceGroup.set(surface.surfaceId, configured)
+      const components = new Map()
+      for (const surface of surfaces) {
+        const root = find(`s:${surface.surfaceId}`)
+        let component = components.get(root)
+        if (!component) { component = { surfaceIds: new Set(), registrationIds: [] }; components.set(root, component) }
+        component.surfaceIds.add(surface.surfaceId)
+      }
+      for (const registration of registrations) {
+        const root = find(`r:${registration.registrationId}`)
+        let component = components.get(root)
+        if (!component) { component = { surfaceIds: new Set(), registrationIds: [] }; components.set(root, component) }
+        if (!component.registrationIds.includes(registration.registrationId)) component.registrationIds.push(registration.registrationId)
+      }
+      const groups = []
+      const ungroupedSurfaces = []
+      let index = 0
+      for (const component of components.values()) {
+        if (component.registrationIds.length) {
+          index += 1
+          const label = [...component.registrationIds].sort().join(' · ')
+          groups.push({ id: `sub:component-${index}`, title: label, surfaceIds: component.surfaceIds, registrationIds: component.registrationIds })
+        } else {
+          for (const surfaceId of component.surfaceIds) ungroupedSurfaces.push(surfaceId)
         }
       }
-      const ungrouped = (snapshot.surfaces || []).filter(surface => !surfaceGroup.has(surface.surfaceId))
-      if (ungrouped.length) groups.push({ id: 'sub:__ungrouped', title: t('ungrouped'), surfaceIds: new Set(ungrouped.map(surface => surface.surfaceId)), registrationIds: [] })
+      if (ungroupedSurfaces.length) groups.push({ id: 'sub:__ungrouped', title: t('ungrouped'), surfaceIds: new Set(ungroupedSurfaces), registrationIds: [] })
       return groups
     }
     function subgraphHas(subgraph, node) {
@@ -984,7 +1035,7 @@ import {
       if (node.type === 'registration') return subgraph.registrationIds.includes(node.data.registration.registrationId)
       return false
     }
-    function flowNodeSize(node) { return node.type === 'registration' ? { width: 204, height: 94 } : { width: 226, height: 104 } }
+    function flowNodeSize(node) { return node.type === 'registration' ? { width: 208, height: 92 } : { width: 226, height: 86 } }
     function recomputeSubgraphNodes(members, subgraphs, t, activeSubgraphId) {
       const containers = []
       for (const subgraph of subgraphs) {
@@ -1026,7 +1077,7 @@ import {
     }
     function surfaceOptionLabel(surface, snapshot) {
       const live = snapshot?.surfaces.find(item => item.surfaceId === surface.surfaceId)
-      return live ? `${phaseIcon(live.lifecycle.phase)} ${surface.title}` : surface.title
+      return live ? `${phaseIcon(displayPhase(live))} ${surface.title}` : surface.title
     }
     function shortId(value) { const text = String(value); return text.length <= 20 ? text : `${text.slice(0, 9)}…${text.slice(-6)}` }
     function shortRevision(value) { const text = String(value); return text.startsWith('sha256:') ? `sha256:${text.slice(7, 15)}…` : shortId(text) }
