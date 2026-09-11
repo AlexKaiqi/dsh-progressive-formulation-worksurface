@@ -22,12 +22,12 @@ import {
     const h = React.createElement
     const NS = 'worksurfaceWeb'
     const en = {
-      view: 'WorkSurface', title: 'WorkSurface run evidence', subtitle: 'Evidence mode: dashed paths are declared capabilities; solid paths are recorded Event evidence.',
-      refresh: 'Refresh', refreshing: 'Refreshing…', empty: 'No orchestration is connected to this Surface.',
-      chooseSurface: 'Surface', noSurfaces: 'No authored or event-backed Surface exists yet.',
-      emptyHint: 'The Surface remains valid. Admit an Orchestrate artifact and registration.json to connect it to other work.',
+      view: 'WorkSurface', title: 'WorkSurface run evidence',
+      refresh: 'Refresh', refreshing: 'Refreshing…', empty: 'No orchestration is connected yet.',
+      noSurfaces: 'No authored or event-backed Surface exists yet.',
+      emptyHint: 'Admit an Orchestrate artifact and registration.json to form an event topology.',
       loadFailed: 'Unable to replay WorkSurface topology', legend: 'Visual language', possible: 'Possible path',
-      observed: 'Matched event', emitted: 'Emitted event', current: 'Current', details: 'Orchestration details',
+      observed: 'Matched event', emitted: 'Emitted event', details: 'Orchestration details',
       close: 'Close', definition: 'Definition', revision: 'Revision', bindings: 'Role bindings', condition: 'Condition evidence',
       activations: 'Activations', received: 'received', missing: 'missing', noRuns: 'No activation yet',
       failures: 'Failures', viewWarning: 'View definition fallback',
@@ -35,7 +35,7 @@ import {
       'waiting-user': 'Waiting for user', completed: 'Completed', failed: 'Failed', conflicted: 'Publish conflict',
       verified: 'Business result verified', active: 'Active', paused: 'Paused', retired: 'Retired',
       all: 'All', any: 'Any', count: 'Count', sequence: 'Sequence', handler: 'Code handler',
-      surfaces: 'Surfaces', paths: 'Paths', needsAttention: 'Need attention', anchor: 'Anchor',
+      paths: 'Paths', needsAttention: 'Need attention',
       pathDetails: 'Path evidence', conditionDetails: 'Condition evidence', possibleStage: 'Possible path',
       matchedStage: 'Matched source', activationStage: 'Activation formed', emitStage: 'Managed emit', publicationStage: 'Target publication',
       yes: 'Recorded', no: 'Not recorded', source: 'Source', target: 'Target', eventRefs: 'Event references',
@@ -45,23 +45,21 @@ import {
       inputs: 'inputs', runs: 'runs', pendingRuns: 'pending', consume: 'consume', emit: 'orchestrate emit', surfaceOutput: 'Surface output', causes: 'causes',
       advance: 'Continue in DSH', opening: 'Opening session…', sessionFailed: 'Unable to open the Surface Session',
       relations: 'Relations', legacy: 'v4 compatibility', registration: 'Orchestrate', runtimeEvent: 'Runtime Event',
-      declaredPath: 'Declared path', actualPath: 'Recorded causal path', setAnchor: 'Focus this Surface',
+      declaredPath: 'Declared path', actualPath: 'Recorded causal path',
       eventHistory: 'Recorded Events', noEvents: 'No Runtime Event is recorded for this Surface.', route: 'Event route',
       producer: 'Producer', recordedAt: 'Recorded at', operationKey: 'Operation key', payload: 'Payload',
-      exactEvidence: 'Exact evidence', capability: 'Capability', contract: 'Contract', from: 'From', to: 'To', currentSurface: 'Current Surface',
-      compatibleHint: 'The v4 engine is kept in an isolated compatibility view.',
+      exactEvidence: 'Exact evidence', capability: 'Capability', contract: 'Contract', from: 'From', to: 'To',
       autoLayout: 'Auto layout', showMiniMap: 'Show minimap', hideMiniMap: 'Hide minimap',
-      localLayout: 'Node positions stay in this browser', canvasHelp: 'Drag nodes to refine the layout. Pan, zoom, select, and fit the view with the canvas controls.',
-      subgraph: 'Subgraph', subgraphs: 'Subgraphs', allSubgraphs: 'All subgraphs', ungrouped: 'Ungrouped',
-      surfaceNode: 'Surface node', orchestrateNode: 'Orchestrate node', subgraphBox: 'Subgraph container',
+      canvasHelp: 'Drag nodes to refine the layout. Pan, zoom, select, and fit the view with the canvas controls.',
+      surfaceNode: 'Surface node', orchestrateNode: 'Orchestrate node',
     }
     const zh = {
-      view: 'WorkSurface', title: 'WorkSurface 运行证据', subtitle: 'Evidence 模式：虚线是声明的可能通路，实线是已记录 Event 证明的实际因果。',
-      refresh: '刷新', refreshing: '刷新中…', empty: '当前 Surface 尚未连接任何编排。',
-      chooseSurface: 'Surface', noSurfaces: '尚未发现作者目录或事件支持的 Surface。',
-      emptyHint: 'Surface 本身仍然有效；准入 Orchestrate artifact 与 registration.json 后会形成事件拓扑。',
+      view: 'WorkSurface', title: 'WorkSurface 运行证据',
+      refresh: '刷新', refreshing: '刷新中…', empty: '尚未连接任何编排。',
+      noSurfaces: '尚未发现作者目录或事件支持的 Surface。',
+      emptyHint: '准入 Orchestrate artifact 与 registration.json 后会形成事件拓扑。',
       loadFailed: '无法重放 WorkSurface 拓扑', legend: '视觉语言', possible: '可能通路',
-      observed: '已匹配事件', emitted: '已发出事件', current: '当前', details: '编排详情',
+      observed: '已匹配事件', emitted: '已发出事件', details: '编排详情',
       close: '关闭', definition: 'Definition', revision: 'Revision', bindings: '角色绑定', condition: '条件证据',
       activations: 'Activation', received: '已收到', missing: '仍缺少', noRuns: '尚无 activation',
       failures: '失败', viewWarning: 'View Definition 已回退',
@@ -69,7 +67,7 @@ import {
       'waiting-user': '等待用户', completed: '已完成', failed: '失败', conflicted: '发布冲突',
       verified: '业务结果已验收', active: '运行中', paused: '已暂停', retired: '已退役',
       all: '全部', any: '任一', count: '计数', sequence: '顺序', handler: '代码 Handler',
-      surfaces: 'Surface', paths: '通路', needsAttention: '需处理', anchor: '锚点',
+      paths: '通路', needsAttention: '需处理',
       pathDetails: '通路证据', conditionDetails: '条件证据', possibleStage: '可能通路',
       matchedStage: '源事件已匹配', activationStage: 'Activation 已形成', emitStage: '托管事件已发出', publicationStage: '目标发布',
       yes: '已有事实', no: '尚无事实', source: '来源', target: '目标', eventRefs: '事件引用',
@@ -79,15 +77,13 @@ import {
       inputs: '输入', runs: '运行', pendingRuns: '待结算', consume: '消费', emit: 'Orchestrate 发出', surfaceOutput: 'Surface 输出', causes: '原因',
       advance: '进入推进', opening: '正在进入 Session…', sessionFailed: '无法进入 Surface Session',
       relations: '关系视图', legacy: 'v4 兼容', registration: 'Orchestrate', runtimeEvent: 'Runtime Event',
-      declaredPath: '声明通路', actualPath: '已记录因果通路', setAnchor: '以此 Surface 为锚点',
+      declaredPath: '声明通路', actualPath: '已记录因果通路',
       eventHistory: '已记录 Event', noEvents: '该 Surface 尚无 Runtime Event。', route: 'Event 路由',
       producer: '产生者', recordedAt: '记录时间', operationKey: '操作键', payload: 'Payload',
-      exactEvidence: '精确证据', capability: '能力', contract: 'Contract', from: '来自', to: '去向', currentSurface: '当前 Surface',
-      compatibleHint: 'v4 引擎只保留在独立的兼容视图中。',
+      exactEvidence: '精确证据', capability: '能力', contract: 'Contract', from: '来自', to: '去向',
       autoLayout: '自动排版', showMiniMap: '显示小地图', hideMiniMap: '隐藏小地图',
-      localLayout: '节点位置仅保存在当前浏览器', canvasHelp: '拖动节点微调布局；画布支持平移、缩放、选择与适配视图。',
-      subgraph: '子图', subgraphs: '子图', allSubgraphs: '全部子图', ungrouped: '未分组',
-      surfaceNode: 'Surface 节点', orchestrateNode: 'Orchestrate 节点', subgraphBox: '子图容器',
+      canvasHelp: '拖动节点微调布局；画布支持平移、缩放、选择与适配视图。',
+      surfaceNode: 'Surface 节点', orchestrateNode: 'Orchestrate 节点',
     }
     const dictionaries = { en, zh, 'zh-TW': zh }
 
@@ -108,35 +104,13 @@ import {
       const [loading, setLoading] = React.useState(true)
       const [selected, setSelected] = React.useState(null)
       const [viewMode, setViewMode] = React.useState('relations')
-      const [surfaceId, setSurfaceId] = React.useState('')
-      const [subgraphId, setSubgraphId] = React.useState('')
-      const [surfaces, setSurfaces] = React.useState([])
       const [openingSurface, setOpeningSurface] = React.useState('')
-      const surfaceIdRef = React.useRef('')
       const generation = React.useRef(0)
-      React.useEffect(() => {
-        let active = true
-        void fetch('/worksurface-map/api/surfaces', { cache: 'no-store' }).then(async response => {
-          const value = await response.json()
-          if (!response.ok) throw new Error(value.error || t('loadFailed'))
-          if (!active) return
-          const choices = value.surfaces || []
-          setSurfaces(choices)
-          let preferred = ''
-          try { preferred = window.sessionStorage.getItem('worksurface-anchor') || '' } catch {}
-          const chosen = choices.some(item => item.surfaceId === preferred) ? preferred : choices[0]?.surfaceId || ''
-          surfaceIdRef.current = chosen
-          setSurfaceId(chosen)
-          if (!chosen) setLoading(false)
-        }).catch(cause => { if (active) { setError(cause instanceof Error ? cause.message : t('loadFailed')); setLoading(false) } })
-        return () => { active = false }
-      }, [t])
       const load = React.useCallback(async quiet => {
-        if (!surfaceId) return
         const current = ++generation.current
         if (!quiet) setLoading(true)
         try {
-          const response = await fetch(`/worksurface-map/api/topology?surface=${encodeURIComponent(surfaceId)}`, { cache: 'no-store' })
+          const response = await fetch('/worksurface-map/api/topology', { cache: 'no-store' })
           const value = await response.json()
           if (current !== generation.current) return
           if (!response.ok) throw new Error(value.error || t('loadFailed'))
@@ -148,9 +122,8 @@ import {
         } finally {
           if (current === generation.current) setLoading(false)
         }
-      }, [surfaceId, t])
+      }, [t])
       React.useEffect(() => {
-        if (!surfaceId) return undefined
         let active = true
         const controller = new AbortController()
         const watch = async () => {
@@ -159,6 +132,9 @@ import {
               const response = await fetch('/worksurface-map/api/watch', { cache: 'no-store', signal: controller.signal })
               if (!response.ok) throw new Error(`wakeup failed: ${response.status}`)
               if (active) await load(true)
+              // 推进（含宿主侧编排推进）产生的 Session 只在准入/持久化后可见；
+              // 拓扑一旦变化就刷新原生 Session 目录，使左侧导航实时反映推进。
+              try { await props.ctx.sessions.refresh() } catch { /* best-effort: next wakeup retries */ }
             } catch (cause) {
               if (!active || controller.signal.aborted) return
               await new Promise(resolve => window.setTimeout(resolve, 1000))
@@ -169,26 +145,7 @@ import {
         void load(false)
         return () => { active = false; generation.current += 1; controller.abort() }
       }, [load])
-      const openSurface = React.useCallback(id => {
-        surfaceIdRef.current = id
-        setSurfaceId(id)
-        setSnapshot(null)
-        setSelected(null)
-        try { window.sessionStorage.setItem('worksurface-anchor', id) } catch {}
-      }, [])
-      const subgraphs = React.useMemo(() => snapshot ? buildSubgraphs(snapshot, t) : [], [snapshot, t])
-      const selectedSubgraph = subgraphId ? subgraphs.find(item => item.id === subgraphId) || null : null
-      const focusSubgraph = React.useCallback(id => {
-        setSubgraphId(id)
-        if (!id || !snapshot) return
-        const group = subgraphs.find(item => item.id === id)
-        const first = group ? snapshot.surfaces.find(surface => group.surfaceIds.has(surface.surfaceId)) : undefined
-        if (first) openSurface(first.surfaceId)
-      }, [openSurface, snapshot, subgraphs])
-      const advanceSurface = React.useCallback(async () => {
-        // Select and button activation may happen in one browser task. React
-        // state is asynchronous, so use the event-time selection authority.
-        const requestedSurfaceId = surfaceIdRef.current || surfaceId
+      const advanceSurface = React.useCallback(async requestedSurfaceId => {
         if (!requestedSurfaceId || openingSurface) return
         setOpeningSurface(requestedSurfaceId)
         setSessionError('')
@@ -220,36 +177,15 @@ import {
         } finally {
           setOpeningSurface('')
         }
-      }, [openingSurface, props.ctx.sessions, surfaceId, t])
+      }, [openingSurface, props.ctx.sessions, t])
       const displayTitle = snapshot?.view?.title || t('title')
       const hasRelations = Boolean(snapshot?.codeFirst?.length)
       const hasLegacy = Boolean(snapshot?.orchestrations?.length)
       const activeMode = hasRelations ? (viewMode === 'relations' || !hasLegacy ? 'relations' : 'legacy') : hasLegacy ? 'legacy' : 'relations'
-      const anchor = snapshot?.surfaces.find(surface => surface.surfaceId === snapshot.anchorSurfaceId)
       return h('section', { className: 'pf-ws-view', 'aria-label': displayTitle }, [
         h('header', { key: 'head', className: 'pf-ws-head' }, [
-          h('div', { key: 'copy', className: 'pf-ws-head-copy' }, [h('h2', { key: 'title' }, displayTitle), h('p', { key: 'sub' }, t(activeMode === 'relations' ? 'subtitle' : 'compatibleHint'))]),
-          anchor ? h('span', { key: 'phase', className: `pf-ws-anchor-phase ${phaseTone(displayPhase(anchor))}` }, `${phaseIcon(displayPhase(anchor))} ${t(displayPhase(anchor))}`) : null,
+          h('div', { key: 'copy', className: 'pf-ws-head-copy' }, h('h2', { key: 'title' }, displayTitle)),
           h('div', { key: 'actions', className: 'pf-ws-head-actions' }, [
-            h('label', { key: 'subgraph', className: 'pf-ws-surface-choice' }, [
-              h('span', { key: 'label' }, t('subgraphs')),
-              h('select', { key: 'select', value: subgraphId, onChange: event => focusSubgraph(event.target.value), disabled: subgraphs.length === 0, 'aria-label': t('subgraphs') }, [
-                h('option', { key: 'all', value: '' }, t('allSubgraphs')),
-                ...subgraphs.map(group => h('option', { key: group.id, value: group.id }, `${group.title} · ${group.surfaceIds.size} ${t('surfaces')} · ${group.registrationIds.length} ${t('orchestrate')}`)),
-              ]),
-            ]),
-            h('label', { key: 'surface', className: 'pf-ws-surface-choice' }, [
-              h('span', { key: 'label' }, t('chooseSurface')),
-              h('select', { key: 'select', value: surfaceId, onChange: event => openSurface(event.target.value), disabled: surfaces.length === 0, 'aria-label': t('chooseSurface') }, [
-                surfaces.length === 0 ? h('option', { key: 'none', value: '' }, '—') : null,
-                ...surfaceSelectGroups(surfaces, snapshot, subgraphs).map((group, groupIndex) =>
-                  group.groupTitle
-                    ? h('optgroup', { key: `group-${groupIndex}`, label: group.groupTitle }, group.items.map(item => h('option', { key: item.surface.surfaceId, value: item.surface.surfaceId }, item.label)))
-                    : group.items.map(item => h('option', { key: item.surface.surfaceId, value: item.surface.surfaceId }, item.label))),
-              ]),
-            ]),
-            snapshot?.viewRevision ? h('code', { key: 'revision', title: snapshot.viewRevision }, shortRevision(snapshot.viewRevision)) : null,
-            h('button', { key: 'advance', type: 'button', className: 'pf-ws-advance', onClick: () => { void advanceSurface() }, disabled: !surfaceId || Boolean(openingSurface) }, openingSurface ? t('opening') : t('advance')),
             h('button', { key: 'refresh', type: 'button', onClick: () => { void load(false) }, disabled: loading }, loading ? t('refreshing') : t('refresh')),
           ]),
         ]),
@@ -257,62 +193,42 @@ import {
         sessionError ? h('div', { key: 'session-error', className: 'pf-ws-warning pf-ws-danger', role: 'alert' }, sessionError) : null,
         error && snapshot ? h('div', { key: 'error-warning', className: 'pf-ws-warning pf-ws-danger', role: 'alert' }, error) : null,
         error && !snapshot ? h('div', { key: 'error', className: 'pf-ws-blank pf-ws-danger', role: 'alert' }, [h('strong', { key: 'label' }, t('loadFailed')), h('span', { key: 'message' }, error)]) : null,
-        !surfaceId && !loading && !error ? h('div', { key: 'no-surfaces', className: 'pf-ws-blank' }, t('noSurfaces')) : null,
-        selectedSubgraph && snapshot ? h('div', { key: 'subgraph-summary', className: 'pf-ws-subgraph-summary', role: 'status' }, [
-          h('span', { key: 'title', className: 'pf-ws-summary-title' }, `${t('subgraph')}: ${selectedSubgraph.title}`),
-          ...[...selectedSubgraph.surfaceIds].map(surfaceId => {
-            const surface = snapshot.surfaces.find(item => item.surfaceId === surfaceId)
-            return surface ? h('span', { key: surfaceId, className: `pf-ws-summary-chip ${phaseTone(displayPhase(surface))}`, title: `${surface.title}: ${t(displayPhase(surface))}` }, `${phaseIcon(displayPhase(surface))} ${surface.title}`) : null
-          }),
-          ...selectedSubgraph.registrationIds.map(registrationId => {
-            const registration = snapshot.codeFirst.find(item => item.registrationId === registrationId)
-            return registration ? h('span', { key: registrationId, className: `pf-ws-summary-chip orchestrate${registration.pendingRunCount ? ' pending' : ''}`, title: registration.registrationId }, `⬡ ${registration.registrationId} · ${registration.acceptedInputCount} ${t('inputs')} · ${registration.recordedRunCount} ${t('runs')}`) : null
-          }),
-        ]) : null,
+        snapshot && !snapshot.surfaces.length && !loading && !error ? h('div', { key: 'no-surfaces', className: 'pf-ws-blank' }, t('noSurfaces')) : null,
         snapshot ? h('div', { key: 'body', className: `pf-ws-body${selected ? ' has-drawer' : ''}` }, [
           h('div', { key: 'canvas', className: 'pf-ws-canvas' }, [
             hasRelations && hasLegacy ? h('nav', { key: 'modes', className: 'pf-ws-modes', 'aria-label': t('view') }, [
               h('button', { key: 'relations', type: 'button', className: activeMode === 'relations' ? 'active' : '', onClick: () => { setViewMode('relations'); setSelected(null) } }, t('relations')),
               h('button', { key: 'legacy', type: 'button', className: activeMode === 'legacy' ? 'active' : '', onClick: () => { setViewMode('legacy'); setSelected(null) } }, t('legacy')),
             ]) : null,
-            activeMode === 'relations' && hasRelations ? h(CodeFirstGraph, { key: codeFirstGraphKey(snapshot, locale, subgraphId), snapshot, t, onSelect: setSelected, subgraphs, activeSubgraphId: subgraphId }) : null,
-            activeMode === 'legacy' && hasLegacy ? h(TopologyGraph, { key: 'legacy', snapshot, t, onSurface: openSurface, onSelect: selection => setSelected({ ...selection, scope: 'legacy' }) }) : null,
+            activeMode === 'relations' && hasRelations ? h(CodeFirstGraph, { key: codeFirstGraphKey(snapshot, locale), snapshot, t, onSelect: setSelected }) : null,
+            activeMode === 'legacy' && hasLegacy ? h(TopologyGraph, { key: 'legacy', snapshot, t, onSelect: setSelected }) : null,
             !hasLegacy && !hasRelations
               ? h('div', { key: 'empty', className: 'pf-ws-blank' }, [h('span', { key: 'mark', className: 'pf-ws-empty-mark' }, '◇'), h('strong', { key: 'title' }, t('empty')), h('p', { key: 'hint' }, t('emptyHint'))])
               : null,
             h(Legend, { key: 'legend', t, mode: activeMode }),
           ]),
-          selected?.scope === 'code-first' ? h(CodeFirstEvidenceDrawer, { key: 'code-first-drawer', selection: selected, snapshot, t, onClose: () => setSelected(null), onSurface: openSurface, onSelect: setSelected }) : null,
-          selected?.scope === 'legacy' ? h(LegacyEvidenceDrawer, { key: 'legacy-drawer', selection: selected, snapshot, t, onClose: () => setSelected(null), onSurface: openSurface }) : null,
+          selected?.scope === 'code-first' ? h(CodeFirstEvidenceDrawer, { key: 'code-first-drawer', selection: selected, snapshot, t, onClose: () => setSelected(null), onAdvance: advanceSurface, opening: Boolean(openingSurface), onSelect: setSelected }) : null,
+          selected?.scope === 'legacy' ? h(LegacyEvidenceDrawer, { key: 'legacy-drawer', selection: selected, snapshot, t, onClose: () => setSelected(null), onSelect: setSelected }) : null,
         ]) : null,
       ])
     }
 
-    const CODE_FIRST_NODE_TYPES = { surface: SurfaceFlowNode, registration: OrchestrateFlowNode, subgraph: SubgraphFlowNode }
+    const CODE_FIRST_NODE_TYPES = { surface: SurfaceFlowNode, registration: OrchestrateFlowNode }
     const CODE_FIRST_EDGE_TYPES = { evidence: EvidenceFlowEdge }
-
-    function SubgraphFlowNode({ data }) {
-      return h('div', {
-        className: `pf-ws-subgraph${data.active ? ' active' : ''}`,
-        'aria-label': `${data.t('subgraph')}: ${data.subgraph.title}`,
-      }, h('span', { key: 'title' }, `${data.t('subgraph')}: ${data.subgraph.title}`))
-    }
 
     function CodeFirstGraph(props) {
       return h(ReactFlowProvider, null, h(CodeFirstFlow, props))
     }
 
-    function CodeFirstFlow({ snapshot, t, onSelect, subgraphs, activeSubgraphId }) {
+    function CodeFirstFlow({ snapshot, t, onSelect }) {
       const model = React.useMemo(() => buildCodeFirstGraph(snapshot), [snapshot])
-      const flow = React.useMemo(() => createCodeFirstFlow(model, snapshot, t, onSelect, subgraphs, activeSubgraphId), [activeSubgraphId, model, onSelect, snapshot, subgraphs, t])
-      const storageKey = `pf-worksurface-layout:v1:${snapshot.anchorSurfaceId}`
+      const flow = React.useMemo(() => createCodeFirstFlow(model, snapshot, t, onSelect), [model, onSelect, snapshot, t])
+      const storageKey = 'pf-worksurface-layout:v1'
       const stored = React.useMemo(() => readCanvasState(storageKey), [storageKey])
-      const [nodes, setNodes, onNodesChange] = useNodesState(hydrateFlowPositions(flow.nodes, stored.nodes, subgraphs, activeSubgraphId))
+      const [nodes, setNodes, onNodesChange] = useNodesState(hydrateFlowPositions(flow.nodes, stored.nodes))
       const [showMiniMap, setShowMiniMap] = React.useState(() => typeof window === 'undefined' || window.matchMedia('(min-width: 820px)').matches)
       const { fitView } = useReactFlow()
       const viewportRef = React.useRef(stored.viewport)
-      const nodesRef = React.useRef(nodes)
-      nodesRef.current = nodes
 
       const saveNodes = React.useCallback(current => {
         writeCanvasState(storageKey, current, viewportRef.current)
@@ -321,20 +237,12 @@ import {
         const timer = window.setTimeout(() => saveNodes(nodes), 160)
         return () => window.clearTimeout(timer)
       }, [nodes, saveNodes])
-      React.useEffect(() => {
-        if (!activeSubgraphId) return undefined
-        const timer = window.requestAnimationFrame(() => {
-          const container = nodesRef.current.find(node => node.id === activeSubgraphId)
-          if (container) void fitView({ nodes: [container], padding: .4, duration: 260 })
-        })
-        return () => window.cancelAnimationFrame(timer)
-      }, [activeSubgraphId, fitView])
       const autoLayout = React.useCallback(() => {
-        const arranged = arrangeFlowNodes(nodes, flow.edges, subgraphs, t, activeSubgraphId)
+        const arranged = arrangeFlowNodes(nodes, flow.edges)
         setNodes(arranged)
         saveNodes(arranged)
         window.requestAnimationFrame(() => { void fitView({ duration: 260, padding: .2 }) })
-      }, [activeSubgraphId, fitView, flow.edges, nodes, saveNodes, setNodes, subgraphs, t])
+      }, [fitView, flow.edges, nodes, saveNodes, setNodes])
 
       return h('div', { className: 'pf-ws-flow', 'aria-label': t('relations') }, h(ReactFlow, {
         nodes,
@@ -363,24 +271,22 @@ import {
         h(Controls, { key: 'controls', position: 'bottom-right', showInteractive: false, 'aria-label': t('canvasHelp') }),
         showMiniMap ? h(MiniMap, { key: 'minimap', position: 'bottom-right', pannable: true, zoomable: true, nodeStrokeWidth: 3, nodeColor: minimapNodeColor, 'aria-label': t('showMiniMap') }) : null,
         h(Panel, { key: 'toolbar', position: 'top-right', className: 'pf-ws-flow-toolbar' }, [
-          h('span', { key: 'local', title: t('canvasHelp') }, t('localLayout')),
-          h('button', { key: 'layout', type: 'button', onClick: autoLayout }, t('autoLayout')),
+          h('button', { key: 'layout', type: 'button', title: t('canvasHelp'), onClick: autoLayout }, t('autoLayout')),
           h('button', { key: 'map', type: 'button', onClick: () => setShowMiniMap(value => !value), 'aria-pressed': showMiniMap }, t(showMiniMap ? 'hideMiniMap' : 'showMiniMap')),
         ]),
       ]))
     }
 
     function SurfaceFlowNode({ data, selected }) {
-      const { surface, eventCount, anchor, t, selection } = data
+      const { surface, eventCount, t, selection } = data
       const phase = displayPhase(surface)
       const tone = phaseTone(phase)
       return h('article', {
-        className: `pf-ws-flow-node pf-ws-surface-node state-${tone} ${phase}${anchor ? ' current' : ''}${selected ? ' selected' : ''}`,
+        className: `pf-ws-flow-node pf-ws-surface-node state-${tone} ${phase}${selected ? ' selected' : ''}`,
         role: 'button', tabIndex: 0, 'aria-label': `${t('surfaceNode')}: ${surface.title} · ${t(phase)}${surface.completed && phase !== 'completed' ? `, ${t('completed')}` : ''}`,
         onKeyDown: event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); data.onSelect(selection) } },
       }, [
         h(Handle, { key: 'target', id: 'in', type: 'target', position: Position.Left, isConnectable: false }),
-        anchor ? h('span', { key: 'pin', className: 'pf-ws-anchor-pin', 'aria-hidden': 'true' }) : null,
         h('div', { key: 'body', className: 'pf-ws-flow-node-body' }, [
           h('span', { key: 'icon', className: 'pf-ws-node-icon', 'aria-hidden': 'true' }, phaseIcon(phase)),
           h('span', { key: 'copy', className: 'pf-ws-flow-node-copy' }, [
@@ -445,18 +351,17 @@ import {
       ])
     }
 
-    function createCodeFirstFlow(model, snapshot, t, onSelect, subgraphs, activeSubgraphId) {
-      const memberNodes = [
+    function createCodeFirstFlow(model, snapshot, t, onSelect) {
+      const nodes = [
         ...model.surfaces.map(node => ({
           id: `surface:${node.surface.surfaceId}`, type: 'surface', position: node.position, zIndex: 3,
-          data: { kind: 'surface', surface: node.surface, eventCount: node.eventCount, anchor: node.surface.surfaceId === snapshot.anchorSurfaceId, t, onSelect, selection: { scope: 'code-first', type: 'surface', surfaceId: node.surface.surfaceId } },
+          data: { kind: 'surface', surface: node.surface, eventCount: node.eventCount, t, onSelect, selection: { scope: 'code-first', type: 'surface', surfaceId: node.surface.surfaceId } },
         })),
         ...model.registrations.map(node => ({
           id: `registration:${node.registration.registrationId}`, type: 'registration', position: node.position, zIndex: 3,
           data: { kind: 'registration', registration: node.registration, t, onSelect, selection: { scope: 'code-first', type: 'registration', registrationId: node.registration.registrationId } },
         })),
       ]
-      const nodes = [...recomputeSubgraphNodes(memberNodes, subgraphs || [], t, activeSubgraphId)]
       const nodeIds = new Set(nodes.map(node => node.id))
       const edges = model.declaredPaths.map(path => ({
         id: `declared:${path.key}`, source: `${path.from.kind}:${path.from.id}`, target: `${path.to.kind}:${path.to.id}`,
@@ -485,20 +390,18 @@ import {
     // refresh cannot leave measurements from an older topology paired with a
     // newer node set. Persisted positions and viewport are rehydrated by the
     // replacement instance, so user layout survives the remount.
-    function codeFirstGraphKey(snapshot, locale, activeSubgraphId) {
+    function codeFirstGraphKey(snapshot, locale) {
       const surfaces = snapshot.surfaces.map(surface => {
         const events = snapshot.runtimeEvents?.[surface.surfaceId] || []
         const evidence = surface.lifecycle.evidence || []
         return `${surface.surfaceId}:${surface.title}:${surface.group || ''}:${displayPhase(surface)}:${evidence.length}:${evidence.at(-1)?.ref?.id || ''}:${events.length}:${events.at(-1)?.id || ''}`
       })
       const registrations = snapshot.codeFirst.map(registration => `${registration.registrationId}:${registration.orchestrateRevision}:${registration.acceptedInputCount}:${registration.recordedRunCount}:${registration.pendingRunCount}`)
-      return `relations:${locale}:${snapshot.viewRevision || ''}:${snapshot.anchorSurfaceId}:${activeSubgraphId || 'all'}:${surfaces.join('|')}:${registrations.join('|')}`
+      return `relations:${locale}:${snapshot.viewRevision || ''}:${surfaces.join('|')}:${registrations.join('|')}`
     }
 
-    function hydrateFlowPositions(nodes, positions, subgraphs, activeSubgraphId) {
-      const members = nodes.filter(node => node.type !== 'subgraph')
-      const hydrated = members.map(node => ({ ...node, position: positions[node.id] || node.position }))
-      return recomputeSubgraphNodes(hydrated, subgraphs || [], members[0]?.data?.t, activeSubgraphId)
+    function hydrateFlowPositions(nodes, positions) {
+      return nodes.map(node => ({ ...node, position: positions[node.id] || node.position }))
     }
     function readCanvasState(key) {
       try {
@@ -511,25 +414,22 @@ import {
     function writeCanvasState(key, nodes, viewport) {
       try {
         window.localStorage.setItem(key, JSON.stringify({
-          nodes: Object.fromEntries(nodes.filter(node => node.type !== 'subgraph').map(node => [node.id, { x: node.position.x, y: node.position.y }])),
+          nodes: Object.fromEntries(nodes.map(node => [node.id, { x: node.position.x, y: node.position.y }])),
           ...(viewport ? { viewport } : {}),
         }))
       } catch {}
     }
-    function arrangeFlowNodes(nodes, edges, subgraphs, t, activeSubgraphId) {
-      const members = nodes.filter(node => node.type !== 'subgraph')
-      const positions = layoutDirectedGraph(members.map(node => ({ key: node.id, kind: node.type, id: node.id })), edges.map(edge => ({ from: edge.source, to: edge.target })))
-      const arranged = members.map(node => ({ ...node, position: positions.get(node.id) || node.position }))
-      return recomputeSubgraphNodes(arranged, subgraphs || [], t, activeSubgraphId)
+    function arrangeFlowNodes(nodes, edges) {
+      const positions = layoutDirectedGraph(nodes.map(node => ({ key: node.id, kind: node.type, id: node.id })), edges.map(edge => ({ from: edge.source, to: edge.target })))
+      return nodes.map(node => ({ ...node, position: positions.get(node.id) || node.position }))
     }
     function minimapNodeColor(node) {
-      if (node.type === 'subgraph') return '#8896a8'
       if (node.type === 'registration') return node.data.registration.pendingRunCount ? '#b7791f' : '#7c3aed'
       const phase = displayPhase(node.data.surface)
       return phase === 'failed' || phase === 'conflicted' ? '#cf222e' : phase === 'completed' ? '#238636' : phase === 'published' ? '#2f6feb' : '#667085'
     }
 
-    function TopologyGraph({ snapshot, t, onSurface, onSelect }) {
+    function TopologyGraph({ snapshot, t, onSelect }) {
       const model = buildGraph(snapshot)
       const children = [h('defs', { key: 'defs' }, h('marker', { id: 'pf-ws-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 6, markerHeight: 6, orient: 'auto-start-reverse' }, h('path', { d: 'M 0 0 L 10 5 L 0 10 z' })))]
       for (const group of model.groups) {
@@ -542,7 +442,7 @@ import {
         const key = `${edge.relation.key}:${edge.kind}:${edge.role}:${edge.surfaceId}`
         const edgeLabel = edge.eventLabel || edge.relation.title
         children.push(h('g', { key, className: 'pf-ws-edge-hit' }, [
-          h('line', { key: 'target', x1: edge.from.x, y1: edge.from.y, x2: edge.to.x, y2: edge.to.y, className: 'pf-ws-edge-target', role: 'button', tabIndex: 0, 'aria-label': edgeLabel, onClick: () => onSelect({ type: 'path', relation: edge.relation, edge }), onKeyDown: event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect({ type: 'path', relation: edge.relation, edge }) } } }),
+          h('line', { key: 'target', x1: edge.from.x, y1: edge.from.y, x2: edge.to.x, y2: edge.to.y, className: 'pf-ws-edge-target', role: 'button', tabIndex: 0, 'aria-label': edgeLabel, onClick: () => onSelect({ scope: 'legacy', type: 'path', relation: edge.relation, edge }), onKeyDown: event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect({ scope: 'legacy', type: 'path', relation: edge.relation, edge }) } } }),
           h('line', { key: 'base', x1: edge.from.x, y1: edge.from.y, x2: edge.to.x, y2: edge.to.y, className: 'pf-ws-edge possible', ...(edge.kind === 'target' ? { markerEnd: 'url(#pf-ws-arrow)' } : {}) }),
           edge.actual ? h('line', { key: 'actual', x1: edge.from.x, y1: edge.from.y, x2: edge.to.x, y2: edge.to.y, className: `pf-ws-edge actual ${edge.kind}`, ...(edge.kind === 'target' ? { markerEnd: 'url(#pf-ws-arrow)' } : {}) }) : null,
           edge.actual ? h('circle', { key: 'event', cx: edge.from.x + (edge.to.x - edge.from.x) * .62, cy: edge.from.y + (edge.to.y - edge.from.y) * .62, r: 5, className: 'pf-ws-event-dot' }, h('title', null, edge.eventLabel || t(edge.kind === 'target' ? 'emitted' : 'observed'))) : null,
@@ -550,7 +450,7 @@ import {
         ]))
       }
       for (const relation of model.relations) {
-        children.push(h('g', { key: relation.key, className: `pf-ws-gate ${relation.tone}`, transform: `translate(${relation.position.x} ${relation.position.y})`, onClick: () => onSelect({ type: 'condition', relation }), role: 'button', tabIndex: 0, 'aria-label': `${relation.title}: ${relation.progress}`, onKeyDown: event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect({ type: 'condition', relation }) } } }, [
+        children.push(h('g', { key: relation.key, className: `pf-ws-gate ${relation.tone}`, transform: `translate(${relation.position.x} ${relation.position.y})`, onClick: () => onSelect({ scope: 'legacy', type: 'condition', relation }), role: 'button', tabIndex: 0, 'aria-label': `${relation.title}: ${relation.progress}`, onKeyDown: event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect({ scope: 'legacy', type: 'condition', relation }) } } }, [
           h('circle', { key: 'shape', r: 25 }),
           h('text', { key: 'symbol', className: 'pf-ws-gate-symbol', textAnchor: 'middle', y: -2 }, relation.symbol),
           h('text', { key: 'progress', className: 'pf-ws-gate-progress', textAnchor: 'middle', y: 14 }, relation.progress),
@@ -562,8 +462,8 @@ import {
         const verified = node.surface.lifecycle.verified
         children.push(h('foreignObject', { key: node.surface.surfaceId, x: node.position.x - 115, y: node.position.y - 48, width: 230, height: 96 },
           h('button', {
-            type: 'button', className: `pf-ws-node ${phase}${node.surface.surfaceId === snapshot.anchorSurfaceId ? ' current' : ''}`,
-            onClick: () => onSurface(node.surface.surfaceId),
+            type: 'button', className: `pf-ws-node ${phase}`,
+            onClick: () => onSelect({ scope: 'code-first', type: 'surface', surfaceId: node.surface.surfaceId }),
             'aria-label': `${node.surface.title}: ${t(phase)}${verified ? `, ${t('verified')}` : ''}`,
           }, [
             h('span', { key: 'icon', className: 'pf-ws-node-icon', 'aria-hidden': 'true' }, phaseIcon(phase)),
@@ -572,7 +472,6 @@ import {
               h('strong', { key: 'title', title: node.surface.title }, node.surface.title),
             ]),
             verified ? h('span', { key: 'verified', className: 'pf-ws-verified', title: t('verified'), 'aria-label': t('verified') }, '🛡✓') : null,
-            node.surface.surfaceId === snapshot.anchorSurfaceId ? h('span', { key: 'current', className: 'pf-ws-current' }, t('current')) : null,
           ])))
       }
       return h('svg', { className: 'pf-ws-graph', viewBox: '0 0 1200 720', preserveAspectRatio: 'xMidYMid meet', 'aria-label': t('title') }, children)
@@ -584,8 +483,6 @@ import {
         h('div', { key: 'items' }, [
           mode === 'relations' ? h('span', { key: 'surface-node' }, [h('i', { key: 'mark', className: 'node surface' }), t('surfaceNode')]) : null,
           mode === 'relations' ? h('span', { key: 'orchestrate-node' }, [h('svg', { key: 'mark', className: 'pf-ws-legend-hex', viewBox: '0 0 20 18', 'aria-hidden': 'true' }, h('polygon', { key: 'hex', points: '10,1 18,5 18,13 10,17 2,13 2,5' })), t('orchestrateNode')]) : null,
-          mode === 'relations' ? h('span', { key: 'subgraph-box' }, [h('i', { key: 'mark', className: 'subgraph' }), t('subgraphBox')]) : null,
-          mode === 'relations' ? h('span', { key: 'anchor-pin' }, [h('i', { key: 'mark', className: 'anchor' }), t('anchor')]) : null,
           h('span', { key: 'possible' }, [h('i', { key: 'mark', className: 'line possible' }), t('possible')]),
           h('span', { key: 'observed' }, [h('i', { key: 'mark', className: 'line observed' }), mode === 'relations' ? t('actualFacts') : t('observed')]),
           mode === 'legacy' ? h('span', { key: 'emitted' }, [h('i', { key: 'mark', className: 'line emitted' }), t('emitted')]) : null,
@@ -594,7 +491,7 @@ import {
       ])
     }
 
-    function CodeFirstEvidenceDrawer({ selection, snapshot, t, onClose, onSurface, onSelect }) {
+    function CodeFirstEvidenceDrawer({ selection, snapshot, t, onClose, onAdvance, opening, onSelect }) {
       const model = buildCodeFirstGraph(snapshot)
       if (selection.type === 'surface') {
         const surface = snapshot.surfaces.find(item => item.surfaceId === selection.surfaceId)
@@ -608,7 +505,7 @@ import {
             factRow(t('phase'), `${t(surface.lifecycle.phase)}${surface.completed ? ` · ${t('completed')}` : ''}`),
           ])),
           surface.lifecycle.evidence?.length ? h(DrawerSection, { key: 'lifecycle', title: t('evidence') }, surface.lifecycle.evidence.map(item => h('div', { key: `${item.ref.subject}:${item.ref.seq}:${item.ref.id}`, className: 'pf-ws-cause' }, [h('span', { key: 'source' }, item.name), h('strong', { key: 'subject' }, item.ref.subject), h('code', { key: 'seq' }, `#${item.ref.seq}`), h('small', { key: 'id', title: item.ref.id }, shortId(item.ref.id))]))) : null,
-          surface.surfaceId !== snapshot.anchorSurfaceId ? h('div', { key: 'focus', className: 'pf-ws-drawer-action' }, h('button', { type: 'button', className: 'primary', onClick: () => onSurface(surface.surfaceId) }, t('setAnchor'))) : null,
+          h('div', { key: 'advance', className: 'pf-ws-drawer-action' }, h('button', { type: 'button', className: 'primary', disabled: opening, onClick: () => onAdvance(surface.surfaceId) }, opening ? t('opening') : t('advance'))),
           h(DrawerSection, { key: 'events', title: `${t('eventHistory')} · ${events.length}` }, events.length ? events.map(event => h('button', { key: event.id, type: 'button', className: 'pf-ws-event-row', onClick: () => onSelect({ scope: 'code-first', type: 'actual-event', surfaceId: surface.surfaceId, eventId: event.id }) }, [
             h('span', { key: 'dot', className: 'dot' }), h('strong', { key: 'name' }, event.type.name), h('code', { key: 'seq' }, `#${event.seq}`), h('small', { key: 'producer' }, event.producer.kind),
           ])) : h('p', { className: 'pf-ws-muted' }, t('noEvents'))),
@@ -632,7 +529,6 @@ import {
           h(DrawerSection, { key: 'evidence', title: t('exactEvidence') }, h('dl', { className: 'pf-ws-path-facts' }, [
             factRow(t('registration'), path.registration.registrationId), factRow(t('from'), nodeTitle(snapshot, path.from)), factRow(t('to'), nodeTitle(snapshot, path.to)), factRow(t('capability'), path.capabilities.join(', ')), factRow(t('route'), path.events.join(', ')),
           ])),
-          h('p', { key: 'note', className: 'pf-ws-drawer-note' }, t('subtitle')),
         ])
       }
       const event = snapshot.runtimeEvents?.[selection.surfaceId]?.find(item => item.id === selection.eventId)
@@ -654,7 +550,7 @@ import {
       return h('aside', { className: 'pf-ws-drawer', 'aria-label': label }, [h('header', { key: 'head' }, [h('div', { key: 'copy' }, [h('span', { key: 'label' }, label), h('h3', { key: 'title' }, title)]), h('button', { key: 'close', type: 'button', onClick: onClose, 'aria-label': 'Close' }, '×')]), ...children])
     }
 
-    function LegacyEvidenceDrawer({ selection, snapshot, t, onClose, onSurface }) {
+    function LegacyEvidenceDrawer({ selection, snapshot, t, onClose, onSelect }) {
       const { relation } = selection
       const { inspection, subscription, condition } = relation
       const runs = inspection.runs.filter(run => run.activation.subscriptionId === subscription.id)
@@ -669,8 +565,8 @@ import {
           h('code', { key: 'rev', title: inspection.definitionRevision }, shortRevision(inspection.definitionRevision)),
         ]),
         h(EvidenceRail, { key: 'rail', relation, targetSurfaces, t }),
-        selection.type === 'path' ? h(PathEvidence, { key: 'path', edge: selection.edge, relation, snapshot, t, onSurface }) : null,
-        h(DrawerSection, { key: 'bindings', title: t('bindings') }, Object.entries(inspection.bindings).map(([role, id]) => h('button', { key: role, type: 'button', className: 'pf-ws-binding', onClick: () => onSurface(id) }, [h('b', { key: 'role' }, role), h('span', { key: 'arrow' }, '→'), h('span', { key: 'surface' }, surfaceTitle(snapshot, id))]))),
+        selection.type === 'path' ? h(PathEvidence, { key: 'path', edge: selection.edge, relation, snapshot, t, onSelect }) : null,
+        h(DrawerSection, { key: 'bindings', title: t('bindings') }, Object.entries(inspection.bindings).map(([role, id]) => h('button', { key: role, type: 'button', className: 'pf-ws-binding', onClick: () => onSelect({ scope: 'code-first', type: 'surface', surfaceId: id }) }, [h('b', { key: 'role' }, role), h('span', { key: 'arrow' }, '→'), h('span', { key: 'surface' }, surfaceTitle(snapshot, id))]))),
         h(DrawerSection, { key: 'condition', title: t('condition') }, h(ConditionTree, { condition, t })),
         h(DrawerSection, { key: 'runs', title: `${t('activations')} · ${runs.length}` }, runs.length ? runs.map(run => h(RunCard, { key: run.activation.id, run, snapshot, t })) : h('p', { className: 'pf-ws-muted' }, t('noRuns'))),
         h('details', { key: 'raw', className: 'pf-ws-raw-definition' }, [h('summary', { key: 'summary' }, `${t('definition')} · ${t('revision')}`), h('pre', { key: 'pre' }, JSON.stringify(subscription, null, 2))]),
@@ -696,7 +592,7 @@ import {
       ])))
     }
 
-    function PathEvidence({ edge, relation, snapshot, t, onSurface }) {
+    function PathEvidence({ edge, relation, snapshot, t, onSelect }) {
       const matches = edge.kind === 'source'
         ? selectorLeaves(relation.condition).filter(item => item.selector.role === edge.role).flatMap(item => item.matches)
         : []
@@ -708,7 +604,7 @@ import {
       return h(DrawerSection, { title: t('pathDetails') }, [
         h('dl', { key: 'facts', className: 'pf-ws-path-facts' }, [
           h('div', { key: 'kind' }, [h('dt', { key: 'term' }, t(edge.kind)), h('dd', { key: 'value' }, edge.role)]),
-          h('div', { key: 'surface' }, [h('dt', { key: 'term' }, 'Surface'), h('dd', { key: 'value' }, h('button', { type: 'button', onClick: () => onSurface(edge.surfaceId) }, surfaceTitle(snapshot, edge.surfaceId)))]),
+          h('div', { key: 'surface' }, [h('dt', { key: 'term' }, 'Surface'), h('dd', { key: 'value' }, h('button', { type: 'button', onClick: () => onSelect({ scope: 'code-first', type: 'surface', surfaceId: edge.surfaceId }) }, surfaceTitle(snapshot, edge.surfaceId)))]),
           h('div', { key: 'state' }, [h('dt', { key: 'term' }, edge.kind === 'source' ? t('matchedStage') : t('emitStage')), h('dd', { key: 'value' }, edge.actual ? t('yes') : t('no'))]),
           targetSurface ? h('div', { key: 'publication' }, [h('dt', { key: 'term' }, t('publicationStage')), h('dd', { key: 'value', className: phaseTone(targetSurface.lifecycle.phase) }, `${phaseIcon(targetSurface.lifecycle.phase)} ${t(targetSurface.lifecycle.phase)}`)]) : null,
         ]),
@@ -840,7 +736,7 @@ import {
     function nodeTitle(snapshot, node) { return node.kind === 'surface' ? surfaceTitle(snapshot, node.id) : node.id }
 
     function buildGraph(snapshot) {
-      const surfaces = [...snapshot.surfaces].sort((a, b) => a.surfaceId === snapshot.anchorSurfaceId ? -1 : b.surfaceId === snapshot.anchorSurfaceId ? 1 : a.surfaceId.localeCompare(b.surfaceId))
+      const surfaces = [...snapshot.surfaces].sort((a, b) => a.surfaceId.localeCompare(b.surfaceId))
       const roles = new Map(surfaces.map(surface => [surface.surfaceId, new Set()]))
       for (const inspection of snapshot.orchestrations) for (const [role, id] of Object.entries(inspection.bindings)) roles.get(id)?.add(role)
       const layout = layoutSurfaces(surfaces, snapshot.view)
@@ -972,113 +868,6 @@ import {
       return phases.reduce((strongest, phase) => order.indexOf(phase) > order.indexOf(strongest) ? phase : strongest, 'idle')
     }
     function surfaceTitle(snapshot, id) { return snapshot.surfaces.find(surface => surface.surfaceId === id)?.title || shortId(id) }
-    function buildSubgraphs(snapshot, t) {
-      // 子图 = orchestrate 在运行时产生的实质连通分量：以 surface 与
-      // registration 为节点、bindings 为无向边求连通分量；含至少一个
-      // registration 的分量成为一个命名子图，孤立 Surface 归入"未分组"。
-      const surfaces = snapshot.surfaces || []
-      const registrations = snapshot.codeFirst || []
-      const parent = new Map()
-      const find = key => {
-        let root = key
-        while (parent.get(root) !== root) root = parent.get(root)
-        while (parent.get(key) !== key) {
-          const next = parent.get(key)
-          parent.set(key, root)
-          key = next
-        }
-        return root
-      }
-      const union = (a, b) => {
-        const ra = find(a)
-        const rb = find(b)
-        if (ra !== rb) parent.set(ra, rb)
-      }
-      for (const surface of surfaces) parent.set(`s:${surface.surfaceId}`, `s:${surface.surfaceId}`)
-      for (const registration of registrations) parent.set(`r:${registration.registrationId}`, `r:${registration.registrationId}`)
-      for (const registration of registrations) {
-        const rk = `r:${registration.registrationId}`
-        for (const id of Object.values(registration.bindings || {})) {
-          if (typeof id === 'string' && id && parent.has(`s:${id}`)) union(rk, `s:${id}`)
-        }
-      }
-      const components = new Map()
-      for (const surface of surfaces) {
-        const root = find(`s:${surface.surfaceId}`)
-        let component = components.get(root)
-        if (!component) { component = { surfaceIds: new Set(), registrationIds: [] }; components.set(root, component) }
-        component.surfaceIds.add(surface.surfaceId)
-      }
-      for (const registration of registrations) {
-        const root = find(`r:${registration.registrationId}`)
-        let component = components.get(root)
-        if (!component) { component = { surfaceIds: new Set(), registrationIds: [] }; components.set(root, component) }
-        if (!component.registrationIds.includes(registration.registrationId)) component.registrationIds.push(registration.registrationId)
-      }
-      const groups = []
-      const ungroupedSurfaces = []
-      let index = 0
-      for (const component of components.values()) {
-        if (component.registrationIds.length) {
-          index += 1
-          const label = [...component.registrationIds].sort().join(' · ')
-          groups.push({ id: `sub:component-${index}`, title: label, surfaceIds: component.surfaceIds, registrationIds: component.registrationIds })
-        } else {
-          for (const surfaceId of component.surfaceIds) ungroupedSurfaces.push(surfaceId)
-        }
-      }
-      if (ungroupedSurfaces.length) groups.push({ id: 'sub:__ungrouped', title: t('ungrouped'), surfaceIds: new Set(ungroupedSurfaces), registrationIds: [] })
-      return groups
-    }
-    function subgraphHas(subgraph, node) {
-      if (node.type === 'surface') return subgraph.surfaceIds.has(node.data.surface.surfaceId)
-      if (node.type === 'registration') return subgraph.registrationIds.includes(node.data.registration.registrationId)
-      return false
-    }
-    function flowNodeSize(node) { return node.type === 'registration' ? { width: 208, height: 92 } : { width: 226, height: 86 } }
-    function recomputeSubgraphNodes(members, subgraphs, t, activeSubgraphId) {
-      const containers = []
-      for (const subgraph of subgraphs) {
-        const own = members.filter(node => subgraphHas(subgraph, node))
-        if (!own.length) continue
-        let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity
-        for (const node of own) {
-          const size = flowNodeSize(node)
-          x1 = Math.min(x1, node.position.x); y1 = Math.min(y1, node.position.y)
-          x2 = Math.max(x2, node.position.x + size.width); y2 = Math.max(y2, node.position.y + size.height)
-        }
-        const pad = 26
-        const head = 22
-        containers.push({
-          id: subgraph.id, type: 'subgraph',
-          position: { x: x1 - pad, y: y1 - pad - head },
-          width: x2 - x1 + pad * 2,
-          height: y2 - y1 + pad * 2 + head,
-          data: { subgraph, t, active: subgraph.id === activeSubgraphId },
-          draggable: false, selectable: false, focusable: false, zIndex: 0,
-          style: { pointerEvents: 'none' },
-        })
-      }
-      return [...containers, ...members]
-    }
-    function surfaceSelectGroups(surfaces, snapshot, subgraphs) {
-      const byId = new Map(surfaces.map(surface => [surface.surfaceId, surface]))
-      const result = []
-      const added = new Set()
-      for (const group of subgraphs) {
-        const items = [...group.surfaceIds].map(id => byId.get(id)).filter(Boolean)
-        if (!items.length) continue
-        result.push({ groupTitle: group.title, items: items.map(surface => ({ surface, label: surfaceOptionLabel(surface, snapshot) })) })
-        items.forEach(surface => added.add(surface.surfaceId))
-      }
-      const rest = surfaces.filter(surface => !added.has(surface.surfaceId))
-      if (rest.length) result.push({ groupTitle: null, items: rest.map(surface => ({ surface, label: surfaceOptionLabel(surface, snapshot) })) })
-      return result
-    }
-    function surfaceOptionLabel(surface, snapshot) {
-      const live = snapshot?.surfaces.find(item => item.surfaceId === surface.surfaceId)
-      return live ? `${phaseIcon(displayPhase(live))} ${surface.title}` : surface.title
-    }
     function shortId(value) { const text = String(value); return text.length <= 20 ? text : `${text.slice(0, 9)}…${text.slice(-6)}` }
     function shortRevision(value) { const text = String(value); return text.startsWith('sha256:') ? `sha256:${text.slice(7, 15)}…` : shortId(text) }
     function resolveSelection(previous, snapshot) {

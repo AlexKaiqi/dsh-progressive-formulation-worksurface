@@ -46,9 +46,10 @@ export function apply(ctx, config) {
       if (req.method !== 'GET') return json(res, 404, { error: 'not found' })
       if (url.pathname === '/worksurface-map/api/topology') {
         const surface = url.searchParams.get('surface')?.trim()
-        if (!surface) return json(res, 400, { error: 'missing Surface id' })
+        const requested = surface || (await ctx.workSurfaces.listSurfaces())[0]?.surfaceId
+        if (!requested) return json(res, 200, { anchorSurfaceId: undefined, surfaces: [], orchestrations: [], codeFirst: [], runtimeEvents: {} })
         const view = await loadView()
-        const topology = await ctx.workSurfaces.inspectTopology(surface, view.definition)
+        const topology = await ctx.workSurfaces.inspectTopology(requested, view.definition)
         return json(res, 200, {
           ...topology,
           ...(view.revision === undefined ? {} : { viewRevision: view.revision }),

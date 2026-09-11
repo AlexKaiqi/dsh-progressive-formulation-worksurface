@@ -58,7 +58,7 @@ UI 不允许换绑，也不允许为同一 Surface 创建第二个 Session。
 
 图使用 React Flow 提供缩放、平移、选择、节点拖动、小地图和适配视图，用 Dagre 生成按声明方向的首次稳定分层布局。用户可以微调节点并显式重新自动排版；投影刷新保留已有位置，新节点才使用生成位置。位置只用于可读性，不表示 happens-before、依赖强度或执行顺序；出现循环时 Dagre 仍保留所有节点和边。
 
-浏览器按锚点保存节点坐标与 viewport，且只把它们当作可删除的本机 presentation state。它不保存或修改边、binding、Event、Registration、Revision、Session 映射或运行状态；因此清空浏览器存储只会恢复默认布局，不会改变重放结果。当前画布禁止用户创建、删除或重连边。
+浏览器保存节点坐标与 viewport（单一全局键），且只把它们当作可删除的本机 presentation state。它不保存或修改边、binding、Event、Registration、Revision、Session 映射或运行状态；因此清空浏览器存储只会恢复默认布局，不会改变重放结果。当前画布禁止用户创建、删除或重连边。
 
 ### 3.2 证据抽屉
 

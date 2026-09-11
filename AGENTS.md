@@ -58,9 +58,9 @@ bash scripts/restart-host.sh [profile] [port]
 - `ws sync` / `ws list` / `ws run` / `ws publish` / `ws emit` are host
   operations; `run`, `publish`, `emit` require a managed Surface Turn or the
   injected host binding (`$DSH_WORKSURFACE_SOCKET`).
-- The web UI derives named "subgraphs" at runtime as the **connected
-  components of the orchestrate graph**: surfaces and registrations are nodes,
-  registration→surface bindings are undirected edges (union-find). A component
-  containing at least one registration becomes a subgraph (labelled by its
-  registration ids); isolated Surfaces fall into an "Ungrouped" subgraph. The
-  graph itself is regenerated from the live topology snapshot on every refresh.
+- The web topology is **projected in full**: `/worksurface-map/api/topology`
+  returns every Surface and Registration (legacy v4 + code-first) with runtime
+  Event evidence, regardless of connectivity. The UI shows the whole graph and
+  does not cluster nodes into subgraphs; interaction is selection-driven (click
+  a Surface to inspect and advance). The graph itself is regenerated from the
+  live topology snapshot on every refresh.

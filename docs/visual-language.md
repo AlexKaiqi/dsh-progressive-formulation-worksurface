@@ -8,12 +8,12 @@
 
 | 通道 | 只表达 | 举例 |
 | --- | --- | --- |
-| **形状** | 对象种类 | Surface=圆角矩形（文档）；Orchestrate=六边形（机器）；Subgraph=圆角容器；v4 条件=圆形汇合点 |
+| **形状** | 对象种类 | Surface=圆角矩形（文档）；Orchestrate=六边形（机器）；v4 条件=圆形汇合点 |
 | **颜色（色相）** | 状态投影 | neutral / active / positive / attention / danger 五种色相 |
 | **颜色（同色相内的填充密度）** | 同一状态下的强度/进度 | idle 空心 → published 实心；failed 浅红 → conflicted 深红 |
 | **线型** | 事实类别 | 虚线=声明/可能通路；实线=已记录/实际因果 |
 | **动画** | live wakeup | 仅新到达事件的短暂提示（当前未使用） |
-| **标记** | 非状态焦点 | 锚点 pin、选中环、事件计数徽标（不参与状态语义） |
+| **标记** | 非状态焦点 | 选中环、事件计数（不参与状态语义） |
 
 两条硬约束：
 
@@ -26,9 +26,7 @@
 | --- | --- | --- | --- |
 | Surface | 圆角矩形（文档卡） | 标题、状态、事件数 | Surface stream + optional view definition |
 | Orchestrate | 六边形（机器/流程） | Registration id、input/run/pending 计数 | exact Registration + revision |
-| Subgraph | 低对比圆角容器（虚线） | 连通分量边界 | 运行时连通分量 |
 | v4 条件 gate | 圆形汇合点 | 条件符号与进度 | exact Definition |
-| 锚点（当前 Surface） | 节点右上角 pin 标记 | 当前聚焦 | anchorSurfaceId |
 
 Surface 是“被处理的对象/文档”，Orchestrate 是“处理它的机器/流程” —— 用 圆角矩形 vs 六边形 直接表达这层隐喻差异。机器节点的内容居中排布在六边形最宽的中带。
 
@@ -81,18 +79,17 @@ Orchestrate 的状态只有工作负荷，不混入业务色相：
 
 | 标记 | 表达 | 图面 |
 | --- | --- | --- |
-| 锚点 pin | 当前聚焦 Surface | 右上角蓝色水滴 pin + 软外环 |
 | 选中 | 当前选中对象 | active 色外环 + 描边加粗（Orchestrate 用六边形 drop-shadow） |
-| 事件数 | 信息 | header 右侧小型计数 |
+| 事件数 | 信息 | 节点元信息行的小型计数 |
 
-锚点与选中是“你正在看哪里”，不是 Surface 的“怎么样”，因此不占用状态色相。
+选中是“你正在看哪里”，不是 Surface 的“怎么样”，因此不占用状态色相。
 
 ## 6. 图例
 
-图例是视觉语言的完整索引：每个对象种类（Surface 卡 / Orchestrate 六边形 / Subgraph 容器 / pin）、两类线型、全部六种状态色相与字形。图例必须始终与节点实际渲染一致。
+图例是视觉语言的完整索引：每个对象种类（Surface 卡 / Orchestrate 六边形）、两类线型、全部六种状态色相与字形。图例必须始终与节点实际渲染一致。
 
 ## 7. 与既有规则的承接
 
 - 本语言不改变领域规则：虚线/实线分层、不可变 Revision、只读画布、禁止连边、布局只是本地可删除状态等约束照旧（见 ui-design.md / ui-node-editor-decision.md）。
 - “形状=种类”已把 Orchestrate 从“另一种盒子”提升为独立形状，消除仅靠紫色虚线框区分带来的弱辨识。
-- 状态色相仍由 `phaseTone` 单一函数输出，保证节点、锚点徽标、子图摘要、证据抽屉、路径事实使用同一套色相映射。
+- 状态色相仍由 `phaseTone` 单一函数输出，保证节点、证据抽屉、路径事实使用同一套色相映射。

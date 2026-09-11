@@ -422,28 +422,18 @@ export class WorkSurfaceService extends Service {
   async inspectTopology(surfaceId: string, view?: WorkSurfaceViewDefinition): Promise<TopologyInspection> {
     const all = await Promise.all([...this.registrationIds].sort().map(id => this.engine.inspect(id)))
     const targetAll = await this.codeFirst?.inspectRegistrations() ?? []
-    const surfaceIds = new Set([surfaceId])
-    const included = new Set<string>()
-    let changed = true
-    while (changed) {
-      changed = false
-      for (const inspection of all) {
-        if (included.has(inspection.registrationId)) continue
-        const bound = Object.values(inspection.bindings)
-        if (!bound.some(id => surfaceIds.has(id))) continue
-        included.add(inspection.registrationId)
-        for (const id of bound) if (!surfaceIds.has(id)) { surfaceIds.add(id); changed = true }
-      }
-      for (const inspection of targetAll) {
-        if (included.has(`v5:${inspection.registrationId}`)) continue
-        const bound = Object.values(inspection.bindings)
-        if (!bound.some(id => surfaceIds.has(id))) continue
-        included.add(`v5:${inspection.registrationId}`)
-        for (const id of bound) if (!surfaceIds.has(id)) { surfaceIds.add(id); changed = true }
-      }
-    }
-    const orchestrations = all.filter(inspection => included.has(inspection.registrationId))
-    const codeFirst = targetAll.filter(inspection => included.has(`v5:${inspection.registrationId}`))
+    // 全量拓扑：不做锚点邻域裁剪，画布展示所有 Surface 与 Registration；
+    // surfaceId 只作为默认锚点标识返回，不决定可见范围。
+    const surfaceIds = new Set<string>([surfaceId])
+    for (const id of await this.eventStore.list('surface')) surfaceIds.add(id)
+    for (const id of await this.codeFirstEvents?.listSurfaces() ?? []) surfaceIds.add(id)
+    for (const inspection of all) for (const id of Object.values(inspection.bindings)) if (typeof id === 'string' && id) surfaceIds.add(id)
+    for (const inspection of targetAll) for (const id of Object.values(inspection.bindings)) if (typeof id === 'string' && id) surfaceIds.add(id)
+    try {
+      for (const entry of await readdir(join(this.config.workRoot, 'surfaces'), { withFileTypes: true })) if (entry.isDirectory()) surfaceIds.add(entry.name)
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+    const orchestrations = all
+    const codeFirst = targetAll
     const runtimeEvents = Object.fromEntries(await Promise.all([...surfaceIds].sort().map(async id => [id, await this.codeFirstEvents?.replay(id) ?? []] as const)))
     const surfaces = await Promise.all([...surfaceIds].sort().map(async id => {
       const events = await this.replayEvents(id)
